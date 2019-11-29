@@ -20,3 +20,9 @@ cabal.project.local
 cabal.project.local~
 .HTF/
 .ghc.environment.*
+small.c
+small.o
+small.c.old
+small.c.orig
+small.c.simple
+test1.sh
