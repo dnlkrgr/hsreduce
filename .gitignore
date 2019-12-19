@@ -26,3 +26,5 @@ small.c.old
 small.c.orig
 small.c.simple
 test1.sh
+test/*
+Arst.hs
