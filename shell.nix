@@ -12,7 +12,7 @@ let
   in import pinnedPkgs {};
 
   f = { mkDerivation, base, ghc, hashable, haskell-names
-      , haskell-src-exts, stdenv, syb
+      , haskell-src-exts, stdenv, syb, text
       }:
       mkDerivation {
         pname = "hsreduce";
@@ -21,7 +21,7 @@ let
         isLibrary = false;
         isExecutable = true;
         executableHaskellDepends = [
-          base ghc hashable haskell-names haskell-src-exts syb
+          base ghc hashable haskell-names haskell-src-exts syb text
         ];
         homepage = "dnlkrgr.com";
         description = "Minimizing Haskell programs for easier debugging of GHC bugs";
