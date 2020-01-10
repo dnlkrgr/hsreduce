@@ -48,6 +48,7 @@ hsAllInOne filenames = do
     putStrLn $ prettyPrint combined
 
 
+getName :: Module l -> String
 getName (Module _ Nothing _ _ _) = "Main"
 getName (Module _ (Just (ModuleHead _ (ModuleName _ n) _ _)) _ _ _) = n
 
