@@ -18,19 +18,22 @@ extra-source-files:  CHANGELOG.md, README.md
 
 executable hsreduce
   main-is:             Main.hs
-  other-modules:       HsAllInOne
-                     , ReduceParser
+  other-modules:       ReduceParser
   -- other-extensions:
   build-depends:       base ^>=4.12.0.0
-                     , haskell-src-exts
-                     , haskell-names
-                     , syb
+                     , bytestring
+                     , directory
+                     , filepath
                      , ghc
                      , hashable
-                     , process
-                     , text
+                     , haskell-names
+                     , haskell-src-exts
                      , mtl
+                     , process
+                     , syb
+                     , temporary
+                     , text
                      , transformers
   hs-source-dirs:      src
   default-language:    Haskell2010
-  ghc-options:         -Wno-missing-fields
+  ghc-options:       -Wno-missing-fields
