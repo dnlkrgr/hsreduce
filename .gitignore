@@ -28,3 +28,4 @@ small.c.simple
 test1.sh
 test/*
 Arst.hs
+test-cases/**/*.txt

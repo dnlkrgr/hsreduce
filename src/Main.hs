@@ -46,7 +46,8 @@ main = do
                     newFilePath = temp </> filePath
                 copyFile test newTest
                 copyFile filePath newFilePath
-                smallestFixpoint (allPassesOnce newTest newFilePath oldModule) oldModule
+                newModule <- smallestFixpoint (allPassesOnce newTest newFilePath oldModule) oldModule
+                writeModuleToFile ("reduced_" ++ filePath) oldModule
                 return ()
             )
     _ ->
