@@ -29,3 +29,4 @@ test1.sh
 test/*
 Arst.hs
 test-cases/**/*.txt
+*.rhs

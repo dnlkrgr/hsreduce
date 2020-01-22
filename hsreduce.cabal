@@ -24,7 +24,6 @@ executable hsreduce
                      , bytestring
                      , directory
                      , filepath
-                     , ghc
                      , hashable
                      , haskell-names
                      , haskell-src-exts
@@ -34,6 +33,9 @@ executable hsreduce
                      , temporary
                      , text
                      , transformers
+                     , ghc-paths
+                     , ormolu
+                     , ghc-lib-parser
   hs-source-dirs:      src
   default-language:    Haskell2010
   ghc-options:       -Wno-missing-fields
