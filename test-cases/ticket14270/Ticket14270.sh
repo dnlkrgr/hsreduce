@@ -1,1 +1,0 @@
-ghc Ticket14270.hs >/dev/null 2>&1
