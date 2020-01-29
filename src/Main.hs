@@ -7,19 +7,18 @@ where
 
 import Control.Monad
 import qualified Data.ByteString as BS
-import qualified Data.Text as T (pack, unpack)
+import qualified Data.Text as T (length, pack, unpack)
 import qualified Data.Text.IO as TIO (readFile, writeFile)
 
 import System.Directory
 import System.Environment (getArgs)
-import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath.Posix
 import System.IO.Temp
 import System.Process (readProcessWithExitCode)
 import System.Timeout
 import Ormolu.Parser
 import Ormolu.Config
-import Ormolu.Parser.Result
+import Ormolu.Parser.Result as OPR
 import Ormolu.Printer
 
 -- GHC API
@@ -32,10 +31,10 @@ import SrcLoc (noLoc, unLoc)
 import Lexer (ParseResult (PFailed, POk))
 import Outputable (ppr, showSDoc)
 
-type Pass = HsModule GhcPs -> HsModule GhcPs
+import Stubbing
+import Types
 
-data Interesting = Interesting | Uninteresting
-
+-- TODO: add tests that automatically run the test_cases and check if they're being reduced
 main :: IO ()
 main = do
   myArgs <- getArgs
@@ -44,79 +43,50 @@ main = do
     else do
       let [test, filePath] = myArgs
       if takeExtension test == ".sh" && takeExtension filePath == ".hs" then
+        -- TODO: factor this out into function reduce that is being called with the args
         do
         fileContent <- TIO.readFile filePath
+        putStrLn "Original file size:"
+        print $ T.length fileContent
         (_, eitherParsedResult) <- parseModule defaultConfig filePath (T.unpack fileContent) 
         case eitherParsedResult of
           Left _ -> return ()
           Right oldOrmolu -> do
-            let oldModule = unLoc . prParsedSource $ oldOrmolu 
-                oldDeclarations = hsmodDecls oldModule
             -- TODO: write tests to check if the new module is even parsable haskell
-            newModule <- withTempDirectory
+            newOrmolu <- withTempDirectory
               "."
               "temp"
               ( \temp -> do
-                  let newTest = temp </> (snd $ splitFileName test)
-                      newFilePath = temp </> (snd $ splitFileName filePath)
+                  let newTest = temp </> snd (splitFileName test)
+                      newFilePath = temp </> snd (splitFileName filePath)
                   copyFile test newTest
                   copyFile filePath newFilePath
-                  newModule <- smallestFixpoint (allPassesOnce newTest newFilePath oldModule) oldModule
-                  return newModule
+                  smallestFixpoint (allPassesOnce newTest newFilePath oldOrmolu) oldOrmolu
               )
-            let newOrmolu = oldOrmolu { prParsedSource = (noLoc newModule) }
-                fileName = takeWhile (/= '.') filePath
+            let fileName = takeWhile (/= '.') filePath
+            putStrLn "Reduced file size:"
+            print $ T.length (printModule newOrmolu)
             TIO.writeFile (fileName ++ ".rhs") (printModule newOrmolu)
       else printUsage
 
 
--- foldM f oldModule [pass1, pass2]
--- = f (f (f oldModule pass1) pass2) pass3 ...
-allPassesOnce :: FilePath -> FilePath -> HsModule GhcPs -> IO (HsModule GhcPs)
-allPassesOnce test filePath oldModule = foldM (runPass test filePath) oldModule allPasses
+allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult-> IO OPR.ParseResult
+allPassesOnce test filePath oldOrmolu = foldM (\ormolu pass -> pass test filePath ormolu) oldOrmolu allPasses
   where
-    allPasses = [id]
-
--- | run a pass on the old module and return the new one if it's interesting
-runPass :: FilePath -> FilePath -> HsModule GhcPs -> Pass -> IO (HsModule GhcPs)
-runPass test filePath oldModule pass = do
-  let newModule = pass oldModule
-  writeModuleToFile filePath oldModule
-  interesting <- runTest test
-  case interesting of
-    Uninteresting -> return oldModule
-    Interesting -> return newModule
-
--- | run the interestingness test on a timeout of 100 milliseconds
-runTest :: FilePath -> IO Interesting
-runTest test = do
-  -- TODO: make timeout configurable with parameter
-  maybeExitcode <- timeout (100 * 1000) (readProcessWithExitCode test [] "")
-  case maybeExitcode of
-    Nothing -> return Uninteresting
-    Just (exitCode, _, _) ->
-      case exitCode of
-        ExitFailure _ -> return Uninteresting
-        ExitSuccess -> return Interesting
+    allPasses = [ Stubbing.reduce ]
 
 -- | calculate the smallest fixpoint, by always checking if the new module is 
 -- different from the old one
-smallestFixpoint :: Monad m => m (HsModule GhcPs) -> HsModule GhcPs -> m (HsModule GhcPs)
+smallestFixpoint :: Monad m => m OPR.ParseResult -> OPR.ParseResult-> m OPR.ParseResult
 smallestFixpoint f =
   iterateFrom
   where
-    iterateFrom oldModule = do
-      newModule <- f
-      if module2String oldModule == module2String newModule
-        then return oldModule
-        else iterateFrom newModule
-
-module2String :: HsModule GhcPs -> String
-module2String = showSDoc baseDynFlags . ppr
-
-writeModuleToFile :: FilePath -> HsModule GhcPs -> IO ()
-writeModuleToFile filePath =
-  TIO.writeFile filePath . T.pack . showSDoc baseDynFlags . ppr
+    iterateFrom oldOrmolu = do
+      newOrmolu <- f
+      -- TODO: can also check if there were any interesting testcases in the reducers, if none -> stop
+      if length (prettyPrintParseResult oldOrmolu) == length (prettyPrintParseResult newOrmolu)
+        then return oldOrmolu
+        else iterateFrom newOrmolu
 
 printUsage :: IO ()
 printUsage = 
@@ -126,29 +96,3 @@ printUsage =
         "<test-file>",
         "<hs-source-file>"
       ]
-
--- dummy data needed by the GHC parser
-baseDynFlags :: DynFlags
-baseDynFlags = defaultDynFlags fakeSettings fakeLlvmConfig
-
-fakeSettings :: Settings
-fakeSettings = Settings
-  { sTargetPlatform = platform,
-    sPlatformConstants = platformConstants,
-    sProjectVersion = cProjectVersion,
-    sProgramName = "ghc",
-    sOpt_P_fingerprint = fingerprint0
-  }
-  where
-    platform = Platform
-      { platformWordSize = 8,
-        platformOS = OSUnknown,
-        platformUnregisterised = True
-      }
-    platformConstants = PlatformConstants
-      { pc_DYNAMIC_BY_DEFAULT = False,
-        pc_WORD_SIZE = 8
-      }
-
-fakeLlvmConfig :: (LlvmTargets, LlvmPasses)
-fakeLlvmConfig = ([], [])
