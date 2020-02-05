@@ -3,5 +3,5 @@ rm Trying-out
 rm Trying-out.hi
 rm Trying-out.o
 rm test.txt
-ghc Trying-out.hs
+grep "myFun" Trying-out.hs
 echo "test" > test.txt

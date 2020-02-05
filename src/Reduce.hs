@@ -11,8 +11,9 @@ import System.FilePath.Posix ((</>), splitFileName)
 import System.IO.Temp (withTempDirectory)
 import Ormolu.Parser (parseModule)
 import Ormolu.Config (defaultConfig)
-import Ormolu.Parser.Result as OPR (ParseResult, prettyPrintParseResult)
+import Ormolu.Parser.Result as OPR (ParseResult)
 import Ormolu.Printer (printModule)
+import Outputable (ppr, showSDocUnsafe)
 
 import qualified Stubbing
 import Types
@@ -49,12 +50,17 @@ allPassesOnce test filePath oldOrmolu = foldM (\ormolu pass -> pass test filePat
 
 -- | calculate the smallest fixpoint, by always checking if the new module is 
 -- different from the old one
-smallestFixpoint :: Monad m => m OPR.ParseResult -> OPR.ParseResult-> m OPR.ParseResult
+smallestFixpoint :: IO OPR.ParseResult -> OPR.ParseResult-> IO OPR.ParseResult
 smallestFixpoint f =
   iterateFrom
   where
     iterateFrom oldOrmolu = do
       newOrmolu <- f
-      if length (prettyPrintParseResult oldOrmolu) == length (prettyPrintParseResult newOrmolu)
-        then return oldOrmolu
-        else iterateFrom newOrmolu
+      putStrLn $ "[debug] new ormolu is this many chars shorter than old:" ++ show (T.length (printModule oldOrmolu) - T.length (printModule newOrmolu))
+      if T.length (printModule oldOrmolu) <= T.length (printModule newOrmolu)
+        then do
+          putStrLn "[debug] taking old ormolu"
+          return oldOrmolu
+        else do
+          putStrLn "[debug] taking new ormolu:"
+          iterateFrom newOrmolu
