@@ -30,3 +30,4 @@ test/*
 Arst.hs
 test-cases/**/*.txt
 *.rhs
+*.hs.orig

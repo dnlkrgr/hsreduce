@@ -42,7 +42,6 @@ library
 
 executable hsreduce-exe
   main-is:             Main.hs
-  -- other-extensions:
   build-depends:       base ^>=4.12.0.0
                      , hsreduce
   hs-source-dirs:      src

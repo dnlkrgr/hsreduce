@@ -1,5 +1,5 @@
 
-module Types where
+module Types (Interesting(..)) where
 
 import Ormolu.Parser.Result as OPR
 
