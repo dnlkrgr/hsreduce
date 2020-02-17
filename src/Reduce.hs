@@ -18,31 +18,32 @@ import Outputable (ppr, showSDocUnsafe)
 
 import qualified Stubbing (reduce)
 import Types (Interesting(..))
+import Util (debug, debugPrint)
 import qualified Data.ByteString as BS (length)
 
 hsreduce :: FilePath -> FilePath -> IO ()
 hsreduce test filePath = do
   fileContent <- TIO.readFile filePath
-  putStrLn $ "[debug] Original file size: " ++ show (T.length fileContent)
+  debugPrint $ "Original file size: " ++ show (T.length fileContent)
   (_, eitherParsedResult) <- parseModule defaultConfig filePath (T.unpack fileContent) 
   case eitherParsedResult of
     Left _ -> return ()
     Right oldOrmolu -> do
       let sourceDir =  fst $ splitFileName filePath
-      putStrLn $ "[debug] source dir: " ++ sourceDir
+      debugPrint $ "source dir: " ++ sourceDir
       files <- listDirectory sourceDir
-      putStrLn $ "[debug] files: " ++ show files
+      debugPrint $ "files: " ++ show files
       newOrmolu <- withTempDirectory "." "temp" (\tempDir -> do
-        let newTest = tempDir </> snd (splitFileName test)
-            newFilePath = tempDir </> snd (splitFileName filePath)
+        let tempTest = tempDir </> snd (splitFileName test)
+            tempFilePath = tempDir </> snd (splitFileName filePath)
         forM_ files $ \file -> do
-          putStrLn $ "[debug] copying file from: " ++ sourceDir </> file
-          putStrLn $ "[debug] copying file to: " ++ tempDir </> snd (splitFileName file)
+          debugPrint $ "copying file from: " ++ sourceDir </> file
+          debugPrint $ "copying file to: " ++ tempDir </> snd (splitFileName file)
           copyFile (sourceDir </> file) (tempDir </> snd (splitFileName file))
         -- TODO: write tests to check if the new module is even parsable haskell
-        largestFixpoint (allPassesOnce newTest newFilePath oldOrmolu) oldOrmolu)
+        largestFixpoint (allPassesOnce tempTest tempFilePath oldOrmolu) oldOrmolu)
       let fileName = takeWhile (/= '.') filePath
-      putStrLn $ "[debug] Reduced file size: " ++ show (T.length (printModule newOrmolu))
+      debugPrint $ "Reduced file size: " ++ show (T.length (printModule newOrmolu))
       TIO.writeFile (fileName ++ ".rhs") (printModule newOrmolu)
 
 allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult-> IO OPR.ParseResult
@@ -58,11 +59,13 @@ largestFixpoint f =
   where
     iterateFrom oldOrmolu = do
       newOrmolu <- f
-      putStrLn $ "[debug] new ormolu is this many chars shorter than old:" ++ show (T.length (printModule oldOrmolu) - T.length (printModule newOrmolu))
-      if BS.length (TE.encodeUtf8 $ printModule oldOrmolu) <= BS.length (TE.encodeUtf8 $ printModule newOrmolu)
+      let oldLength = BS.length . TE.encodeUtf8 $ printModule oldOrmolu
+          newLength = BS.length . TE.encodeUtf8 $ printModule newOrmolu
+      debugPrint $ "new ormolu is this many chars shorter than old:" ++ show (oldLength - newLength)
+      if oldLength <= newLength
         then do
-          putStrLn "[debug] taking old ormolu"
+          debugPrint "taking old ormolu"
           return oldOrmolu
         else do
-          putStrLn "[debug] taking new ormolu:"
+          debugPrint "taking new ormolu:"
           iterateFrom newOrmolu

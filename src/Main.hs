@@ -1,7 +1,7 @@
 module Main (main) where
 
 import System.Environment (getArgs)
-import Reduce
+import Reduce (hsreduce)
 import System.FilePath.Posix
 
 main :: IO ()

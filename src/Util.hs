@@ -1,12 +1,16 @@
 
-module Util (runTest) where
+module Util (runTest, debug, debugPrint) where
 
 import System.Process
 import System.Exit
 import System.Timeout
 import System.FilePath.Posix
+import Control.Monad.IO.Class
 
 import Types
+
+isInProduction :: Bool
+isInProduction = False
 
 -- | run the interestingness test on a timeout of 30 seconds
 runTest :: FilePath -> IO Interesting
@@ -19,3 +23,11 @@ runTest test = do
       case exitCode of
         ExitFailure _ -> return Uninteresting
         ExitSuccess -> return Interesting
+
+debug :: MonadIO m => (a -> m ()) -> a -> m ()
+debug f s 
+  | isInProduction = return ()
+  | otherwise = f s
+
+debugPrint :: MonadIO m => String -> m ()
+debugPrint = debug (liftIO . putStrLn . ("[debug] " ++))

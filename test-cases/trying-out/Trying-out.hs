@@ -1,3 +1,10 @@
+module TryingOut () where 
+
+data Dumb = Dumb
+
+main :: IO ()
+main = return ()
+
 myFun (Just y) = 
   let a = 2
       b = 3
@@ -6,3 +13,6 @@ myFun (Just y) =
       e = 9
   in 2 * y + a + c + d + e
 myFun Nothing = 42
+
+instance Show Dumb where
+  show Dumb = "Dumb"
