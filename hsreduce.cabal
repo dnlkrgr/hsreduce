@@ -18,49 +18,55 @@ extra-source-files:  CHANGELOG.md, README.md
 
 library
   exposed-modules:     Reduce
-                       Stubbing
+                       Passes.Stubbing
+                       Passes.RemoveUnused
                        Types
                        Util
   build-depends:       base ^>=4.12.0.0
+                     , aeson
                      , bytestring
                      , directory
                      , filepath
+                     , ghc-lib-parser
                      , hashable
                      , haskell-names
                      , haskell-src-exts
                      , mtl
+                     , ormolu
                      , process
                      , syb
                      , temporary
                      , text
                      , transformers
-                     , ormolu
-                     , ghc-lib-parser
+                     , random
   hs-source-dirs:      src
   default-language:    Haskell2010
 
 executable hsreduce-exe
   main-is:             Main.hs
   other-modules:       Reduce
-                       Stubbing
+                       Passes.Stubbing
+                       Passes.RemoveUnused
                        Types
                        Util
   build-depends:       base ^>=4.12.0.0
                      , hsreduce
+                     , aeson
                      , bytestring
                      , directory
                      , filepath
+                     , ghc-lib-parser
                      , hashable
                      , haskell-names
                      , haskell-src-exts
                      , mtl
+                     , ormolu
                      , process
                      , syb
                      , temporary
                      , text
                      , transformers
-                     , ormolu
-                     , ghc-lib-parser
+                     , random
   hs-source-dirs:      src
   default-language:    Haskell2010
 

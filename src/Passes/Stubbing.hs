@@ -1,26 +1,20 @@
-module Stubbing (reduce) where
+module Passes.Stubbing (reduce) where
+
+import HsSyn
+import SrcLoc (GenLocated (..), Located (..), getLoc, noLoc, unLoc)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader 
--- import Control.Monad.Reader (ReaderT, ask, asks, local, runReaderT)
 import qualified Data.Text.IO as TIO (writeFile)
-import HsSyn
 import Lexer (ParseResult (PFailed, POk))
 import Ormolu.Config (defaultConfig)
 import Ormolu.Parser (parseModule)
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
-import SrcLoc (GenLocated (..), Located (..), getLoc, noLoc, unLoc)
-import Types (Interesting (..))
-import Util (runTest, debug, debugPrint)
+import Types
+import Util
 import Outputable (ppr, showSDocUnsafe)
 
-data StubState
-  = StubState
-      { _test :: FilePath,
-        _sourceFile :: FilePath,
-        _ormolu :: OPR.ParseResult
-      }
 
 -- | run a pass on the old module and return the new one if it's interesting
 reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
@@ -75,12 +69,6 @@ turnAllMatches2Undefined myUndefined decl@(L declLoc (ValD _ (FunBind _ funId (M
     Uninteresting -> turnAllMatches2Undefined myUndefined decl rest
     Interesting -> local (const (StubState test sourceFile newOrmolu)) $
         turnAllMatches2Undefined myUndefined modifiedDecl rest
-
-writeOrmolu2FileAndTest :: OPR.ParseResult -> ReaderT StubState IO Interesting
-writeOrmolu2FileAndTest newOrmolu = do
-  StubState test sourceFile oldOrmolu <- ask
-  liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
-  liftIO $ runTest test
 
 match2Undefined :: GRHSs GhcPs (LHsExpr GhcPs) -> LMatch GhcPs (LHsExpr GhcPs) -> LMatch GhcPs (LHsExpr GhcPs)
 match2Undefined myUndefined (L l2 (Match _ ctxt pats _)) = L l2 (Match NoExt ctxt pats myUndefined)

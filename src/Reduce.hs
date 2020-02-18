@@ -16,10 +16,12 @@ import Ormolu.Parser.Result as OPR (ParseResult)
 import Ormolu.Printer (printModule)
 import Outputable (ppr, showSDocUnsafe)
 
-import qualified Stubbing (reduce)
 import Types (Interesting(..))
 import Util (debug, debugPrint)
 import qualified Data.ByteString as BS (length)
+
+import qualified Passes.Stubbing as Stubbing (reduce)
+import qualified Passes.RemoveUnused as RemoveUnused (reduce)
 
 hsreduce :: FilePath -> FilePath -> IO ()
 hsreduce test filePath = do
@@ -36,6 +38,7 @@ hsreduce test filePath = do
       newOrmolu <- withTempDirectory "." "temp" (\tempDir -> do
         let tempTest = tempDir </> snd (splitFileName test)
             tempFilePath = tempDir </> snd (splitFileName filePath)
+        -- TODO: hsreduce should only copy test and the source file, nothing else! => tests should be self-contained
         forM_ files $ \file -> do
           debugPrint $ "copying file from: " ++ sourceDir </> file
           debugPrint $ "copying file to: " ++ tempDir </> snd (splitFileName file)
@@ -49,7 +52,9 @@ hsreduce test filePath = do
 allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult-> IO OPR.ParseResult
 allPassesOnce test filePath oldOrmolu = foldM (\ormolu pass -> pass test filePath ormolu) oldOrmolu allPasses
   where
-    allPasses = [ Stubbing.reduce ]
+    -- allPasses = [ Stubbing.reduce ]
+    -- allPasses = [ RemoveUnused.reduce ]
+    allPasses = [ Stubbing.reduce, RemoveUnused.reduce ]
 
 -- | calculate the fixpoint, by always checking if the new module is 
 -- different from the old one
@@ -61,11 +66,11 @@ largestFixpoint f =
       newOrmolu <- f
       let oldLength = BS.length . TE.encodeUtf8 $ printModule oldOrmolu
           newLength = BS.length . TE.encodeUtf8 $ printModule newOrmolu
-      debugPrint $ "new ormolu is this many chars shorter than old:" ++ show (oldLength - newLength)
+      debugPrint $ "new ormolu is this many chars shorter than the old one:" ++ show (oldLength - newLength)
       if oldLength <= newLength
         then do
           debugPrint "taking old ormolu"
           return oldOrmolu
         else do
-          debugPrint "taking new ormolu:"
+          debugPrint "taking new ormolu"
           iterateFrom newOrmolu
