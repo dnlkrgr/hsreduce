@@ -1,34 +1,83 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeInType #-}
-module Bug where
+{-# LANGUAGE TypeOperators #-}
+module Eliminator where
 
 import Data.Kind
 
 data family Sing (a :: k)
+data instance Sing (z :: [a]) where
+  SNil  :: Sing '[]
+  SCons :: Sing x -> Sing xs -> Sing (x:xs)
 
-data WeirdList :: Type -> Type where
-  WeirdNil  :: WeirdList a
-  WeirdCons :: a -> WeirdList (WeirdList a) -> WeirdList a
+data TyFun :: * -> * -> *
+type a ~> b = TyFun a b -> *
+infixr 0 ~>
 
-data instance Sing (z :: WeirdList a) where
-  SWeirdNil  :: Sing WeirdNil
-  SWeirdCons :: Sing w -> Sing wws -> Sing (WeirdCons w wws)
+type family Apply (f :: k1 ~> k2) (x :: k1) :: k2
+type a @@ b = Apply a b
+infixl 9 @@
 
-elimWeirdList :: forall (a :: Type) (wl :: WeirdList a)
-                        (p :: forall (x :: Type). x -> WeirdList x -> Type).
-                 Sing wl
-              -> (forall (y :: Type). p _ WeirdNil)
-              -> (forall (z :: Type) (x :: z) (xs :: WeirdList (WeirdList z)).
-                    Sing x -> Sing xs -> p _ xs
-                  -> p _ (WeirdCons x xs))
-              -> p _ wl
-elimWeirdList SWeirdNil pWeirdNil _ = pWeirdNil
-elimWeirdList (SWeirdCons (x :: Sing (x :: z))
-                          (xs :: Sing (xs :: WeirdList (WeirdList z))))
-              pWeirdNil pWeirdCons
-  = pWeirdCons @z @x @xs x xs
-      (elimWeirdList @(WeirdList z) @xs @p xs pWeirdNil pWeirdCons)
+data FunArrow = (:->) | (:~>)
+
+class FunType (arr :: FunArrow) where
+  type Fun (k1 :: Type) arr (k2 :: Type) :: Type
+
+class FunType arr => AppType (arr :: FunArrow) where
+  type App k1 arr k2 (f :: Fun k1 arr k2) (x :: k1) :: k2
+
+type FunApp arr = (FunType arr, AppType arr)
+
+instance FunType (:->) where
+  type Fun k1 (:->) k2 = k1 -> k2
+
+$(return []) -- This is only necessary for GHC 8.0 -- GHC 8.2 is smarter
+
+instance AppType (:->) where
+  type App k1 (:->) k2 (f :: k1 -> k2) x = f x
+
+instance FunType (:~>) where
+  type Fun k1 (:~>) k2 = k1 ~> k2
+
+$(return [])
+
+instance AppType (:~>) where
+  type App k1 (:~>) k2 (f :: k1 ~> k2) x = f @@ x
+
+infixr 0 -?>
+type (-?>) (k1 :: Type) (k2 :: Type) (arr :: FunArrow) = Fun k1 arr k2
+
+listElim :: forall (a :: Type) (p :: [a] -> Type) (l :: [a]).
+            Sing l
+         -> p '[]
+         -> (forall (x :: a) (xs :: [a]). Sing x -> Sing xs -> p xs -> p (x:xs))
+         -> p l
+listElim = listElimPoly @(:->) @a @p @l
+
+listElimTyFun :: forall (a :: Type) (p :: [a] ~> Type) (l :: [a]).
+                 Sing l
+              -> p @@ '[]
+              -> (forall (x :: a) (xs :: [a]). Sing x -> Sing xs -> p @@ xs -> p @@ (x:xs))
+              -> p @@ l
+-- The line below causes a GHC panic. It should not typecheck;
+-- uncomment the line below it for the correct version
+listElimTyFun = listElimPoly @(:->) @a @p @l
+-- listElimTyFun = listElimPoly @(:~>) @a @p @l
+
+listElimPoly :: forall (arr :: FunArrow) (a :: Type) (p :: ([a] -?> Type) arr) (l :: [a]).
+                FunApp arr
+             => Sing l
+             -> App [a] arr Type p '[]
+             -> (forall (x :: a) (xs :: [a]). Sing x -> Sing xs -> App [a] arr Type p xs -> App [a] arr Type p (x:xs))
+             -> App [a] arr Type p l
+listElimPoly SNil                      pNil _     = pNil
+listElimPoly (SCons x (xs :: Sing xs)) pNil pCons = pCons x xs (listElimPoly @arr @a @p @xs xs pNil pCons)
+

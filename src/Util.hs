@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 
 module Util where
 
@@ -14,21 +15,22 @@ import Ormolu.Printer (printModule)
 import Types
 
 isInProduction :: Bool
-isInProduction = False
+isInProduction = True
 
 -- | run the interestingness test on a timeout of 30 seconds
 runTest :: FilePath -> IO Interesting
 runTest test = do
   let (dirName, testName) = splitFileName test
-  maybeExitcode <- timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
-  case maybeExitcode of
-    Nothing -> return Uninteresting
-    Just (exitCode, _, _) ->
-      case exitCode of
-        ExitFailure errCode ->
-          -- errorPrint $ "Failed running interestingness test with error code " ++ show errCode
-          return Uninteresting
-        ExitSuccess -> return Interesting
+  timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "") >>=
+    \case
+      Nothing -> return Uninteresting
+      Just (exitCode, stdout, stderr) ->
+        case exitCode of
+          ExitFailure errCode -> do
+            -- errorPrint $ "stdout: " ++ stdout
+            -- errorPrint $ "stderr: " ++ stderr
+            return Uninteresting
+          ExitSuccess -> return Interesting
 
 writeOrmolu2FileAndTest :: OPR.ParseResult -> ReaderT StubState IO Interesting
 writeOrmolu2FileAndTest newOrmolu = do

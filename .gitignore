@@ -26,8 +26,11 @@ small.c.old
 small.c.orig
 small.c.simple
 test1.sh
-test/*
+test/Test.hs
 Arst.hs
 test-cases/**/*.txt
 *.rhs
 *.hs.orig
+debug
+debug/*
+debug_*

@@ -15,7 +15,7 @@ main | not_ordered a b = print $ Foldable.foldl' (flip wumbo) (singleton a) b
     {-# NOINLINE b #-}
     b = [f ()]
 
-data T = T1 | T2 
+data T = T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9
   deriving (Eq, Show)
 
 instance Ord Main.T where
