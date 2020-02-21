@@ -27,12 +27,12 @@ import qualified Passes.RemoveUnused as RemoveUnused (reduce)
 hsreduce :: FilePath -> FilePath -> IO ()
 hsreduce test filePath = do
   fileContent <- TIO.readFile filePath
-  let oldSize = T.length fileContent
-  debugPrint $ "Original file size: " ++ show oldSize
   snd <$> parseModule defaultConfig filePath (T.unpack fileContent) >>=
     \case
       Left _ -> return ()
       Right oldOrmolu -> do
+        let oldSize = T.length $ printModule oldOrmolu
+        debugPrint $ "Original file size: " ++ show oldSize
         let sourceDir =  fst $ splitFileName filePath
         debugPrint $ "source dir: " ++ sourceDir
         files <- listDirectory sourceDir
@@ -56,9 +56,9 @@ hsreduce test filePath = do
 allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult-> IO OPR.ParseResult
 allPassesOnce test filePath oldOrmolu = foldM (\ormolu pass -> pass test filePath ormolu) oldOrmolu allPasses
   where
-    allPasses = [ Stubbing.reduce ]
+    -- allPasses = [ Stubbing.reduce ]
     -- allPasses = [ RemoveUnused.reduce ]
-    -- allPasses = [ Stubbing.reduce, RemoveUnused.reduce ]
+    allPasses = [ Stubbing.reduce, RemoveUnused.reduce ]
 
 -- | calculate the fixpoint, by always checking if the new module is 
 -- different from the old one
@@ -70,7 +70,7 @@ largestFixpoint f =
       newOrmolu <- f
       let oldLength = BS.length . TE.encodeUtf8 $ printModule oldOrmolu
           newLength = BS.length . TE.encodeUtf8 $ printModule newOrmolu
-      debugPrint $ "new ormolu is this many chars shorter than the old one:" ++ show (oldLength - newLength)
+      debugPrint $ "new ormolu is this many chars shorter than the old one: " ++ show (oldLength - newLength)
       if oldLength <= newLength
         then do
           debugPrint "taking old ormolu"

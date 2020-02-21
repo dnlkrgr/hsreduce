@@ -22,6 +22,7 @@ library
                        Passes.RemoveUnused
                        Types
                        Util
+                       Test
   build-depends:       base ^>=4.12.0.0
                      , aeson
                      , bytestring
@@ -39,7 +40,9 @@ library
                      , text
                      , transformers
                      , random
+                     , time
   hs-source-dirs:      src
+                     , test
   default-language:    Haskell2010
 
 executable hsreduce-exe

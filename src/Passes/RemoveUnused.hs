@@ -16,7 +16,8 @@ import qualified Data.Text.IO as TIO (readFile, writeFile)
 import Debug.Trace
 import GHC.Generics (Generic)
 import HsSyn
-import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
+import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource, prExtensions)
+import Ormolu.Parser.Pragma as OPR (Pragma(PragmaLanguage))
 import Ormolu.Printer (printModule)
 import Outputable (ppr, showSDocUnsafe)
 import SrcLoc (GenLocated (..), Located (..), getLoc, noLoc, unLoc)
@@ -47,69 +48,56 @@ data GhcOutput
 
 instance FromJSON GhcOutput
 
-extensions =
-  [ "AllowAmbiguousTypes",
-    "DataKinds",
-    "DeriveGeneric",
-    "FlexibleContexts",
-    "FlexibleInstances",
-    "FunctionalDependencies",
-    "GADTs",
-    "InstanceSigs",
-    "PolyKinds",
-    "RankNTypes",
-    "ScopedTypeVariables",
-    "TypeApplications",
-    "TypeFamilies",
-    "TypeInType",
-    "TypeOperators",
-    "UndecidableInstances"
-  ]
-
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
 reduce test sourceFile oldOrmolu = do
+  putStrLn "removing unused bindings"
   -- BUG: Ormolu is printing type level lists wrong, example: Unify (p n _ 'PTag) a' = '[ 'Sub n a']
   TIO.writeFile sourceFile (printModule oldOrmolu)
-  debugPrint $ "Running `ghc -Wunused-binds -ddump-json` on file: " ++ sourceFile
-  let (dirName, fileName) = splitFileName sourceFile
-      -- TODO: dynamically switch on extensions, not this crap
-      command = "ghc -Wunused-binds -ddump-json " ++ unwords (("-X" ++) <$> extensions) ++ " " ++ fileName
-  timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell command) {cwd = Just dirName}) "")
-    >>= \case
-      Nothing -> do
-        errorPrint "Process timed out."
-        return oldOrmolu
-      Just (exitCode, stdout, stderr) -> case exitCode of
-        ExitFailure errCode -> do
-          TIO.writeFile ("/home/daniel/workspace/hsreduce/debug/debug_" ++ fileName) (printModule oldOrmolu)
-          errorPrint $ "Failed running `" ++ command ++ "` with error code " ++ show errCode
-          errorPrint "stdout: "
-          let tempGhcOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
-          forM_ (map doc $ catMaybes tempGhcOutput) (\s -> putStrLn "" >> putStrLn s)
-          errorPrint $ "stderr: " ++ stderr
-          error "aborting"
-          return oldOrmolu
-        ExitSuccess ->
-          if stdout /= ""
-            then do
-              -- dropping first line because it doesn't fit into our JSON schema
-              let maybeOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
-              if Nothing `elem` maybeOutput
+  let extensions = prExtensions oldOrmolu
+  debugPrint $ show extensions
+  let maybeLanguagePragmas = fmap concat . traverse languagePragma2String . filter isLanguagePragma $ extensions
+  case maybeLanguagePragmas of
+    Nothing -> error "oopsie"
+    Just languagePragmas -> do
+      --debugPrint $ "Running `ghc -Wunused-binds -ddump-json` on file: " ++ sourceFile
+      let (dirName, fileName) = splitFileName sourceFile
+          command = "ghc -Wunused-binds -ddump-json " ++ unwords (("-X" ++) <$> languagePragmas) ++ " " ++ fileName
+      timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell command) {cwd = Just dirName}) "")
+        >>= \case
+          Nothing -> do
+            errorPrint "Process timed out."
+            return oldOrmolu
+          Just (exitCode, stdout, stderr) -> case exitCode of
+            ExitFailure errCode -> do
+              TIO.writeFile ("/home/daniel/workspace/hsreduce/debug/debug_" ++ fileName) (printModule oldOrmolu)
+              errorPrint $ "Failed running `" ++ command ++ "` with error code " ++ show errCode
+              errorPrint "stdout: "
+              let tempGhcOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
+              forM_ (map doc $ catMaybes tempGhcOutput) (\s -> putStrLn "" >> putStrLn s)
+              errorPrint $ "stderr: " ++ stderr
+              error "aborting"
+              return oldOrmolu
+            ExitSuccess ->
+              if stdout /= ""
                 then do
-                  errorPrint "Unable to parse some of the ghc output to JSON."
-                  return oldOrmolu
-                else do
-                  let unUsedBindingNames =
-                        map (takeWhile (/= '’') . drop 1 . dropWhile (/= '‘') . doc)
-                          . filter (isPrefixOf "Opt_WarnUnused" . reason)
-                          . map fromJust
-                          $ maybeOutput
-                  let allDecls = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
-                  debugPrint "unUsedBindingNames:"
-                  mapM_ putStrLn unUsedBindingNames
-                  runReaderT (tryAllDecls allDecls unUsedBindingNames) (StubState test sourceFile oldOrmolu)
-            else return oldOrmolu
+                  -- dropping first line because it doesn't fit into our JSON schema
+                  let maybeOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
+                  if Nothing `elem` maybeOutput
+                    then do
+                      errorPrint "Unable to parse some of the ghc output to JSON."
+                      return oldOrmolu
+                    else do
+                      let unUsedBindingNames =
+                            map (takeWhile (/= '’') . drop 1 . dropWhile (/= '‘') . doc)
+                              . filter (isPrefixOf "Opt_WarnUnused" . reason)
+                              . map fromJust
+                              $ maybeOutput
+                      let allDecls = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
+                      debugPrint "unUsedBindingNames:"
+                      mapM_ putStrLn unUsedBindingNames
+                      runReaderT (tryAllDecls allDecls unUsedBindingNames) (StubState test sourceFile oldOrmolu)
+                else return oldOrmolu
 
 -- TODO: move common allDecls traversal in Util
 tryAllDecls :: [LHsDecl GhcPs] -> [String] -> ReaderT StubState IO OPR.ParseResult
@@ -164,3 +152,11 @@ constructorIsUsed unUsedBindingNames (L _ (ConDeclGADT _ names _ _ _ _ _ _)) =
   let debugMsg = "[debug] names of GADT data constructor: " ++ unwords (map (showSDocUnsafe . ppr) names)
       result = all (\(L _ rdrName) -> (showSDocUnsafe . ppr $ rdrName) `notElem` unUsedBindingNames) (traceShow debugMsg names)
   in traceShow ("result: " ++ show result) result
+
+isLanguagePragma :: OPR.Pragma -> Bool
+isLanguagePragma (PragmaLanguage _ ) = True
+isLanguagePragma _ = False
+
+languagePragma2String :: OPR.Pragma -> Maybe [String]
+languagePragma2String (PragmaLanguage ss) = Just ss
+languagePragma2String _ = Nothing

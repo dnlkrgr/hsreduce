@@ -15,7 +15,7 @@ import Ormolu.Printer (printModule)
 import Types
 
 isInProduction :: Bool
-isInProduction = True
+isInProduction = False
 
 -- | run the interestingness test on a timeout of 30 seconds
 runTest :: FilePath -> IO Interesting

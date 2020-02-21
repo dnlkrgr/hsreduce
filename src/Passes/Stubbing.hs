@@ -22,6 +22,7 @@ import Util
 -- | run a pass on the old module and return the new one if it's interesting
 reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
 reduce test sourceFile oldOrmolu = do
+  putStrLn "performing stubbing"
   let allDecls = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
   runReaderT (tryAllDecls allDecls) (StubState test sourceFile oldOrmolu)
 

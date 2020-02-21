@@ -34,3 +34,5 @@ test-cases/**/*.txt
 debug
 debug/*
 debug_*
+output.txt
+error.txt

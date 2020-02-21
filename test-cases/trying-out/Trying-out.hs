@@ -1,6 +1,8 @@
 module TryingOut () where 
 
-data Dumb = Dumb
+data Dumb = Dumb | AlsoDumb
+
+data DumbProduct = StillDumb Int String
 
 main :: IO ()
 main = return ()

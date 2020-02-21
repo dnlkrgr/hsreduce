@@ -1,3 +1,11 @@
-#!/nix/store/lb3hli8d9536g45mndwfwyi6fpny0blh-bash-interactive-4.4-p23/bin/bash
-nix-shell ghc843.nix --run "ghc -O2 -fforce-recomp Ticket15696_1.hs && ./Ticket15696_1" |& grep "Bin T2 Tip Tip" 
-rm Ticket15696_1 Ticket15696_1.o Ticket15696_1.hi
+#!/run/current-system/sw/bin/bash
+TICKET=Ticket15696_1
+GHC_VERSION=ghc843
+RELEASE_OR_COMMIT=18.09
+echo "with import (fetchTarball https://github.com/NixOS/nixpkgs/archive/${RELEASE_OR_COMMIT}.tar.gz) {};" > $GHC_VERSION.nix
+echo "let ghc = haskell.compiler.${GHC_VERSION}; in mkShell { inherit ghc; name = \"myEnv\"; buildInputs = [ ghc ]; }" >> $GHC_VERSION.nix
+COMMAND="ghc -O2 -fforce-recomp ${TICKET}.hs && ./${TICKET}" 
+
+nix-shell $GHC_VERSION.nix --run "${COMMAND}" |& grep "Bin T2 Tip Tip"
+
+rm $TICKET $TICKET.o $TICKET.hi $GHC_VERSION.nix
