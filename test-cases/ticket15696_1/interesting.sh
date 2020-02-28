@@ -8,4 +8,4 @@ COMMAND="ghc -O2 -fforce-recomp ${TICKET}.hs && ./${TICKET}"
 
 nix-shell $GHC_VERSION.nix --run "${COMMAND}" |& grep "Bin T2 Tip Tip"
 
-rm $TICKET $TICKET.o $TICKET.hi $GHC_VERSION.nix
+#rm $TICKET $TICKET.o $TICKET.hi $GHC_VERSION.nix

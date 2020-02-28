@@ -1,9 +1,12 @@
 # ToDo / Protocol
 
 ## ToDo's
-* am Anfang überprüfen, ob Test-Case überhaupt interessant
+* Code weiter runterbrechen in one-line-Funktionen
 * Ausgabe schöner machen
+* am Anfang überprüfen, ob Test-Case überhaupt interessant
+* ocharles/weeder benutzen
 * Haskell Source Plugins anschauen
+* grobe Transformationen zuerst
 * 24 days of GHC extensions
   * GADTs, Type Families anschauen
 * erfassen, welche Herausforderungen es bei den Pässen gibt
@@ -11,52 +14,76 @@
   * was hat man wissenschaftlich rausgefunden?
   * was ist alles mit Herausforderungen gemeint?
     * z.B., wie effektiv die Pässe sind?
-* ocharles/weeder benutzen
 * structureshrink zum Laufen bringen
 * reduce-loop: BFS
 * automatisiert Test-Cases hinzufügen + laufen lassen können
 
 ## Passes to implement
 * Stubbing
-  * Function Bindings: alle Matches mit undefined belegen
-  * let und where
-  * Typinstanzen: bei Methoden undefined einsetzen
-  * unnötige Methoden / ganze Instanzen entfernen
+  - [ ] let und where
+  - [ ] unnötige Methoden / ganze Instanzen entfernen
+  - [x] Function Bindings: alle Matches mit undefined belegen
+  - [x] Typinstanzen: bei Methoden undefined einsetzen
 * Remove Unused
-  * unused Bindings entfernen
-  * Data Decl: Konstruktoren entfernen
-  * Imports
-  * Pragmas
-  * Kontexte in Funktionen
-  * Data Decls ohne Konstruktoren
+  - [ ] Imports
+  - [ ] Kontexte in Funktionen
+  - [ ] Data Decls ohne Konstruktoren
+  - [x] Pragmas
+  - [x] unused Bindings entfernen
+  - [x] Data Decl: Konstruktoren entfernen
 * Typsignaturen vereinfachen
-  * unnötige Parameter weg
-  * Typparameter durch Unit / () ersetzen
+  - [ ] unnötige Parameter weg
+  - [ ] Typparameter durch Unit / () ersetzen
 * On the Project Level
-  * Module mergen
-  * Dependencies vendorn: nicht mehr als separate Dependency
-  * cabal file: dependencies entfernen
+  - [ ] Module mergen
+  - [ ] Dependencies vendorn: nicht mehr als separate Dependency
+  - [ ] cabal file: dependencies entfernen
 * Typen vereinfachen / Typaliase
-  * unnötige Typaliase weg
-  * Typ mit 1 Konstruktor: kann gleich Typalias sein, oder?
-  * Typaliase reduzieren / minimieren
-  * Typaliase inlinen
-  * deriving-Clause minimieren
-  * Produkttypen minimieren
+  - [ ] unnötige Typaliase weg
+  - [ ] Typ mit 1 Konstruktor: kann gleich Typalias sein, oder?
+  - [ ] Typaliase reduzieren / minimieren
+  - [ ] Typaliase inlinen
+  - [ ] deriving-Clause minimieren
+  - [ ] Produkttypen minimieren
 * Template haskell
-  * TH: splices dumpen, gedumpte einfügen in HS-Datei und dann weiter reduzieren 
+  - [ ] TH: splices dumpen, gedumpte einfügen in HS-Datei und dann weiter reduzieren 
 * Imports / Exports
-  * Exporte minimieren
-  * Imports: Anzahl importierter Funktionen minimieren
-* Datei formattieren
-* case-Ausdrücke minimieren
-* ganze Deklarationen löschen
+  - [ ] Exporte minimieren
+  - [ ] Imports: Anzahl importierter Funktionen minimieren
+* Misc
+  - [ ] Datei formattieren
+  - [ ] case-Ausdrücke minimieren
+  - [ ] ganze Deklarationen löschen
+  - [ ] arithmetische, boolesche Ausdrücke vereinfachen
+  - [ ] ganze Decls löschen
+  - [ ] Typsignaturen löschen
 
 ## Interesting tickets
 * 17722
 * 17684
 * 16127
 
+## creduce's core
+
+```
+current = original_test_case
+do
+  size_at_start = size(current)
+  foreach (p, option) in pass_list
+    state = p::new(current, option)
+    do
+      variant = current         // this is a file copy operation
+      result = p::transform(variant, option, state)
+      if result == ERROR
+	report_problem_in_pass(p, option)
+      if result == OK
+        if is_interesting(variant)
+          current = variant     // also a file copy
+	else
+          state = p::advance(current, option, state)
+    while result == OK
+while size(current) < size_at_start
+```
 
 ## `creduce --not-c` Performance
 

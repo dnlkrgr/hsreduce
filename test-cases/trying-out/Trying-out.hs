@@ -1,3 +1,6 @@
+{-# language LambdaCase #-}
+{-# language OverloadedStrings #-}
+{-# language Rank2Types, RankNTypes #-}
 module TryingOut () where 
 
 data Dumb = Dumb | AlsoDumb
@@ -7,6 +10,7 @@ data DumbProduct = StillDumb Int String
 main :: IO ()
 main = return ()
 
+myFun :: Maybe Int -> Int
 myFun (Just y) = 
   let a = 2
       b = 3

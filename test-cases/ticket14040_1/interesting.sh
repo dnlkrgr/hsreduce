@@ -12,4 +12,4 @@ nix-shell $GHC_VERSION.nix --run "${COMMAND}" 2> $ERROR
 grep "error:ghc: panic! (the 'impossible' happened)" error.txt &&
 grep "No skolem info:" error.txt
 
-rm $ERROR $GHC_VERSION.nix
+#rm $ERROR $GHC_VERSION.nix

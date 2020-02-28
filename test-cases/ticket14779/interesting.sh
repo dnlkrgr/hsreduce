@@ -14,4 +14,4 @@ grep "Compilation had errors" $ERROR &&
 grep "*** Core Lint errors : in result of Simplifier ***" $OUTPUT &&
 grep "The type of this binder is unlifted:" $OUTPUT
 
-rm $OUTPUT $ERROR $GHC_VERSION.nix
+# rm $OUTPUT $ERROR $GHC_VERSION.nix

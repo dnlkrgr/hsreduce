@@ -13,4 +13,4 @@ nix-shell $GHC_VERSION.nix --run "${COMMAND}" > $OUTPUT 2> $ERROR
 grep "Compilation had errors" $ERROR &&
 grep "*** Core Lint errors : in result of Float out(FOS {Lam = Just 0," $OUTPUT
 
-rm $OUTPUT $ERROR $GHC_VERSION.nix
+# rm $OUTPUT $ERROR $GHC_VERSION.nix

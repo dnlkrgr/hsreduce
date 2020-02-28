@@ -13,4 +13,4 @@ grep "Pattern match(es) are non-exhaustive" $ERROR &&
 grep "In an equation for ‘mapInsertWithNonEmpty1’:" $ERROR &&
 grep "Patterns not matched: _ _ _ (SMkMap _) Refl Refl" $ERROR
 
-rm $TICKET.o $TICKET.hi $ERROR $GHC_VERSION.nix
+#rm $TICKET.o $TICKET.hi $ERROR $GHC_VERSION.nix
