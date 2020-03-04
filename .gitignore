@@ -29,6 +29,8 @@ test1.sh
 test/Test.hs
 Arst.hs
 test-cases/**/*.txt
+test-cases/**/*.nix
+test-cases/**/*.swp
 *.rhs
 *.hs.orig
 debug
@@ -36,3 +38,4 @@ debug/*
 debug_*
 output.txt
 error.txt
+*.swp

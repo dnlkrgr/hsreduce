@@ -3,6 +3,8 @@
 {-# language Rank2Types, RankNTypes #-}
 module TryingOut () where 
 
+data T = T {-# UNPACK #-} !Float
+
 data Dumb = Dumb | AlsoDumb
 
 data DumbProduct = StillDumb Int String
@@ -19,6 +21,7 @@ myFun (Just y) =
       e = 9
   in 2 * y + a + c + d + e
 myFun Nothing = 42
+  where x = 43
 
 instance Show Dumb where
   show Dumb = "Dumb"

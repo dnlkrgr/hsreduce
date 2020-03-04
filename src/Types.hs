@@ -9,19 +9,21 @@ import Data.ByteString.Lazy.Char8 (pack)
 import Data.List (isPrefixOf)
 import HsSyn
 
+data GhcMode = Binds | Imports
+
 type Pass = OPR.ParseResult -> OPR.ParseResult
 
 data Interesting = Interesting | Uninteresting
     deriving Show
 
-data IterState
-  = IterState
+data ReduceState
+  = ReduceState
       { _test :: FilePath,
         _sourceFile :: FilePath,
         _ormolu :: OPR.ParseResult
       }
 
-type UnusedBindingName = String
+type BindingName = String
 
 newtype Span
   = Span

@@ -7,9 +7,8 @@ import Control.Monad.State.Strict
 import Data.Data
 import Data.Aeson (FromJSON, decode)
 import Data.ByteString.Lazy.Char8 (pack)
-import Data.Maybe
 import Data.List (isPrefixOf)
-import Data.Maybe (fromMaybe)
+import Data.Maybe
 import qualified Data.Text.IO as TIO (writeFile)
 import qualified Data.Text as T
 import Ormolu.Parser.Pragma as OPP (Pragma (PragmaLanguage))
@@ -20,11 +19,60 @@ import System.FilePath.Posix
 import System.Process
 import System.Timeout
 import Types
+import HsSyn
+import SrcLoc
+
+testAndUpdateState :: OPR.ParseResult -> a -> a -> StateT ReduceState IO a
+testAndUpdateState newOrmolu a b = do
+  oldState@(ReduceState test sourceFile oldOrmolu) <- get
+  liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
+  liftIO (runTest test)
+    >>= \case
+      Uninteresting -> return a
+      Interesting -> do
+        -- TODO: add information to change operation for better debugging messages
+        debugPrint "Change applied"
+        put (oldState {_ormolu = newOrmolu}) >> return b
+
+-- | run the interestingness test on a timeout of 30 seconds
+runTest :: FilePath -> IO Interesting
+runTest test = do
+  let (dirName, testName) = splitFileName test
+  -- TODO: make timout duration configurable
+  timeout (10 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
+    >>= \case
+      Nothing -> do
+        errorPrint "runTest: timed out"
+        return Uninteresting
+      Just (exitCode, stdout, stderr) ->
+        case exitCode of
+          ExitFailure errCode -> return Uninteresting
+          ExitSuccess -> return Interesting
+
+changeExports :: OPR.ParseResult -> ([LIE GhcPs] -> [LIE GhcPs]) -> OPR.ParseResult
+changeExports oldOrmolu f =
+  let L moduleLoc oldModule = prParsedSource oldOrmolu
+      L exportsLoc oldExports = fromJust $ hsmodExports oldModule
+      newExports = f oldExports
+  in oldOrmolu {prParsedSource = L moduleLoc oldModule {hsmodExports = Just (L exportsLoc newExports)}}
+
+changeImports :: OPR.ParseResult -> ([LImportDecl GhcPs] -> [LImportDecl GhcPs]) -> OPR.ParseResult
+changeImports oldOrmolu f =
+  let L moduleLoc oldModule = prParsedSource oldOrmolu
+      allImports = hsmodImports oldModule
+      newImports = f allImports
+  in oldOrmolu { prParsedSource = L moduleLoc oldModule { hsmodImports = newImports }}
+
+changeDecls :: OPR.ParseResult -> ([LHsDecl GhcPs] -> [LHsDecl GhcPs]) -> OPR.ParseResult
+changeDecls oldOrmolu f =
+  let L moduleLoc oldModule = prParsedSource oldOrmolu
+      allDecls = hsmodDecls oldModule
+      newDecls = f allDecls
+  in oldOrmolu { prParsedSource = L moduleLoc oldModule { hsmodDecls = newDecls }}
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-runGhc :: FilePath -> FilePath -> OPR.ParseResult -> IO (Maybe [UnusedBindingName])
-runGhc test sourceFile oldOrmolu = do
-  debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
+runGhc :: FilePath -> FilePath -> OPR.ParseResult -> GhcMode -> IO (Maybe [BindingName])
+runGhc test sourceFile oldOrmolu ghcMode = do
   -- BUG: Ormolu is printing type level lists wrong, example: Unify (p n _ 'PTag) a' = '[ 'Sub n a']
   TIO.writeFile sourceFile (printModule oldOrmolu)
   let extensions = prExtensions oldOrmolu
@@ -36,7 +84,7 @@ runGhc test sourceFile oldOrmolu = do
     Just languagePragmas -> do
       --debugPrint $ "Running `ghc -Wunused-binds -ddump-json` on file: " ++ sourceFile
       let (dirName, fileName) = splitFileName sourceFile
-          command = "ghc -Wunused-binds -ddump-json " ++ unwords (("-X" ++) <$> languagePragmas) ++ " " ++ fileName
+          command = "ghc -Wunused-" ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) <$> languagePragmas) ++ " " ++ fileName
       timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell command) {cwd = Just dirName}) "")
         >>= \case
           Nothing -> do
@@ -44,7 +92,7 @@ runGhc test sourceFile oldOrmolu = do
             return Nothing
           Just (exitCode, stdout, stderr) -> case exitCode of
             ExitFailure errCode -> do
-              TIO.writeFile ("/home/daniel/workspace/hsreduce/debug/debug_" ++ fileName) (printModule oldOrmolu)
+              TIO.writeFile ("/home/daniel/workspace/hsreduce/debug/" ++ fileName) (printModule oldOrmolu)
               errorPrint $ "Failed running `" ++ command ++ "` with error code " ++ show errCode
               errorPrint "stdout: "
               let tempGhcOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
@@ -69,6 +117,9 @@ runGhc test sourceFile oldOrmolu = do
                               $ maybeOutput
                       return $ Just unusedBindingNames
                 else return Nothing
+  where ghcModeString = case ghcMode of
+                          Binds   -> "binds"
+                          Imports -> "imports"
 
 
  
@@ -90,26 +141,6 @@ everywhereM f x = do
 
 isInProduction :: Bool
 isInProduction = False
-
--- | run the interestingness test on a timeout of 30 seconds
-runTest :: FilePath -> IO Interesting
-runTest test = do
-  let (dirName, testName) = splitFileName test
-  timeout (10 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
-    >>= \case
-      Nothing -> do
-        errorPrint "runTest: timed out"
-        return Uninteresting
-      Just (exitCode, stdout, stderr) ->
-        case exitCode of
-          ExitFailure errCode -> return Uninteresting
-          ExitSuccess -> return Interesting
-
-writeOrmolu2FileAndTest :: OPR.ParseResult -> StateT IterState IO Interesting
-writeOrmolu2FileAndTest newOrmolu = do
-  IterState test sourceFile oldOrmolu <- get
-  liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
-  liftIO $ runTest test
 
 debug :: MonadIO m => (a -> m ()) -> a -> m ()
 debug f s

@@ -1,39 +1,52 @@
 # ToDo / Protocol
 
 ## ToDo's
-* Code weiter runterbrechen in one-line-Funktionen
-* Ausgabe schöner machen
-* am Anfang überprüfen, ob Test-Case überhaupt interessant
-* ocharles/weeder benutzen
-* Haskell Source Plugins anschauen
-* grobe Transformationen zuerst
-* 24 days of GHC extensions
-  * GADTs, Type Families anschauen
-* erfassen, welche Herausforderungen es bei den Pässen gibt
-  * gleich immer aufschreiben
-  * was hat man wissenschaftlich rausgefunden?
-  * was ist alles mit Herausforderungen gemeint?
-    * z.B., wie effektiv die Pässe sind?
-* structureshrink zum Laufen bringen
-* reduce-loop: BFS
-* automatisiert Test-Cases hinzufügen + laufen lassen können
+* MUST
+  * erfassen, welche Herausforderungen es bei den Pässen gibt
+    * gleich immer aufschreiben
+    * was hat man wissenschaftlich rausgefunden?
+    * was ist alles mit Herausforderungen gemeint?
+      * z.B., wie effektiv die Pässe sind?
+  * grobe Transformationen zuerst
+    * z.B. imports
+      * erst versuchen, alle zu löschen
+      * dann 1/2, 1/4, 1/8, ...
+      * dann nur unused
+      * dann nur Anzahl der Funktionen minimieren
+  * ocharles/weeder benutzen
+  * Haskell Source Plugins anschauen
+  * 24 days of GHC extensions durchlesen
+    * GADTs, Type Families anschauen
+  * am Anfang überprüfen, ob Test-Case überhaupt interessant
+  * structureshrink zum Laufen bringen
+  * automatisiert Test-Cases hinzufügen + laufen lassen können
+* SHOULD
+  * Code weiter runterbrechen in one-line-Funktionen
+  * Ausgabe schöner machen
+  * reduce-loop: BFS
 
 ## Passes to implement
-* Stubbing
-  - [ ] let und where
-  - [ ] unnötige Methoden / ganze Instanzen entfernen
-  - [x] Function Bindings: alle Matches mit undefined belegen
-  - [x] Typinstanzen: bei Methoden undefined einsetzen
 * Remove Unused
-  - [ ] Imports
+  - [ ] unnötige Methoden / ganze Instanzen entfernen
   - [ ] Kontexte in Funktionen
-  - [ ] Data Decls ohne Konstruktoren
-  - [x] Pragmas
+  - [ ] Imports
+    - [ ] Anzahl importierter Funktionen minimieren
+    - [x] unused imports entfernen
+  - [ ] Exports
+    - [ ] Handling von impliziten export all
+    - [x] unused exports entfernen
+  - [x] Data Decls ohne Konstruktoren
+  - [] Pragmas
+    - [ ] UNPACK Pragmas
+    - [ ] INLINE Pragmas
+    - [ ] other Pragmas
+    - [x] LANGUAGE Pragmas
   - [x] unused Bindings entfernen
   - [x] Data Decl: Konstruktoren entfernen
 * Typsignaturen vereinfachen
   - [ ] unnötige Parameter weg
   - [ ] Typparameter durch Unit / () ersetzen
+  - [ ] forall weg
 * On the Project Level
   - [ ] Module mergen
   - [ ] Dependencies vendorn: nicht mehr als separate Dependency
@@ -47,16 +60,14 @@
   - [ ] Produkttypen minimieren
 * Template haskell
   - [ ] TH: splices dumpen, gedumpte einfügen in HS-Datei und dann weiter reduzieren 
-* Imports / Exports
-  - [ ] Exporte minimieren
-  - [ ] Imports: Anzahl importierter Funktionen minimieren
 * Misc
   - [ ] Datei formattieren
   - [ ] case-Ausdrücke minimieren
   - [ ] ganze Deklarationen löschen
   - [ ] arithmetische, boolesche Ausdrücke vereinfachen
   - [ ] ganze Decls löschen
-  - [ ] Typsignaturen löschen
+* Stubbing
+  - [x] HsExpr: place undefined into every possible HsExpr
 
 ## Interesting tickets
 * 17722
