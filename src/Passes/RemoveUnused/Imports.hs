@@ -30,7 +30,7 @@ reduce test sourceFile oldOrmolu = do
 removeUnusedImport :: [BindingName] -> LImportDecl GhcPs -> StateT ReduceState IO ()
 removeUnusedImport unusedBindingNames (L loc (ImportDecl _ _ (L _ importName) _ _ _ _ _ _ _))
   | moduleNameString importName `elem` unusedBindingNames = do
-    oldState@(ReduceState test sourceFile oldOrmolu) <- get
+    oldOrmolu <- _ormolu <$> get
     let newOrmolu = changeImports oldOrmolu (filter (\(L iterLoc (ImportDecl _ _ (L _ iterName) _ _ _ _ _ _ _)) -> importName /= iterName))
-    testAndUpdateState newOrmolu () ()
+    testAndUpdateState newOrmolu
   | otherwise = return ()

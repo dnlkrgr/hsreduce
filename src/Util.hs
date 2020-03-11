@@ -22,8 +22,11 @@ import Types
 import HsSyn
 import SrcLoc
 
-testAndUpdateState :: OPR.ParseResult -> a -> a -> StateT ReduceState IO a
-testAndUpdateState newOrmolu a b = do
+testAndUpdateState :: OPR.ParseResult -> StateT ReduceState IO ()
+testAndUpdateState newOrmolu = testAndUpdateStateFlex newOrmolu () ()
+
+testAndUpdateStateFlex :: OPR.ParseResult -> a -> a -> StateT ReduceState IO a
+testAndUpdateStateFlex newOrmolu a b = do
   oldState@(ReduceState test sourceFile oldOrmolu) <- get
   liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
   liftIO (runTest test)
@@ -131,7 +134,7 @@ everywhereT :: Data a => (forall b. Data b => b -> b) -> a -> a
 everywhereT f x = f (gmapT (everywhereT f) x)
 
 
-mkM :: (Typeable a, Typeable b, Typeable (m a), Typeable (m b), Monad m) => (b -> m b) -> a -> m a
+mkM :: (Typeable a, Typeable b, Typeable m, Monad m) => (b -> m b) -> a -> m a
 mkM f = fromMaybe return (cast f)
 
 everywhereM :: (Monad m, Data a) => (forall b. Data b => b -> m b) -> a -> m a

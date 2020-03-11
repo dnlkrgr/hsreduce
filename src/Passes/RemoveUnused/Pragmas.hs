@@ -21,21 +21,21 @@ tryAllPragmas :: OPP.Pragma -> StateT ReduceState IO ()
 tryAllPragmas pragmaToTry@(PragmaLanguage ss)
     | length ss == 1 = tryToRemovePragma pragmaToTry
     | otherwise = do
-        oldState@(ReduceState test sourceFile oldOrmolu) <- get
+        ReduceState test sourceFile oldOrmolu <- get
         traverse_ tryLanguagePragma ss
 tryAllPragmas pragmaToTry = tryToRemovePragma pragmaToTry
 
 tryToRemovePragma :: OPP.Pragma -> StateT ReduceState IO ()
 tryToRemovePragma pragmaToTry = do
-  oldState@(ReduceState test sourceFile oldOrmolu) <- get
+  ReduceState test sourceFile oldOrmolu <- get
   let oldPragmas = prExtensions oldOrmolu
       newOrmolu = oldOrmolu { prExtensions = filter (/= pragmaToTry) oldPragmas }
-  testAndUpdateState newOrmolu () ()
+  testAndUpdateState newOrmolu
 
 tryLanguagePragma :: String -> StateT ReduceState IO ()
 tryLanguagePragma s = do
-    oldState@(ReduceState _ _ oldOrmolu) <- get
+    oldOrmolu <- _ormolu <$> get
     liftIO . print . show . prExtensions $ oldOrmolu
     let PragmaLanguage ss:restExtensions = prExtensions oldOrmolu
         newOrmolu = oldOrmolu { prExtensions = PragmaLanguage (filter (/= s) ss) : restExtensions}
-    testAndUpdateState newOrmolu () ()
+    testAndUpdateState newOrmolu

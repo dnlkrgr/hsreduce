@@ -1,19 +1,25 @@
-{ nixpkgs ? import <nixpkgs> {}, compiler ? "default", doBenchmark ? false }:
+{ nixpkgs ? import <nixpkgs> {}, compiler ? "ghc881", doBenchmark ? false }:
 
 let
-  pkgs = let
-    hostPkgs = import <nixpkgs> {};
-    pinnedVersion = hostPkgs.lib.importJSON ./nixpkgs-version.json;
-    pinnedPkgs = hostPkgs.fetchFromGitHub {
-      owner = "NixOS";
-      repo = "nixpkgs-channels";
-      inherit (pinnedVersion) rev sha256;
-    };
-  in import pinnedPkgs {};
+  #pkgs = let
+  #  hostPkgs = import <nixpkgs> {};
+  #  pinnedVersion = hostPkgs.lib.importJSON ./nixpkgs-version.json;
+  #  pinnedPkgs = hostPkgs.fetchFromGitHub {
+  #    owner = "NixOS";
+  #    repo = "nixpkgs-channels";
+  #    inherit (pinnedVersion) rev sha256;
+  #  };
+  pkgs = import (builtins.fetchGit {
+    name ="nixos-20.03-small";
+    url = https://github.com/nixos/nixpkgs-channels/;
+    ref = "nixos-20.03-small";
+    rev = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
+  }) {};
+  # pkgs = nixpkgs;
 
   f = { mkDerivation, base, ghc, hashable, haskell-names
       , haskell-src-exts, stdenv, syb, text, mtl, transformers
-      , bytestring, temporary, filepath, directory, ghc-paths, ormolu, ghc-lib-parser, aeson, random, time
+      , bytestring, temporary, filepath, directory, ghc-paths, ghc-lib-parser, aeson, random, time, ormolu
       }:
       mkDerivation {
         pname = "hsreduce";
@@ -22,7 +28,7 @@ let
         isLibrary = false;
         isExecutable = true;
         executableHaskellDepends = [
-          base ghc hashable haskell-names haskell-src-exts syb text mtl transformers bytestring temporary filepath directory ormolu ghc-lib-parser aeson random time
+          base ghc hashable haskell-names haskell-src-exts syb text mtl transformers bytestring temporary filepath directory ghc-lib-parser aeson random time ormolu
         ];
         homepage = "dnlkrgr.com";
         description = "Minimizing Haskell programs for easier debugging of GHC bugs";

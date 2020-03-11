@@ -39,3 +39,4 @@ debug_*
 output.txt
 error.txt
 *.swp
+*.hie

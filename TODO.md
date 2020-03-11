@@ -2,6 +2,7 @@
 
 ## ToDo's
 * MUST
+  * #14270 mit git repo reproduzieren
   * erfassen, welche Herausforderungen es bei den Pässen gibt
     * gleich immer aufschreiben
     * was hat man wissenschaftlich rausgefunden?
@@ -25,10 +26,28 @@
   * Ausgabe schöner machen
   * reduce-loop: BFS
 
+## Ausarbeitung
+* Passes
+  - was gab es Anfangs für Probleme? wie wurden die behoben?
+    * welche Änderungen musste man durchführen, um die Pässe zu verbessern?
+  - welche Feinheiten sind zu beachten?
+  - 
+
 ## Passes to implement
+* Stubbing
+  - [ ] gestubbte bindings: deren Vorkommen stubben
+    - [ ] dann vllt: über die Decls gehen und schauen, ob die rechte Seite pretty-printed gleich "undefined" ist und dann alle Benutzungen stubben
+    - braucht man wohl nicht:
+      - [ ] dafür muss aufgenommen werden, was alles gestubbt wurde
+        - [ ] iwie alles in die State-Monade packen
+        - [ ] (listOfStubbedIds :: Maybe [String]) zum State hinzufügen
+  - [x] HsExpr: place undefined into every possible HsExpr
 * Remove Unused
+  - [ ] Decls
+    - [ ] iwie das Filtern von Decls schöner machen, einmal filter und für alle Decls kurz den Check implementieren oder iwie "Inversion of Control" hinkriegen
+    - [ ] Instance Decls entfernen
   - [ ] unnötige Methoden / ganze Instanzen entfernen
-  - [ ] Kontexte in Funktionen
+        => schauen ob rechte Seite mit ppr == "undefined" -> Match entfernen
   - [ ] Imports
     - [ ] Anzahl importierter Funktionen minimieren
     - [x] unused imports entfernen
@@ -47,6 +66,7 @@
   - [ ] unnötige Parameter weg
   - [ ] Typparameter durch Unit / () ersetzen
   - [ ] forall weg
+  - [ ] Constraints entfernen
 * On the Project Level
   - [ ] Module mergen
   - [ ] Dependencies vendorn: nicht mehr als separate Dependency
@@ -66,8 +86,24 @@
   - [ ] ganze Deklarationen löschen
   - [ ] arithmetische, boolesche Ausdrücke vereinfachen
   - [ ] ganze Decls löschen
-* Stubbing
-  - [x] HsExpr: place undefined into every possible HsExpr
+* Normalization
+  - [ ] renaming functions
+  - [ ] renaming parameters
+  - [ ] renaming constants
+  - [ ] renaming data declarations
+  - [ ] renaming data declarations
+
+
+## Reporting to implement
+* general info
+  - [ ] bytes / minute
+* Passes
+  - [ ] how often a pass succeeded
+  - [ ] total number of run tests during a pass
+  - [ ] how much reduction an individual pass brought
+  - [ ] how much time was spent during the pass
+  - [ ] if a pass looks at different elements: what kind of expression / element brought the most reduction
+  - [ ] what are the best / worst passes, and why? How could they improve?
 
 ## Interesting tickets
 * 17722
@@ -100,19 +136,49 @@ while size(current) < size_at_start
 
 * \<name of test-case>: <% amount reduced>, \<so far minimal file size>
 
+* test-cases/ticket14270: **88.6 %, 389 bytes**
+  * pass statistics:
+    * method pass_balanced :: square-inside worked 1 times and failed 1 times
+    * method pass_balanced :: square-only worked 1 times and failed 1 times
+    * method pass_clex :: rm-toks-9 worked 1 times and failed 522 times
+    * method pass_clex :: rm-toks-15 worked 1 times and failed 439 times
+    * method pass_blank :: 0 worked 1 times and failed 0 times
+    * method pass_clex :: rm-toks-13 worked 1 times and failed 454 times
+    * method pass_balanced :: parens-to-zero worked 1 times and failed 109 times
+    * method pass_lines :: 2 worked 1 times and failed 377 times
+    * method pass_clex :: rm-toks-16 worked 2 times and failed 407 times
+    * method pass_peep :: a worked 2 times and failed 173 times
+    * method pass_clex :: rm-toks-12 worked 2 times and failed 467 times
+    * method pass_balanced :: parens-inside worked 2 times and failed 66 times
+    * method pass_balanced :: parens-only worked 2 times and failed 21 times
+    * method pass_clex :: rm-toks-10 worked 3 times and failed 492 times
+    * method pass_balanced :: parens worked 3 times and failed 69 times
+    * method pass_balanced :: curly worked 3 times and failed 24 times
+    * method pass_lines :: 1 worked 4 times and failed 390 times
+    * method pass_clex :: rm-toks-6 worked 4 times and failed 571 times
+    * method pass_clex :: rm-toks-8 worked 5 times and failed 531 times
+    * method pass_clex :: rm-toks-2 worked 5 times and failed 681 times
+    * method pass_lines :: 6 worked 6 times and failed 402 times
+    * method pass_clex :: rm-toks-5 worked 7 times and failed 595 times
+    * method pass_clex :: rm-toks-4 worked 7 times and failed 626 times
+    * method pass_clex :: rm-toks-3 worked 9 times and failed 654 times
+    * method pass_clex :: rename-toks worked 13 times and failed 46 times
+    * method pass_clex :: rm-toks-1 worked 14 times and failed 691 times
+    * method pass_clex :: rm-tok-pattern-4 worked 36 times and failed 2719 times
+    * method pass_lines :: 0 worked 39 times and failed 542 times
 * test-cases/ticket14779: **77.6%, 521 bytes**
   * pass statistics:                                                   
-    *  method pass_clex :: rm-toks-2 worked 1 times and failed 343 times
-    *  method pass_clex :: delete-string worked 1 times and failed 2 times
-    *  method pass_clex :: rm-toks-5 worked 1 times and failed 330 times
-    *  method pass_blank :: 0 worked 1 times and failed 0 times         
-    *  method pass_balanced :: square-inside worked 1 times and failed 7 times
-    *  method pass_clex :: rm-toks-10 worked 1 times and failed 320 times
-    *  method pass_clex :: rm-toks-4 worked 2 times and failed 335 times 
-    *  method pass_clex :: rm-toks-1 worked 2 times and failed 345 times 
-    *  method pass_lines :: 1 worked 3 times and failed 181 times       
-    *  method pass_clex :: rm-tok-pattern-4 worked 6 times and failed 2448 times
-    *  method pass_clex :: rename-toks worked 13 times and failed 36 times  
-    *  method pass_lines :: 0 worked 20 times and failed 199 times
+    * method pass_clex :: rm-toks-2 worked 1 times and failed 343 times
+    * method pass_clex :: delete-string worked 1 times and failed 2 times
+    * method pass_clex :: rm-toks-5 worked 1 times and failed 330 times
+    * method pass_blank :: 0 worked 1 times and failed 0 times         
+    * method pass_balanced :: square-inside worked 1 times and failed 7 times
+    * method pass_clex :: rm-toks-10 worked 1 times and failed 320 times
+    * method pass_clex :: rm-toks-4 worked 2 times and failed 335 times 
+    * method pass_clex :: rm-toks-1 worked 2 times and failed 345 times 
+    * method pass_lines :: 1 worked 3 times and failed 181 times       
+    * method pass_clex :: rm-tok-pattern-4 worked 6 times and failed 2448 times
+    * method pass_clex :: rename-toks worked 13 times and failed 36 times  
+    * method pass_lines :: 0 worked 20 times and failed 199 times
 
 ## structureshrink Performance

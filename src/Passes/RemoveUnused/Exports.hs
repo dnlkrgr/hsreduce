@@ -36,6 +36,6 @@ reduce test sourceFile oldOrmolu = do
 
 removeUnusedExport :: LIE GhcPs -> StateT ReduceState IO ()
 removeUnusedExport (L loc export) = do
-  oldState@(ReduceState _ _ oldOrmolu) <- get
+  oldOrmolu <- _ormolu <$> get
   let newOrmolu = changeExports oldOrmolu (filter (\(L iterLoc _) -> loc /= iterLoc)) 
-  testAndUpdateState newOrmolu () ()
+  testAndUpdateState newOrmolu

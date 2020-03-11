@@ -20,7 +20,7 @@ import qualified Data.Text as T
 -- | run a pass on the old module and return the new one if it's interesting
 reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
 reduce test sourceFile oldOrmolu = do
-  putStrLn "\n***Stubbing matches***"
+  putStrLn "\n***Stubbing expressions***"
   debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
   let oldModule = prParsedSource oldOrmolu
   getUndefined >>=
@@ -32,12 +32,12 @@ reduce test sourceFile oldOrmolu = do
 -- | change an expression to `undefined`
 expr2Undefined :: HsExpr GhcPs -> LHsExpr GhcPs -> StateT ReduceState IO (LHsExpr GhcPs)
 expr2Undefined myUndefined oldExpr@(L l2 _) = do
-  oldState@(ReduceState test sourceFile oldOrmolu) <- get
+  ReduceState test sourceFile oldOrmolu <- get
   let oldModule = prParsedSource oldOrmolu
       newExpr  = L l2 myUndefined
       newModule = everywhereT (mkT (overwriteExprAtLoc (l2, newExpr))) oldModule
       newOrmolu = oldOrmolu { prParsedSource = newModule }
-  testAndUpdateState newOrmolu oldExpr newExpr
+  testAndUpdateStateFlex newOrmolu oldExpr newExpr
 
 -- | overwrite expression at a certain location
 overwriteExprAtLoc :: (SrcSpan, LHsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
