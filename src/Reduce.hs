@@ -23,7 +23,6 @@ import qualified Passes.Stubbing as Stubbing (reduce)
 import System.Directory (copyFile, listDirectory)
 import System.FilePath.Posix ((</>), splitFileName)
 import System.IO.Temp (withTempDirectory)
-import Types (Interesting (..))
 import Util
 
 hsreduce :: FilePath -> FilePath -> IO ()
@@ -50,8 +49,9 @@ hsreduce test filePath = do
             )
         let fileName = takeWhile (/= '.') filePath
             newSize = T.length $ printModule newOrmolu
+        debugPrint $ "Old size: " ++ show oldSize
         debugPrint $ "Reduced file size: " ++ show newSize
-        putStrLn $ "Reduced file by " ++ (show . round $ ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100)) ++ "%"
+        --putStrLn $ "Reduced file by " ++ (show . round $ ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100)) ++ "%"
         TIO.writeFile (fileName ++ ".rhs") (printModule newOrmolu)
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
@@ -72,7 +72,6 @@ largestFixpoint f =
       newOrmolu <- f oldOrmolu
       let oldLength = BS.length . TE.encodeUtf8 $ printModule oldOrmolu
           newLength = BS.length . TE.encodeUtf8 $ printModule newOrmolu
-          areTheyTheSame = printModule oldOrmolu == printModule newOrmolu
       debugPrint $ "old length: " ++ show oldLength
       debugPrint $ "new length: " ++ show newLength
       debugPrint $ "new ormolu is this many chars shorter than the old one: " ++ show (oldLength - newLength)

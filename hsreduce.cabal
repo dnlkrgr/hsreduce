@@ -33,6 +33,7 @@ common dry
                      , time
   hs-source-dirs:      src
                      , test
+  ghc-options:       -Wall -fwrite-ide-info -hiedir "."
 
 
 library hsreduce-internal
@@ -49,7 +50,6 @@ library hsreduce-internal
 executable hsreduce
   import:              dry
   main-is:             Main.hs
-  ghc-options:         -fwrite-ide-info -hiedir "."
 
 test-suite test-hsreduce
   import:              dry

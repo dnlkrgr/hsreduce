@@ -5,12 +5,11 @@ module Util where
 
 import Control.Monad.State.Strict
 import Data.Data
-import Data.Aeson (FromJSON, decode)
+import Data.Aeson (decode)
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.List (isPrefixOf)
 import Data.Maybe
 import qualified Data.Text.IO as TIO (writeFile)
-import qualified Data.Text as T
 import Ormolu.Parser.Pragma as OPP (Pragma (PragmaLanguage))
 import Ormolu.Parser.Result as OPR (ParseResult, prExtensions, prParsedSource)
 import Ormolu.Printer (printModule)
@@ -27,7 +26,7 @@ testAndUpdateState newOrmolu = testAndUpdateStateFlex newOrmolu () ()
 
 testAndUpdateStateFlex :: OPR.ParseResult -> a -> a -> StateT ReduceState IO a
 testAndUpdateStateFlex newOrmolu a b = do
-  oldState@(ReduceState test sourceFile oldOrmolu) <- get
+  oldState@(ReduceState test sourceFile _) <- get
   liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
   liftIO (runTest test)
     >>= \case
@@ -47,9 +46,9 @@ runTest test = do
       Nothing -> do
         errorPrint "runTest: timed out"
         return Uninteresting
-      Just (exitCode, stdout, stderr) ->
+      Just (exitCode, _, _) ->
         case exitCode of
-          ExitFailure errCode -> return Uninteresting
+          ExitFailure _ -> return Uninteresting
           ExitSuccess -> return Interesting
 
 changeExports :: OPR.ParseResult -> ([LIE GhcPs] -> [LIE GhcPs]) -> OPR.ParseResult
@@ -74,8 +73,8 @@ changeDecls oldOrmolu f =
   in oldOrmolu { prParsedSource = L moduleLoc oldModule { hsmodDecls = newDecls }}
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-runGhc :: FilePath -> FilePath -> OPR.ParseResult -> GhcMode -> IO (Maybe [BindingName])
-runGhc test sourceFile oldOrmolu ghcMode = do
+runGhc :: FilePath -> OPR.ParseResult -> GhcMode -> IO (Maybe [BindingName])
+runGhc sourceFile oldOrmolu ghcMode = do
   -- BUG: Ormolu is printing type level lists wrong, example: Unify (p n _ 'PTag) a' = '[ 'Sub n a']
   TIO.writeFile sourceFile (printModule oldOrmolu)
   let extensions = prExtensions oldOrmolu

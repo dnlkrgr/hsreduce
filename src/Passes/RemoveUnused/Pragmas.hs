@@ -1,6 +1,6 @@
 module Passes.RemoveUnused.Pragmas where
 
-import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource, prExtensions)
+import Ormolu.Parser.Result as OPR (ParseResult, prExtensions)
 import Ormolu.Parser.Pragma as OPP (Pragma(..))
 import Ormolu.Printer (printModule)
 import Control.Monad.State.Strict
@@ -20,14 +20,12 @@ reduce test sourceFile oldOrmolu = do
 tryAllPragmas :: OPP.Pragma -> StateT ReduceState IO ()
 tryAllPragmas pragmaToTry@(PragmaLanguage ss)
     | length ss == 1 = tryToRemovePragma pragmaToTry
-    | otherwise = do
-        ReduceState test sourceFile oldOrmolu <- get
-        traverse_ tryLanguagePragma ss
+    | otherwise = traverse_ tryLanguagePragma ss
 tryAllPragmas pragmaToTry = tryToRemovePragma pragmaToTry
 
 tryToRemovePragma :: OPP.Pragma -> StateT ReduceState IO ()
 tryToRemovePragma pragmaToTry = do
-  ReduceState test sourceFile oldOrmolu <- get
+  oldOrmolu <- _ormolu <$> get
   let oldPragmas = prExtensions oldOrmolu
       newOrmolu = oldOrmolu { prExtensions = filter (/= pragmaToTry) oldPragmas }
   testAndUpdateState newOrmolu

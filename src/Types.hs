@@ -5,9 +5,9 @@ module Types where
 import Ormolu.Parser.Result as OPR
 import Data.Aeson
 import GHC.Generics (Generic)
-import Data.ByteString.Lazy.Char8 (pack)
-import Data.List (isPrefixOf)
-import HsSyn
+import Data.ByteString.Lazy.Char8 ()
+import Data.List ()
+import HsSyn()
 
 data GhcMode = Binds | Imports
 

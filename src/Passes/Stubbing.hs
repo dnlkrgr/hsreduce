@@ -14,7 +14,6 @@ import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import Types
 import Util
-import Data.Data
 import qualified Data.Text as T
 
 -- | run a pass on the old module and return the new one if it's interesting
@@ -32,7 +31,7 @@ reduce test sourceFile oldOrmolu = do
 -- | change an expression to `undefined`
 expr2Undefined :: HsExpr GhcPs -> LHsExpr GhcPs -> StateT ReduceState IO (LHsExpr GhcPs)
 expr2Undefined myUndefined oldExpr@(L l2 _) = do
-  ReduceState test sourceFile oldOrmolu <- get
+  oldOrmolu <- _ormolu <$> get
   let oldModule = prParsedSource oldOrmolu
       newExpr  = L l2 myUndefined
       newModule = everywhereT (mkT (overwriteExprAtLoc (l2, newExpr))) oldModule

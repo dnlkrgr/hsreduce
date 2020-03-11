@@ -1,21 +1,12 @@
 { nixpkgs ? import <nixpkgs> {}, compiler ? "ghc881", doBenchmark ? false }:
 
 let
-  #pkgs = let
-  #  hostPkgs = import <nixpkgs> {};
-  #  pinnedVersion = hostPkgs.lib.importJSON ./nixpkgs-version.json;
-  #  pinnedPkgs = hostPkgs.fetchFromGitHub {
-  #    owner = "NixOS";
-  #    repo = "nixpkgs-channels";
-  #    inherit (pinnedVersion) rev sha256;
-  #  };
   pkgs = import (builtins.fetchGit {
     name ="nixos-20.03-small";
     url = https://github.com/nixos/nixpkgs-channels/;
     ref = "nixos-20.03-small";
     rev = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
   }) {};
-  # pkgs = nixpkgs;
 
   f = { mkDerivation, base, ghc, hashable, haskell-names
       , haskell-src-exts, stdenv, syb, text, mtl, transformers
@@ -44,5 +35,4 @@ let
   drv = variant (haskellPackages.callPackage f {});
 
 in
-
   if pkgs.lib.inNixShell then drv.env else drv
