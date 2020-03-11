@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Passes.RemoveUnused.Exports where
 
 import Control.Monad.State.Strict

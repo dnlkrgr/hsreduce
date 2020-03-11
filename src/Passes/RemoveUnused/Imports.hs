@@ -1,7 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE Rank2Types #-}
-
 module Passes.RemoveUnused.Imports where
 
 import Control.Monad.State.Strict

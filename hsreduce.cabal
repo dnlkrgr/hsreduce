@@ -25,25 +25,30 @@ common dry
                      , mtl
                      , ormolu
                      , process
+                     , random
                      , syb
                      , temporary
                      , text
-                     , transformers
-                     , random
                      , time
+                     , transformers
   hs-source-dirs:      src
                      , test
-  ghc-options:       -Wall -fwrite-ide-info -hiedir "."
+  ghc-options:       -Wall
+  default-extensions:  DeriveGeneric
+                       LambdaCase
+                       PatternSynonyms
+                       Rank2Types  
+                       TypeFamilies
 
 
 library hsreduce-internal
   import:              dry
   exposed-modules:     Reduce
-                       Passes.Stubbing
                        Passes.RemoveUnused.Decls
-                       Passes.RemoveUnused.Pragmas
-                       Passes.RemoveUnused.Imports
                        Passes.RemoveUnused.Exports
+                       Passes.RemoveUnused.Imports
+                       Passes.RemoveUnused.Pragmas
+                       Passes.Stubbing
                        Types
                        Util
 
