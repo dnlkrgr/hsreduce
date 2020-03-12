@@ -25,8 +25,6 @@ reduce test sourceFile oldOrmolu = do
             (traverse (removeUnusedImport unusedBindingNames) oldImports)
             (ReduceState test sourceFile oldOrmolu)
 
-pattern ImportName :: forall l pass. ModuleName -> GenLocated l (ImportDecl pass)
-pattern ImportName iterName <- L _ (ImportDecl _ _ (L _ iterName) _ _ _ _ _ _ _)
 
 removeUnusedImport :: [BindingName] -> LImportDecl GhcPs -> StateT ReduceState IO ()
 removeUnusedImport unusedBindingNames (ImportName importName)
@@ -37,3 +35,6 @@ removeUnusedImport unusedBindingNames (ImportName importName)
   | otherwise = return ()
 removeUnusedImport _ (L _ (XImportDecl _)) = return ()
 removeUnusedImport _ (L _ ImportDecl {}) = return ()
+
+pattern ImportName :: forall l pass. ModuleName -> GenLocated l (ImportDecl pass)
+pattern ImportName iterName <- L _ (ImportDecl _ _ (L _ iterName) _ _ _ _ _ _ _)

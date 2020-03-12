@@ -33,7 +33,7 @@ common dry
                      , transformers
   hs-source-dirs:      src
                      , test
-  ghc-options:       -Wall
+  ghc-options:         -Wall
   default-extensions:  DeriveGeneric
                        LambdaCase
                        PatternSynonyms

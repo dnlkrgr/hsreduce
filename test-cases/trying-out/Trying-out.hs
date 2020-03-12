@@ -3,6 +3,8 @@
 {-# language Rank2Types, RankNTypes #-}
 module TryingOut () where 
 
+import Data.Data (gmapT)
+
 data T = T {-# UNPACK #-} !Float
 
 data Dumb = Dumb | AlsoDumb
@@ -10,7 +12,9 @@ data Dumb = Dumb | AlsoDumb
 data DumbProduct = StillDumb Int String
 
 main :: IO ()
-main = return ()
+main = do
+  let arst = myFun Nothing
+  return ()
 
 myFun :: Maybe Int -> Int
 myFun (Just y) = 

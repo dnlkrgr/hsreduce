@@ -4,12 +4,14 @@ import Control.Monad.State.Strict
 import qualified Data.Text as T
 import Debug.Trace
 import HsSyn
+import SrcLoc
+import TcEvidence
+import CoreSyn
+import Var
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import Outputable (ppr, showSDocUnsafe)
-import SrcLoc (GenLocated (..), Located, unLoc)
 import BasicTypes
-import ForeignCall
 import Types
 import Util
 
@@ -24,23 +26,19 @@ reduce test sourceFile oldOrmolu = do
       Just unusedBindingNames -> do
         debugPrint $ "unused binding names: " ++ show unusedBindingNames
         let allDecls = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
+            usedDecls = filter (maybe False (`notElem` unusedBindingNames) . nameAccessor) allDecls
         _ormolu
           <$> execStateT
-            (traverse (removeUnusedDecl unusedBindingNames) allDecls)
+            (traverse (removeUnusedDecl unusedBindingNames) usedDecls)
             (ReduceState test sourceFile oldOrmolu)
 
-pattern FunDecl :: forall l p. l -> SrcLoc.Located (IdP p) -> GenLocated l (HsDecl p)
-pattern FunDecl declLoc funId <- L declLoc (ValD _ (FunBind _ funId _ _ _))
+nameAccessor :: LHsDecl GhcPs -> Maybe String
+nameAccessor (SimplFunDecl funId) = Just . showSDocUnsafe . ppr $ funId
+nameAccessor (SimplTypeSigDecl [funId]) = Just . showSDocUnsafe . ppr $ funId
+nameAccessor (SimplDataDecl tyId) = Just . showSDocUnsafe . ppr $ tyId
+nameAccessor (SimplPatSyn synId) = Just . showSDocUnsafe . ppr $ synId
+nameAccessor _ = Nothing
 
-pattern TypeSigDecl :: forall l p. l -> [SrcLoc.Located (IdP p)] -> LHsSigWcType p -> GenLocated l (HsDecl p)
-pattern TypeSigDecl declLoc funIds sigWctype <- L declLoc (SigD _ (TypeSig _ funIds sigWctype))
-
-pattern TypeSigDeclX :: forall p l. (XSigD p ~ NoExt, XTypeSig p ~ NoExt) => l -> [Located (IdP p)] -> LHsSigWcType p -> GenLocated l (HsDecl p)
-pattern TypeSigDeclX declLoc funIds sigWctype = L declLoc (SigD NoExt (TypeSig NoExt funIds sigWctype))
-
-pattern TypeClassDecl :: forall l p. l -> Located (IdP p) -> LHsQTyVars p -> BasicTypes.LexicalFixity -> NewOrData -> LHsContext p -> Maybe (Located ForeignCall.CType) -> Maybe (LHsKind p) -> [LConDecl p] -> HsDeriving p -> GenLocated l (HsDecl p)
-pattern TypeClassDecl declLoc tyId tyVars tyFixity nd ctxt cType kindSig constructors derivs <-
-  (L declLoc (TyClD _ (DataDecl _ tyId tyVars tyFixity (HsDataDefn _ nd ctxt cType kindSig constructors derivs))))
 
 -- | remove:
 -- - unused function bindings with their type signatures
@@ -48,9 +46,9 @@ pattern TypeClassDecl declLoc tyId tyVars tyFixity nd ctxt cType kindSig constru
 -- - data types without constructors
 removeUnusedDecl :: [BindingName] -> LHsDecl GhcPs -> StateT ReduceState IO ()
 -- TODO: iwie ist das unschön, dass hier mehr gemacht wird, als nur die value decl zu löschen
-removeUnusedDecl unusedBindingNames (FunDecl declLoc funId) = do
+removeUnusedDecl unusedBindingNames (FunDecl declLoc funId matchesLoc funMatches mgOrigin funWrapper funTick) = do
   oldOrmolu <- _ormolu <$> get
-  when (showSDocUnsafe (ppr $ unLoc funId) `elem` unusedBindingNames) $ do
+  if showSDocUnsafe (ppr $ unLoc funId) `elem` unusedBindingNames then do
     debugPrint $ "looking at function binding: " ++ (showSDocUnsafe . ppr . unLoc $ funId)
     let newOrmolu =
           changeDecls
@@ -61,7 +59,7 @@ removeUnusedDecl unusedBindingNames (FunDecl declLoc funId) = do
                     -- TODO: check if this is working properly
                     TypeSigDecl iterLoc funIds sigWctype ->
                       let newFunIds = filter ((`notElem` unusedBindingNames) . showSDocUnsafe . ppr . unLoc) funIds
-                       in TypeSigDeclX iterLoc newFunIds sigWctype
+                      in  TypeSigDeclX iterLoc newFunIds sigWctype
                     _ -> iterDecl
                 )
                 . filter
@@ -72,19 +70,18 @@ removeUnusedDecl unusedBindingNames (FunDecl declLoc funId) = do
                   )
             )
     testAndUpdateState newOrmolu
-removeUnusedDecl unusedBindingNames (TypeClassDecl declLoc tyId tyVars tyFixity nd ctxt cType kindSig constructors derivs) = do
+  else do
+    let newMatches = 
+          filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") funMatches 
+        newDecl = FunDecl declLoc funId matchesLoc newMatches mgOrigin funWrapper funTick
+        newOrmolu = changeDecls oldOrmolu (map (\(L iterLoc iterDecl) -> if iterLoc == declLoc then newDecl else L iterLoc iterDecl))
+    testAndUpdateState newOrmolu
+removeUnusedDecl unusedBindingNames (L declLoc (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
   oldOrmolu <- _ormolu <$> get
-  let newConstructors = filter (constructorIsUsed unusedBindingNames) constructors
-      newDecl =
-        TyClD
-          NoExt
-          ( DataDecl
-              NoExt
-              tyId
-              tyVars
-              tyFixity
-              (HsDataDefn NoExt nd ctxt cType kindSig newConstructors derivs)
-          )
+  let constructors     = dd_cons oldDataDefn
+      construcorsInUse = filter (constructorIsUsed unusedBindingNames) constructors
+  newConstructors <- traverse simplifyGADTs construcorsInUse
+  let newDecl = TyClD NoExt oldDecl{ tcdDataDefn = oldDataDefn{ dd_cons = newConstructors}}
       newOrmolu =
         changeDecls
           oldOrmolu
@@ -94,26 +91,61 @@ removeUnusedDecl unusedBindingNames (TypeClassDecl declLoc tyId tyVars tyFixity 
           )
   testAndUpdateState newOrmolu
 -- TODO: more fine granular handling of instance decls
-removeUnusedDecl _ (L declLoc (InstD _ _)) = do
-  oldOrmolu <- _ormolu <$> get
-  let newOrmolu = changeDecls oldOrmolu (filter (\(L iterLoc _) -> iterLoc /= declLoc))
-  testAndUpdateState newOrmolu
-removeUnusedDecl _ (L declLoc (TyClD _ ClassDecl {})) = do
+removeUnusedDecl _ (L declLoc _) = do
   ReduceState _ _ oldOrmolu <- get
   let newOrmolu = changeDecls oldOrmolu (filter (\(L iterLoc _) -> iterLoc /= declLoc))
   testAndUpdateState newOrmolu
-removeUnusedDecl _ _ = return ()
 
-pattern H98Decl :: forall l pass. IdP pass -> GenLocated l (ConDecl pass)
-pattern H98Decl rdrName <- L _ (ConDeclH98 _ (L _ rdrName) _ _ _ _ _)
+simplifyGADTs :: LConDecl GhcPs -> StateT ReduceState IO (LConDecl GhcPs)
+simplifyGADTs decl@(L declLoc gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ (L tyLoc conTy) _)) = do
+  liftIO $ putStrLn $ "conTy: " ++ showSDocUnsafe (ppr conTy)
+  -- delete forall
+  let newDecl = L declLoc gadtDecl{ con_forall = L forallLoc False}
+  L l2 newDecl2 <- tryNewDecl decl newDecl
+  -- delete context
+  let newDecl3 = L declLoc newDecl2{ con_mb_cxt = Nothing}
+  tryNewDecl (L l2 newDecl2) newDecl3
+simplifyGADTs d = return d
 
-pattern GADTDecl :: forall l pass. [Located (IdP pass)] -> GenLocated l (ConDecl pass)
-pattern GADTDecl names <- L _ (ConDeclGADT _ names _ _ _ _ _ _)
+tryNewDecl :: LConDecl GhcPs -> LConDecl GhcPs -> StateT ReduceState IO (LConDecl GhcPs)
+tryNewDecl oldDecl@(L declLoc _) newDecl = do
+  oldOrmolu <- _ormolu <$> get
+  let oldModule = prParsedSource oldOrmolu
+      newModule = everywhereT (mkT (overwriteAtLoc declLoc newDecl)) oldModule
+  testAndUpdateStateFlex (oldOrmolu{ prParsedSource = newModule}) oldDecl newDecl
 
 -- TODO: check what to do in 3rd case
 constructorIsUsed :: [String] -> LConDecl GhcPs -> Bool
 constructorIsUsed unusedBindingNames (H98Decl rdrName) = (showSDocUnsafe . ppr $ rdrName) `notElem` unusedBindingNames
 constructorIsUsed unusedBindingNames (GADTDecl names) =
   let result = all (\(L _ rdrName) -> (showSDocUnsafe . ppr $ rdrName) `notElem` unusedBindingNames) names
-   in traceShow (if not result then "constructor " ++ unwords (map (showSDocUnsafe . ppr) names) ++ "is used: " ++ show result else []) result
+   in traceShow (if not result then "Is constructor " ++ unwords (map (showSDocUnsafe . ppr) names) ++ " used? " ++ show result else []) result
 constructorIsUsed _ _ = True
+
+pattern SimplFunDecl :: forall l p. IdP p -> GenLocated l (HsDecl p)
+pattern SimplFunDecl funId <- L _ (ValD _ (FunBind _ (L _ funId) _ _ _))
+
+pattern SimplTypeSigDecl :: forall l p. [Located (IdP p)] -> GenLocated l (HsDecl p)
+pattern SimplTypeSigDecl funIds <- L _ (SigD _ (TypeSig _ funIds _))
+
+pattern SimplDataDecl :: forall l p. Located (IdP p) -> GenLocated l (HsDecl p)
+pattern SimplDataDecl tyId <- L _ (TyClD _ (DataDecl _ tyId _ _ _))
+
+pattern SimplPatSyn :: forall l p. IdP p -> GenLocated l (HsDecl p)
+pattern SimplPatSyn synId <- L _ (TyClD _ (SynDecl _ (L _ synId) _ _ _))
+
+pattern FunDecl :: forall p l. (XFunBind p p ~ NoExt, XValD p ~ NoExt, XMG p (LHsExpr p) ~ NoExt) => l -> Located (IdP p) -> SrcLoc.SrcSpan -> [LMatch p (LHsExpr p)] -> Origin -> TcEvidence.HsWrapper -> [CoreSyn.Tickish Var.Id] -> GenLocated l (HsDecl p)
+pattern FunDecl declLoc funId matchesLoc funMatches mgOrigin funWrapper funTick = 
+  L declLoc (ValD NoExt (FunBind NoExt funId (MG NoExt (L matchesLoc funMatches) mgOrigin) funWrapper funTick))
+
+pattern TypeSigDecl :: forall l p. l -> [SrcLoc.Located (IdP p)] -> LHsSigWcType p -> GenLocated l (HsDecl p)
+pattern TypeSigDecl declLoc funIds sigWctype <- L declLoc (SigD _ (TypeSig _ funIds sigWctype))
+
+pattern TypeSigDeclX :: forall p l. (XSigD p ~ NoExt, XTypeSig p ~ NoExt) => l -> [Located (IdP p)] -> LHsSigWcType p -> GenLocated l (HsDecl p)
+pattern TypeSigDeclX declLoc funIds sigWctype = L declLoc (SigD NoExt (TypeSig NoExt funIds sigWctype))
+
+pattern H98Decl :: forall l pass. IdP pass -> GenLocated l (ConDecl pass)
+pattern H98Decl rdrName <- L _ (ConDeclH98 _ (L _ rdrName) _ _ _ _ _)
+
+pattern GADTDecl :: forall l pass. [Located (IdP pass)] -> GenLocated l (ConDecl pass)
+pattern GADTDecl names <- L _ (ConDeclGADT _ names _ _ _ _ _ _)

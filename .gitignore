@@ -40,3 +40,4 @@ output.txt
 error.txt
 *.swp
 *.hie
+*_hsreduce.hs

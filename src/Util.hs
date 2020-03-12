@@ -1,6 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE Rank2Types #-}
-
 module Util where
 
 import Control.Monad.State.Strict
@@ -20,6 +17,11 @@ import System.Timeout
 import Types
 import HsSyn
 import SrcLoc
+
+overwriteAtLoc :: SrcSpan -> Located a -> Located a -> Located a
+overwriteAtLoc loc newValue oldValue@(L oldLoc _)
+  | loc == oldLoc = newValue
+  | otherwise = oldValue
 
 testAndUpdateState :: OPR.ParseResult -> StateT ReduceState IO ()
 testAndUpdateState newOrmolu = testAndUpdateStateFlex newOrmolu () ()

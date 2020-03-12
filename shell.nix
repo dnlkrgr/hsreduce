@@ -10,7 +10,8 @@ let
 
   f = { mkDerivation, base, ghc, hashable, haskell-names
       , haskell-src-exts, stdenv, syb, text, mtl, transformers
-      , bytestring, temporary, filepath, directory, ghc-paths, ghc-lib-parser, aeson, random, time, ormolu
+      , bytestring, temporary, filepath, directory, ghc-paths
+      , ghc-lib-parser, aeson, random, time, ormolu
       }:
       mkDerivation {
         pname = "hsreduce";
@@ -19,7 +20,9 @@ let
         isLibrary = false;
         isExecutable = true;
         executableHaskellDepends = [
-          base ghc hashable haskell-names haskell-src-exts syb text mtl transformers bytestring temporary filepath directory ghc-lib-parser aeson random time ormolu
+          base ghc hashable haskell-names haskell-src-exts syb text 
+          mtl transformers bytestring temporary filepath directory 
+          ghc-lib-parser aeson random time ormolu
         ];
         homepage = "dnlkrgr.com";
         description = "Minimizing Haskell programs for easier debugging of GHC bugs";

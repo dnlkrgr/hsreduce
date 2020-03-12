@@ -35,17 +35,9 @@ expr2Undefined myUndefined oldExpr@(L l2 _) = do
   oldOrmolu <- _ormolu <$> get
   let oldModule = prParsedSource oldOrmolu
       newExpr = L l2 myUndefined
-      newModule = everywhereT (mkT (overwriteExprAtLoc (l2, newExpr))) oldModule
+      newModule = everywhereT (mkT (overwriteAtLoc l2 newExpr)) oldModule
       newOrmolu = oldOrmolu {prParsedSource = newModule}
   testAndUpdateStateFlex newOrmolu oldExpr newExpr
-
--- | overwrite expression at a certain location
-overwriteExprAtLoc :: (SrcSpan, LHsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
-overwriteExprAtLoc (loc, newExpr) oldMatch@(L oldLoc _)
-  | loc == oldLoc = newExpr
-  | otherwise = oldMatch
-
--- TODO: build up the right side of undefined manually
 
 -- | getting undefined as an expression
 getUndefined :: IO (Maybe (HsExpr GhcPs))

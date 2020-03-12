@@ -34,34 +34,35 @@
   - 
 
 ## Passes to implement
-* Stubbing
-  - [ ] gestubbte bindings: deren Vorkommen stubben
-    - [ ] dann vllt: über die Decls gehen und schauen, ob die rechte Seite pretty-printed gleich "undefined" ist und dann alle Benutzungen stubben
-    - braucht man wohl nicht:
-      - [ ] dafür muss aufgenommen werden, was alles gestubbt wurde
-        - [ ] iwie alles in die State-Monade packen
-        - [ ] (listOfStubbedIds :: Maybe [String]) zum State hinzufügen
-  - [x] HsExpr: place undefined into every possible HsExpr
 * Remove Unused
   - [ ] Decls
+    - [ ] GADTs
+      * [ ] forall weg
+      * [ ] Typvariablen durch () ersetzen
+      * [ ] Typkontext / Constraints weg
     - [ ] iwie das Filtern von Decls schöner machen, einmal filter und für alle Decls kurz den Check implementieren oder iwie "Inversion of Control" hinkriegen
-    - [ ] Instance Decls entfernen
-  - [ ] unnötige Methoden / ganze Instanzen entfernen
-        => schauen ob rechte Seite mit ppr == "undefined" -> Match entfernen
+    - [x] Datendeklarationen
+      * [x] unbenutzte Konstruktoren löschen
+      * [x] Data Decls ohne Konstruktoren löschen
+    - [x] unbenutzte Function Bindings
+    - [x] sonstige Decls versuchen zu entfernen
   - [ ] Imports
     - [ ] Anzahl importierter Funktionen minimieren
+      * sollte mit "-Wunused-imports" nicht so schwer sein, das kann es so fein erkennen
+    - [ ] explizites import all
+      * [ ] Konvertieren zu explizitem import all
+    - [ ] alle imports qualified machen
     - [x] unused imports entfernen
   - [ ] Exports
     - [ ] Handling von impliziten export all
+      * [ ] Konvertieren zu explizitem export all
     - [x] unused exports entfernen
-  - [x] Data Decls ohne Konstruktoren
+    * Beobachtung: alle Exports entfernen ist nicht beste Strategie, siehe #14270
   - [] Pragmas
     - [ ] UNPACK Pragmas
     - [ ] INLINE Pragmas
     - [ ] other Pragmas
     - [x] LANGUAGE Pragmas
-  - [x] unused Bindings entfernen
-  - [x] Data Decl: Konstruktoren entfernen
 * Typsignaturen vereinfachen
   - [ ] unnötige Parameter weg
   - [ ] Typparameter durch Unit / () ersetzen
@@ -92,11 +93,16 @@
   - [ ] renaming constants
   - [ ] renaming data declarations
   - [ ] renaming data declarations
+* Stubbing
+  - [x] HsExpr: place undefined into every possible HsExpr
+  - [x] Matches mit RHS = undefined entfernen
 
 
 ## Reporting to implement
 * general info
-  - [ ] bytes / minute
+  - [ ] Performance
+    - [ ] bytes / minute 
+    - [ ] total % reduced
 * Passes
   - [ ] how often a pass succeeded
   - [ ] total number of run tests during a pass

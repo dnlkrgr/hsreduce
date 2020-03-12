@@ -49,7 +49,7 @@ hsreduce test filePath = do
         debugPrint $ "Old size: " ++ show oldSize
         debugPrint $ "Reduced file size: " ++ show newSize
         --putStrLn $ "Reduced file by " ++ (show . round $ ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100)) ++ "%"
-        TIO.writeFile (fileName ++ ".rhs") (printModule newOrmolu)
+        TIO.writeFile (fileName ++ "_hsreduce.hs") (printModule newOrmolu)
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
 allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
