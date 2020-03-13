@@ -88,7 +88,8 @@ runGhc sourceFile oldOrmolu ghcMode = do
     Just languagePragmas -> do
       --debugPrint $ "Running `ghc -Wunused-binds -ddump-json` on file: " ++ sourceFile
       let (dirName, fileName) = splitFileName sourceFile
-          command = "ghc -Wunused-" ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) <$> languagePragmas) ++ " " ++ fileName
+          command = 
+            "ghc -Wunused-" ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) <$> languagePragmas) ++ " " ++ fileName
       timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell command) {cwd = Just dirName}) "")
         >>= \case
           Nothing -> do
@@ -125,8 +126,6 @@ runGhc sourceFile oldOrmolu ghcMode = do
                           Binds   -> "binds"
                           Imports -> "imports"
 
-
- 
 
 mkT :: (Typeable a, Typeable b) => (b -> b) -> a -> a
 mkT f = fromMaybe id (cast f)
