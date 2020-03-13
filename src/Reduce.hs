@@ -49,7 +49,7 @@ hsreduce test filePath = do
             ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
         debugPrint $ "Old size: " ++ show oldSize
         debugPrint $ "Reduced file size: " ++ show newSize
-        putStrLn $ "Reduced file by " ++ (show ratio ) ++ "%"
+        putStrLn $ "Reduced file by " ++ show ratio ++ "%"
         TIO.writeFile (fileName ++ "_hsreduce.hs") (printModule newOrmolu)
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
@@ -57,7 +57,7 @@ allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
 allPassesOnce test filePath oldOrmolu =
   foldM (\ormolu pass -> pass test filePath ormolu) oldOrmolu allPasses
   where
-    allPasses = [Pragmas.reduce, Imports.reduce, Exports.reduce, Decls.reduce, Stubbing.reduce]
+    allPasses = [Stubbing.reduce, Pragmas.reduce, Imports.reduce, Exports.reduce, Decls.reduce]
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- different from the old one

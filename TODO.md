@@ -28,18 +28,47 @@
 
 ## Ausarbeitung
 * Passes
-  - was gab es Anfangs für Probleme? wie wurden die behoben?
+  - was gab es anfangs für Probleme? wie wurden die behoben?
     * welche Änderungen musste man durchführen, um die Pässe zu verbessern?
   - welche Feinheiten sind zu beachten?
-  - 
+  - welche syntaktischen Elemente sind "wieviel wert"?
+  - wie effektiv sind die Pässe?
+  - was waren Herausforderungen für Implementierung der Pässe?
 
 ## Passes to implement
+* Typsignaturen vereinfachen
+  - [x] Unit / ()
+    - [ ] Typparameter durch Unit / () ersetzen + Benutzungen löschen
+    - [x] Typparameter durch Unit / () ersetzen
+  - [ ] forall
+    - [ ] Variablen aus forall entfernen
+    - [x] forall weg
+  - [ ] Kontexte / Constraints
+    - [ ] Variablen aus Kontext entfernen
+    - [x] Kontexte / Constraints entfernen
+  - [ ] unnötige Parameter weg
+    * [ ] dann auch in allen Verwendungen löschen
+* Typen vereinfachen / Typaliase
+  - [ ] unnötige Typaliase weg
+  - [ ] Typ mit 1 Konstruktor: kann gleich Typalias sein, oder?
+  - [ ] Typaliase reduzieren / minimieren
+  - [ ] Typaliase inlinen
+  - [ ] deriving-Clause minimieren
+  - [ ] Produkttypen minimieren
+* Parameter
+  - [ ] unbenutzte Parameter zu `_` abändern oder gleich löschen
+    * [ ] -Wunused-params benutzen
+  - [ ] `_` kommt anstatt Parameter vor
+    * [ ] Parameter entfernen
+    * [ ] aus Signatur löschen
+    * [ ] aus Matches löschen
+    * [ ] aus Verwendungen löschen
 * Remove Unused
   - [ ] Decls
     - [ ] GADTs
-      * [ ] forall weg
       * [ ] Typvariablen durch () ersetzen
-      * [ ] Typkontext / Constraints weg
+      * [x] forall weg
+      * [x] Typkontext / Constraints weg
     - [ ] iwie das Filtern von Decls schöner machen, einmal filter und für alle Decls kurz den Check implementieren oder iwie "Inversion of Control" hinkriegen
     - [x] Datendeklarationen
       * [x] unbenutzte Konstruktoren löschen
@@ -63,22 +92,10 @@
     - [ ] INLINE Pragmas
     - [ ] other Pragmas
     - [x] LANGUAGE Pragmas
-* Typsignaturen vereinfachen
-  - [ ] unnötige Parameter weg
-  - [ ] Typparameter durch Unit / () ersetzen
-  - [ ] forall weg
-  - [ ] Constraints entfernen
 * On the Project Level
   - [ ] Module mergen
   - [ ] Dependencies vendorn: nicht mehr als separate Dependency
   - [ ] cabal file: dependencies entfernen
-* Typen vereinfachen / Typaliase
-  - [ ] unnötige Typaliase weg
-  - [ ] Typ mit 1 Konstruktor: kann gleich Typalias sein, oder?
-  - [ ] Typaliase reduzieren / minimieren
-  - [ ] Typaliase inlinen
-  - [ ] deriving-Clause minimieren
-  - [ ] Produkttypen minimieren
 * Template haskell
   - [ ] TH: splices dumpen, gedumpte einfügen in HS-Datei und dann weiter reduzieren 
 * Misc
@@ -91,8 +108,7 @@
   - [ ] renaming functions
   - [ ] renaming parameters
   - [ ] renaming constants
-  - [ ] renaming data declarations
-  - [ ] renaming data declarations
+  - [ ] renaming data declarations / types
 * Stubbing
   - [x] HsExpr: place undefined into every possible HsExpr
   - [x] Matches mit RHS = undefined entfernen

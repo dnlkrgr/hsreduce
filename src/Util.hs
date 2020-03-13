@@ -18,10 +18,20 @@ import Types
 import HsSyn
 import SrcLoc
 
-overwriteAtLoc :: SrcSpan -> Located a -> Located a -> Located a
+tryNewValue :: Typeable a => Located a -> Located a -> StateT ReduceState IO (Located a)
+tryNewValue oldDecl@(L declLoc _) newValue = do
+  oldOrmolu <- _ormolu <$> get
+  let oldModule = prParsedSource oldOrmolu
+      newModule = everywhereT (mkT (overwriteAtLoc declLoc newValue)) oldModule
+  testAndUpdateStateFlex (oldOrmolu{ prParsedSource = newModule}) oldDecl newValue
+
+overwriteAtLoc :: SrcSpan   -- ^ loc:      location that should be updated
+               -> Located a -- ^ newValue: has to be second parameter because we use it at `(mkT (overwriteAtLoc declLoc newValue))`
+               -> Located a -- ^ oldValue
+               -> Located a
 overwriteAtLoc loc newValue oldValue@(L oldLoc _)
   | loc == oldLoc = newValue
-  | otherwise = oldValue
+  | otherwise     = oldValue
 
 testAndUpdateState :: OPR.ParseResult -> StateT ReduceState IO ()
 testAndUpdateState newOrmolu = testAndUpdateStateFlex newOrmolu () ()
@@ -35,7 +45,7 @@ testAndUpdateStateFlex newOrmolu a b = do
       Uninteresting -> return a
       Interesting -> do
         -- TODO: add information to change operation for better debugging messages
-        debugPrint "Change applied"
+        liftIO $ putStr "+"
         put (oldState {_ormolu = newOrmolu}) >> return b
 
 -- | run the interestingness test on a timeout of 30 seconds

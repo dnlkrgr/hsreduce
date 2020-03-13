@@ -1,12 +1,12 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeInType #-}
-module DataTypeableInternal (g) where
+module DataTypeableInternal where
 
 data TypeRep (a :: c) where
-  TrFun :: a -> TypeRep b -> TypeRep (a -> b)
+  TrFun :: TypeRep (() -> ())
 
 data IsApp c where
-  IsApp :: TypeRep e -> TypeRep f -> IsApp (e f)
+  IsApp :: TypeRep e -> IsApp (e ())
 
-g :: TypeRep a -> Maybe (IsApp a)
-g (TrFun _ _) = Just (IsApp undefined undefined)
+g :: TypeRep a -> IsApp a
+g TrFun = IsApp undefined 
