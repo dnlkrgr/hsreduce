@@ -202,5 +202,21 @@ while size(current) < size_at_start
     * method pass_clex :: rm-tok-pattern-4 worked 6 times and failed 2448 times
     * method pass_clex :: rename-toks worked 13 times and failed 36 times  
     * method pass_lines :: 0 worked 20 times and failed 199 times
+* test-cases/ticket15696_1: **68.6 %, 431 bytes**
+  * pass statistics:
+    * method pass_clex :: rm-toks-7 worked 1 times and failed 214 times
+    * method pass_clex :: rm-toks-11 worked 1 times and failed 203 times
+    * method pass_balanced :: square-inside worked 1 times and failed 1 times
+    * method pass_clex :: rm-toks-15 worked 1 times and failed 188 times
+    * method pass_balanced :: parens worked 1 times and failed 28 times
+    * method pass_blank :: 0 worked 1 times and failed 0 times
+    * method pass_balanced :: parens-only worked 1 times and failed 23 times
+    * method pass_clex :: rm-toks-3 worked 2 times and failed 229 times
+    * method pass_clex :: rm-toks-4 worked 2 times and failed 221 times
+    * method pass_clex :: rm-tok-pattern-4 worked 2 times and failed 1480 times
+    * method pass_clex :: rm-toks-2 worked 4 times and failed 235 times
+    * method pass_clex :: rm-toks-1 worked 5 times and failed 243 times
+    * method pass_clex :: rename-toks worked 8 times and failed 57 times
+    * method pass_lines :: 0 worked 16 times and failed 201 times
 
 ## structureshrink Performance
