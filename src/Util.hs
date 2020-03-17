@@ -17,20 +17,27 @@ import System.Timeout
 import Types
 import HsSyn
 import SrcLoc
+import Outputable
 
-tryNewValue :: Typeable a => Located a -> Located a -> StateT ReduceState IO (Located a)
-tryNewValue oldDecl@(L declLoc _) newValue = do
+oshow :: Outputable a => a -> String
+oshow = showSDocUnsafe . ppr
+
+lshow :: Outputable a => Located a -> String
+lshow = showSDocUnsafe . ppr . unLoc
+
+tryNewValue :: Typeable a => Located a -> a -> StateT ReduceState IO (Located a)
+tryNewValue oldDecl@(L loc _) newValue = do
   oldOrmolu <- _ormolu <$> get
   let oldModule = prParsedSource oldOrmolu
-      newModule = everywhereT (mkT (overwriteAtLoc declLoc newValue)) oldModule
-  testAndUpdateStateFlex (oldOrmolu{ prParsedSource = newModule}) oldDecl newValue
+      newModule = everywhereT (mkT (overwriteAtLoc loc newValue)) oldModule
+  testAndUpdateStateFlex (oldOrmolu{ prParsedSource = newModule}) oldDecl (L loc newValue)
 
 overwriteAtLoc :: SrcSpan   -- ^ loc:      location that should be updated
-               -> Located a -- ^ newValue: has to be second parameter because we use it at `(mkT (overwriteAtLoc declLoc newValue))`
+               -> a         -- ^ newValue: has to come before oldValue because we use it in a closure
                -> Located a -- ^ oldValue
                -> Located a
 overwriteAtLoc loc newValue oldValue@(L oldLoc _)
-  | loc == oldLoc = newValue
+  | loc == oldLoc = L loc newValue
   | otherwise     = oldValue
 
 testAndUpdateState :: OPR.ParseResult -> StateT ReduceState IO ()

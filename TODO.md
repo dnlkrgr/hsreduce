@@ -82,6 +82,8 @@
       - [x] unbenutzte Konstruktoren löschen
       - [x] Data Decls ohne Konstruktoren löschen
     - [x] unbenutzte Function Bindings
+      - Schwierigkeiten: wenn die Signatur nicht mitgelöscht wird, macht es keinen Sinn, nur das FunBind zu löschen
+      - wegen der nicht-funktionierenden Löschung sind dann andere decls noch lebendig
     - [x] sonstige Decls versuchen zu entfernen
   - Imports
     - [ ] Anzahl importierter Funktionen minimieren

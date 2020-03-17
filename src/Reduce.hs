@@ -57,7 +57,8 @@ allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
 allPassesOnce test filePath oldOrmolu =
   foldM (\ormolu pass -> pass test filePath ormolu) oldOrmolu allPasses
   where
-    allPasses = [Stubbing.reduce, Pragmas.reduce, Imports.reduce, Exports.reduce, Decls.reduce]
+    --allPasses = [Stubbing.reduce, Pragmas.reduce, Imports.reduce, Exports.reduce, Decls.reduce]
+    allPasses = [Imports.reduce, Exports.reduce, Pragmas.reduce, Decls.reduce, Stubbing.reduce]
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- different from the old one
