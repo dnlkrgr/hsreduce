@@ -60,7 +60,7 @@ runTest :: FilePath -> IO Interesting
 runTest test = do
   let (dirName, testName) = splitFileName test
   -- TODO: make timout duration configurable
-  timeout (10 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
+  timeout (20 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
     >>= \case
       Nothing -> do
         errorPrint "runTest: timed out"

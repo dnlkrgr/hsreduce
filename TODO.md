@@ -119,8 +119,17 @@
   - [ ] renaming constants
   - [ ] renaming data declarations / types
 - Stubbing
+  - [x] Matches mit GRHS == "undefined" entfernen
+  - [ ] Matches mit RHS == "undefined" weg
+  - [x] LGRHS: guards entfernen
+  - [ ] LGRHS: guards einzeln entfernen
   - [x] HsExpr: place undefined into every possible HsExpr
-  - [x] Matches mit RHS = undefined entfernen
+  - [x] HsType durch () ersetzen
+  - [x] where-Klauseln löschen
+  - [x] GADTs: forall und Kontext löschen
+  - [x] Case-Expressions mit nur einem Fall
+  - [x] if-then-else mit einem Fall == "undefined"
+
 
 ## Reporting to implement
 

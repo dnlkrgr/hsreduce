@@ -21,9 +21,11 @@ import System.Directory (copyFile, listDirectory)
 import System.FilePath.Posix ((</>), splitFileName)
 import System.IO.Temp (withTempDirectory)
 import Util
+import Data.Time
 
 hsreduce :: FilePath -> FilePath -> IO ()
 hsreduce test filePath = do
+  startTime <- utctDayTime <$> getCurrentTime
   fileContent <- TIO.readFile filePath
   snd <$> parseModule defaultConfig filePath (T.unpack fileContent)
     >>= \case
@@ -51,6 +53,8 @@ hsreduce test filePath = do
         debugPrint $ "Reduced file size: " ++ show newSize
         putStrLn $ "Reduced file by " ++ show ratio ++ "%"
         TIO.writeFile (fileName ++ "_hsreduce.hs") (printModule newOrmolu)
+  endTime <- utctDayTime <$> getCurrentTime
+  print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
 allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
