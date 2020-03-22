@@ -1,7 +1,7 @@
 {-# language LambdaCase #-}
 {-# language OverloadedStrings #-}
 {-# language Rank2Types, RankNTypes #-}
-module TryingOut () where 
+module TryingOut where 
 
 import Data.Data (gmapT)
 
@@ -29,3 +29,16 @@ myFun Nothing = 42
 
 instance Show Dumb where
   show Dumb = "Dumb"
+
+
+brst :: a -> a
+brst = undefined
+
+crst
+  | undefined > 0 = 3
+  | otherwise = undefined
+
+drst
+  | undefined > 0 = 3
+  | 2 < 3 = 4
+  | otherwise = undefined

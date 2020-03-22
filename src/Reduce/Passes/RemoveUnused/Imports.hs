@@ -28,11 +28,10 @@ reduce oldOrmolu = do
 
 removeImport :: LImportDecl GhcPs -> ReduceM ()
 removeImport (ImportName importName) = do
-    oldOrmolu <- _ormolu <$> get
-    let newOrmolu = 
-          changeImports oldOrmolu 
-                        (filter (\(ImportName iterName) -> importName /= iterName))
-    testAndUpdateState newOrmolu
+    changeImports 
+                  (filter (\(ImportName iterName) -> importName /= iterName))
+    . _ormolu <$> get
+  >>= testAndUpdateState
 removeImport _ = return ()
 
 removeUnusedImport :: [BindingName] -> LImportDecl GhcPs -> ReduceM ()

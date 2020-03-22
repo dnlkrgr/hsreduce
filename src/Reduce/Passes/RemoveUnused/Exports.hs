@@ -9,10 +9,9 @@ import SrcLoc
 import qualified Data.Text as T
 import Data.Maybe
 import Module
+import System.FilePath.Posix
 import Reduce.Types
 import Reduce.Util
-
--- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 
 reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
 reduce oldOrmolu = do
@@ -24,14 +23,18 @@ reduce oldOrmolu = do
       allDecls      = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
   case maybeExports of
     Nothing -> do
-      let oldExports = map fromJust . filter isJust . map (getName . unLoc) $ allDecls
-          newModName = 
+      sourceFile <- _sourceFile <$> get
+      let (_, modName) = takeWhile (/= '.') <$> splitFileName sourceFile
+          oldExports   = map fromJust . filter isJust . map (decl2Export . unLoc) $ allDecls
+          newModName   = 
             case maybeModName of 
-              Nothing    -> Just . L noSrcSpan . mkModuleName $ "Bug"
-              m@(Just _) -> m
+              Nothing -> Just . L noSrcSpan . mkModuleName $ modName
+              m -> m
           newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
-          newOrmolu = oldOrmolu { prParsedSource = L l newModule}
+          newOrmolu = oldOrmolu { prParsedSource = L l newModule }
       modify $ \s -> s { _ormolu = newOrmolu }
+      liftIO $ putStrLn $ concatMap ((++ " ") . lshow) oldExports
+      -- TODO: if no exports were removed, turn it into Nothing again
       traverse_ removeUnusedExport oldExports
       _ormolu <$> get
     Just (L _ oldExports) -> do
@@ -39,16 +42,15 @@ reduce oldOrmolu = do
           _ormolu <$> get
 
 removeUnusedExport :: LIE GhcPs -> ReduceM ()
-removeUnusedExport (L loc export) = do
-  liftIO $ putStrLn $ "trying: " ++ oshow export
-  oldOrmolu <- _ormolu <$> get
-  let newOrmolu = changeExports oldOrmolu (filter (\(L iterLoc _) -> loc /= iterLoc)) 
-  testAndUpdateState newOrmolu
+removeUnusedExport (L _ export) = do
+  liftIO $ putStrLn $ "\ntrying: " ++ oshow export
+  changeExports (filter ((/= oshow export) . oshow . unLoc)) . _ormolu <$> get
+  >>= testAndUpdateState
 
-getName :: HsDecl GhcPs -> Maybe (LIE GhcPs)
-getName (ValD _ (FunBind _ fId _ _ _))                     = Just . L noSrcSpan . IEVar NoExt      . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
-getName (TyClD _ (DataDecl _ dId _ _ _))                   = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ dId
-getName (TyClD _ (ClassDecl _ _ cId _ _ _ _ _ _ _ _))      = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ cId
-getName (TyClD _ (SynDecl _ sId _ _ _))                    = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ sId
-getName (TyClD _ (FamDecl _ (FamilyDecl _ _ fId _ _ _ _))) = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
-getName _ = Nothing
+decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)
+decl2Export (ValD _ (FunBind _ fId _ _ _))                     = Just . L noSrcSpan . IEVar NoExt      . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
+decl2Export (TyClD _ (DataDecl _ dId _ _ _))                   = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ dId
+decl2Export (TyClD _ (ClassDecl _ _ cId _ _ _ _ _ _ _ _))      = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ cId
+decl2Export (TyClD _ (SynDecl _ sId _ _ _))                    = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ sId
+decl2Export (TyClD _ (FamDecl _ (FamilyDecl _ _ fId _ _ _ _))) = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
+decl2Export _ = Nothing

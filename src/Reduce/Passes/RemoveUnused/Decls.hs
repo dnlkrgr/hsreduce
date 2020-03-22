@@ -37,46 +37,45 @@ reduce oldOrmolu = do
 -- | rmv unused decls whole
 -- for FunBinds: also delete the type signature
 rmvUnusedDecl :: [BindingName] -> LHsDecl GhcPs -> ReduceM Bool
-rmvUnusedDecl unusedBindingNames (L declLoc (SimplFun funId)) 
-  | lshow funId `elem` unusedBindingNames = do
-    oldOrmolu <- _ormolu <$> get
-    let newOrmolu =
-          changeDecls oldOrmolu 
+rmvUnusedDecl unusedBindingNames (L declLoc (SimplFunP funId)) 
+  | lshow funId `elem` unusedBindingNames =
+          changeDecls 
                       (filter (\(L iterLoc iterDecl) -> 
                         case iterDecl of
-                          SimplSig tyFunId -> 
+                          SimplSigP tyFunId -> 
                             ((`notElem` unusedBindingNames) . lshow) tyFunId
                           _ -> iterLoc /= declLoc))
-    testAndUpdateStateFlex newOrmolu False True
+          . _ormolu 
+          <$> get
+    >>= testAndUpdateStateFlex False True
   | otherwise = return False
 rmvUnusedDecl unusedBindingNames lDecl@(L _ decl) =
-  if maybe False ((`elem` unusedBindingNames) . lshow) . getName $ decl
+  if maybe False ((`elem` unusedBindingNames) . oshow) . getName $ decl
     then rmvDecl lDecl
     else return False
 
 -- | rmv decls whole
 rmvDecl :: LHsDecl GhcPs -> ReduceM Bool
-rmvDecl (L declLoc _) = do
-  oldOrmolu <- _ormolu <$> get
-  let newOrmolu = changeDecls oldOrmolu (filter (\(L iterLoc _) -> iterLoc /= declLoc))
-  testAndUpdateStateFlex newOrmolu False True
+rmvDecl (L declLoc _) =
+  changeDecls (filter (\(L iterLoc _) -> iterLoc /= declLoc)) . _ormolu <$> get
+  >>= testAndUpdateStateFlex False True 
 
 -- | rmv unused parts of decls
 rmvBinds :: Maybe [BindingName] -> LHsDecl GhcPs -> ReduceM ()
-rmvBinds (Just bns) dcl@(TypeSigDecl _ ids swt) = do
+rmvBinds (Just bns) dcl@(TypeSigDeclP _ ids swt) = do
   let newFunIds = filter ((`notElem` bns) . lshow) ids
   void $ tryNewValue dcl (TypeSigDeclX newFunIds swt)
-rmvBinds Nothing dcl@(TypeSigDecl _ ids swt) =
+rmvBinds Nothing dcl@(TypeSigDeclP _ ids swt) =
   foldM_ (\nDcl fId -> 
            let nIds = filter (/= fId) ids 
            in tryNewValue nDcl (TypeSigDeclX nIds swt)) 
          dcl 
          ids
-rmvBinds _ oldDecl@(L _ (FunDecl fid loc mtchs mo fw ft)) = do
+rmvBinds _ oldDecl@(L _ (FunDeclP fid loc mtchs mo fw ft)) = do
   let nMtchs = 
         filter (\(L _ (Match _ _ _ grhss)) -> 
           showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs 
-  void $ tryNewValue oldDecl (FunDecl fid loc nMtchs mo fw ft)
+  void $ tryNewValue oldDecl (FunDeclP fid loc nMtchs mo fw ft)
 rmvBinds mBns ldcl@(L _ (TyClD _ _)) =
   rmvCons mBns ldcl
 rmvBinds _ _ = return ()
@@ -100,46 +99,44 @@ rmvCons _ _ = return ()
 -- Left:  H98
 -- Right: GADT
 cons2String :: LConDecl GhcPs -> Either String [String]
-cons2String (H98Decl rdrName) = Left $ oshow rdrName
-cons2String (GADTDecl names) = Right $ map (oshow . unLoc) names
+cons2String (H98DeclP rdrName) = Left $ oshow rdrName
+cons2String (GADTDeclP names) = Right $ map (oshow . unLoc) names
 cons2String _ = Left ""
 
 isConstructorUsed :: [String] -> LConDecl GhcPs -> Bool
-isConstructorUsed unusedBindingNames (H98Decl rdrName) = oshow rdrName `notElem` unusedBindingNames
-isConstructorUsed unusedBindingNames (GADTDecl names) =
+isConstructorUsed unusedBindingNames (H98DeclP rdrName) = oshow rdrName `notElem` unusedBindingNames
+isConstructorUsed unusedBindingNames (GADTDeclP names) =
   all (\(L _ rdrName) -> oshow rdrName `notElem` unusedBindingNames) names
 isConstructorUsed _ _ = True
 
 -- TODO: what other decls make sense here?
-getName :: HsDecl GhcPs -> Maybe (Located (IdP GhcPs))
-getName (TyClD _ decl@ClassDecl{}) = Just $ tcdLName decl
-getName (TyClD _ decl@DataDecl{})  = Just $ tcdLName decl
-getName (TyClD _ decl@SynDecl{})   = Just $ tcdLName decl
-getName (SimplFun funId)           = Just funId
-getName (SimplSig funId)           = Just funId
+getName :: HsDecl GhcPs -> Maybe (IdP GhcPs)
+getName (TyClD _ d)      = Just . tcdName $ d
+getName (SimplFunP funId) = Just . unLoc $ funId
+getName (SimplSigP funId) = Just . unLoc $ funId
 getName _ = Nothing
 
 -- getName
-pattern SimplSig, SimplFun :: Located (IdP GhcPs) -> HsDecl GhcPs
-pattern SimplSig lFunId <- SigD _ (TypeSig _ [lFunId] _)
-pattern SimplFun lFunId <- ValD _ (FunBind _ lFunId _ _ _)
+pattern SimplSigP, SimplFunP :: Located (IdP GhcPs) -> HsDecl GhcPs
+pattern SimplSigP lFunId <- SigD _ (TypeSig _ [lFunId] _)
+pattern SimplFunP lFunId <- ValD _ (FunBind _ lFunId _ _ _)
 
 
 -- simplifyDecl
-pattern FunDecl :: Located (IdP GhcPs) -> SrcSpan -> [LMatch GhcPs (LHsExpr GhcPs)] -> Origin -> HsWrapper -> [Tickish Id] -> HsDecl GhcPs
-pattern FunDecl lFunId matchesLoc funMatches mgOrigin funWrapper funTick = 
+pattern FunDeclP :: Located (IdP GhcPs) -> SrcSpan -> [LMatch GhcPs (LHsExpr GhcPs)] -> Origin -> HsWrapper -> [Tickish Id] -> HsDecl GhcPs
+pattern FunDeclP lFunId matchesLoc funMatches mgOrigin funWrapper funTick = 
   ValD NoExt (FunBind NoExt lFunId (MG NoExt (L matchesLoc funMatches) mgOrigin) funWrapper funTick)
 
-pattern TypeSigDecl :: SrcSpan -> [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> LHsDecl GhcPs
-pattern TypeSigDecl declLoc funIds sigWctype <- L declLoc (SigD _ (TypeSig _ funIds sigWctype))
+pattern TypeSigDeclP :: SrcSpan -> [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> LHsDecl GhcPs
+pattern TypeSigDeclP declLoc funIds sigWctype <- L declLoc (SigD _ (TypeSig _ funIds sigWctype))
 
 pattern TypeSigDeclX :: [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> HsDecl GhcPs
 pattern TypeSigDeclX funIds sigWctype = SigD NoExt (TypeSig NoExt funIds sigWctype)
 
 
 -- isConstructorUsed
-pattern H98Decl :: IdP GhcPs -> LConDecl GhcPs
-pattern H98Decl rdrName <- L _ (ConDeclH98 _ (L _ rdrName) _ _ _ _ _)
+pattern H98DeclP :: IdP GhcPs -> LConDecl GhcPs
+pattern H98DeclP rdrName <- L _ (ConDeclH98 _ (L _ rdrName) _ _ _ _ _)
 
-pattern GADTDecl :: [Located (IdP GhcPs)] -> LConDecl GhcPs
-pattern GADTDecl names <- L _ (ConDeclGADT _ names _ _ _ _ _ _)
+pattern GADTDeclP :: [Located (IdP GhcPs)] -> LConDecl GhcPs
+pattern GADTDeclP names <- L _ (ConDeclGADT _ names _ _ _ _ _ _)

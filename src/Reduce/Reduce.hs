@@ -64,7 +64,7 @@ allPassesOnce :: OPR.ParseResult -> ReduceM OPR.ParseResult
 allPassesOnce oldOrmolu =
   foldM (&) oldOrmolu allPasses
   where
-    allPasses = [Imports.reduce, Pragmas.reduce, Exports.reduce, Decls.reduce, Stubbing.reduce]
+    allPasses = [Imports.reduce, Pragmas.reduce, Exports.reduce, Stubbing.reduce, Decls.reduce]
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- different from the old one

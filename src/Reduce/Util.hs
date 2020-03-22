@@ -1,5 +1,6 @@
 module Reduce.Util where
 
+import Debug.Trace
 import Control.Monad.State.Strict
 import Data.Data
 import Data.Aeson (decode)
@@ -31,7 +32,7 @@ tryNewValue oldDecl@(L loc _) newValue = do
   oldOrmolu <- _ormolu <$> get
   let oldModule = prParsedSource oldOrmolu
       newModule = everywhereT (mkT (overwriteAtLoc loc newValue)) oldModule
-  testAndUpdateStateFlex (oldOrmolu{ prParsedSource = newModule}) oldDecl (L loc newValue)
+  testAndUpdateStateFlex oldDecl (L loc newValue) (oldOrmolu{ prParsedSource = newModule})
 
 overwriteAtLoc :: SrcSpan   -- ^ loc:      location that should be updated
                -> a         -- ^ newValue: has to come before oldValue because we use it in a closure
@@ -42,10 +43,10 @@ overwriteAtLoc loc newValue oldValue@(L oldLoc _)
   | otherwise     = oldValue
 
 testAndUpdateState :: OPR.ParseResult -> ReduceM ()
-testAndUpdateState newOrmolu = testAndUpdateStateFlex newOrmolu () ()
+testAndUpdateState = testAndUpdateStateFlex () ()
 
-testAndUpdateStateFlex :: OPR.ParseResult -> a -> a -> ReduceM a
-testAndUpdateStateFlex newOrmolu a b = do
+testAndUpdateStateFlex :: a -> a -> OPR.ParseResult -> ReduceM a
+testAndUpdateStateFlex a b newOrmolu  = do
   sourceFile <- _sourceFile <$> get
   liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
   runTest
@@ -73,22 +74,22 @@ runTest = do
           ExitFailure _ -> return Uninteresting
           ExitSuccess   -> return Interesting
 
-changeExports :: OPR.ParseResult -> ([LIE GhcPs] -> [LIE GhcPs]) -> OPR.ParseResult
-changeExports oldOrmolu f =
+changeExports :: ([LIE GhcPs] -> [LIE GhcPs]) -> OPR.ParseResult -> OPR.ParseResult
+changeExports f oldOrmolu  =
   let L moduleLoc oldModule    = prParsedSource oldOrmolu
       L exportsLoc oldExports  = fromJust $ hsmodExports oldModule
-      newExports               = f oldExports
+      newExports               = f (traceShow (concatMap ((++ " ") . lshow) oldExports) oldExports)
   in oldOrmolu {prParsedSource = L moduleLoc oldModule {hsmodExports = Just (L exportsLoc newExports)}}
 
-changeImports :: OPR.ParseResult -> ([LImportDecl GhcPs] -> [LImportDecl GhcPs]) -> OPR.ParseResult
-changeImports oldOrmolu f =
+changeImports :: ([LImportDecl GhcPs] -> [LImportDecl GhcPs]) -> OPR.ParseResult -> OPR.ParseResult
+changeImports f oldOrmolu =
   let L moduleLoc oldModule     = prParsedSource oldOrmolu
       allImports                = hsmodImports oldModule
       newImports                = f allImports
   in oldOrmolu { prParsedSource = L moduleLoc oldModule { hsmodImports = newImports }}
 
-changeDecls :: OPR.ParseResult -> ([LHsDecl GhcPs] -> [LHsDecl GhcPs]) -> OPR.ParseResult
-changeDecls oldOrmolu f =
+changeDecls :: ([LHsDecl GhcPs] -> [LHsDecl GhcPs]) -> OPR.ParseResult -> OPR.ParseResult
+changeDecls f oldOrmolu =
   let L moduleLoc oldModule     = prParsedSource oldOrmolu
       allDecls                  = hsmodDecls oldModule
       newDecls                  = f allDecls
