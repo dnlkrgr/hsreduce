@@ -1,9 +1,11 @@
-module Reduce
+module Reduce.Reduce
   ( hsreduce,
   )
 where
 
+import Data.Function
 import Control.Monad
+import Control.Monad.State.Strict
 import qualified Data.ByteString as BS (length)
 import qualified Data.Text as T (length, unpack)
 import qualified Data.Text.Encoding as TE (encodeUtf8)
@@ -12,16 +14,17 @@ import Ormolu.Config (defaultConfig)
 import Ormolu.Parser (parseModule)
 import Ormolu.Parser.Result as OPR (ParseResult)
 import Ormolu.Printer (printModule)
-import qualified Passes.RemoveUnused.Decls as Decls (reduce)
-import qualified Passes.RemoveUnused.Exports as Exports (reduce)
-import qualified Passes.RemoveUnused.Imports as Imports (reduce)
-import qualified Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Passes.Stubbing as Stubbing (reduce)
 import System.Directory (copyFile, listDirectory)
 import System.FilePath.Posix ((</>), splitFileName)
 import System.IO.Temp (withTempDirectory)
-import Util
 import Data.Time
+import Reduce.Util
+import Reduce.Types
+import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
+import qualified Reduce.Passes.RemoveUnused.Decls as Decls (reduce)
+import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
+import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
+import qualified Reduce.Passes.Stubbing as Stubbing (reduce)
 
 hsreduce :: FilePath -> FilePath -> IO ()
 hsreduce test filePath = do
@@ -41,10 +44,10 @@ hsreduce test filePath = do
             ( \tempDir -> do
                 let tempTest = tempDir </> snd (splitFileName test)
                     tempFilePath = tempDir </> snd (splitFileName filePath)
-                -- TODO: hsreduce should only copy test and the source file, nothing else! => tests should be self-contained
-                forM_ files $ \file -> copyFile (sourceDir </> file) (tempDir </> snd (splitFileName file))
+                -- TODO: Reduce should only copy test and the source file, nothing else! => tests should be self-contained
+                forM_ files $ \iterFile -> copyFile (sourceDir </> iterFile) (tempDir </> snd (splitFileName iterFile))
                 -- TODO: write tests to check if the new module is even parsable haskell
-                largestFixpoint (allPassesOnce tempTest tempFilePath) oldOrmolu
+                evalStateT (largestFixpoint allPassesOnce oldOrmolu) (ReduceState tempTest tempFilePath oldOrmolu)
             )
         let fileName = takeWhile (/= '.') filePath
             newSize = T.length $ printModule newOrmolu
@@ -57,31 +60,32 @@ hsreduce test filePath = do
   print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
-allPassesOnce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
-allPassesOnce test filePath oldOrmolu =
-  foldM (\ormolu pass -> pass test filePath ormolu) oldOrmolu allPasses
+allPassesOnce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+allPassesOnce oldOrmolu =
+  foldM (&) oldOrmolu allPasses
   where
-    --allPasses = [Stubbing.reduce, Pragmas.reduce, Imports.reduce, Exports.reduce, Decls.reduce]
-    allPasses = [Imports.reduce, Exports.reduce, Pragmas.reduce, Decls.reduce, Stubbing.reduce]
+    allPasses = [Imports.reduce, Pragmas.reduce, Exports.reduce, Decls.reduce, Stubbing.reduce]
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- different from the old one
-largestFixpoint :: (OPR.ParseResult -> IO OPR.ParseResult) -> OPR.ParseResult -> IO OPR.ParseResult
+
+largestFixpoint :: (OPR.ParseResult -> ReduceM OPR.ParseResult) -> OPR.ParseResult -> ReduceM OPR.ParseResult
 largestFixpoint f =
   iterateFrom
   where
     iterateFrom oldOrmolu = do
-      putStrLn "\n***NEW ITERATION***"
+      liftIO $ putStrLn "\n***NEW ITERATION***"
+      
       newOrmolu <- f oldOrmolu
       let oldLength = BS.length . TE.encodeUtf8 $ printModule oldOrmolu
           newLength = BS.length . TE.encodeUtf8 $ printModule newOrmolu
-      debugPrint $ "old length: " ++ show oldLength
-      debugPrint $ "new length: " ++ show newLength
-      debugPrint $ "new ormolu is this many chars shorter than the old one: " ++ show (oldLength - newLength)
+      liftIO $ debugPrint $ "old length: " ++ show oldLength
+      liftIO $ debugPrint $ "new length: " ++ show newLength
+      liftIO $ debugPrint $ "new ormolu is this many chars shorter than the old one: " ++ show (oldLength - newLength)
       if newLength < oldLength
         then do
-          debugPrint "taking new ormolu"
+          liftIO $ debugPrint "taking new ormolu"
           iterateFrom newOrmolu
         else do
-          debugPrint "taking old ormolu"
+          liftIO $ debugPrint "taking old ormolu"
           return oldOrmolu

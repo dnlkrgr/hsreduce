@@ -1,5 +1,6 @@
-module Passes.RemoveUnused.Decls where
+module Reduce.Passes.RemoveUnused.Decls where
 
+import Data.Foldable
 import Control.Monad.State.Strict
 import qualified Data.Text as T
 import HsSyn
@@ -11,35 +12,31 @@ import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import Outputable (showSDocUnsafe)
 import BasicTypes
-import Types
-import Util
+import Reduce.Types
+import Reduce.Util
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
-reduce test sourceFile oldOrmolu = do
-  putStrLn "\n***Removing unused declarations***"
+reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+reduce oldOrmolu = do
+  liftIO $ putStrLn "\n***Removing unused declarations***"
   debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
   let allDecls   = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
-      startState = ReduceState test sourceFile oldOrmolu
-  runGhc sourceFile oldOrmolu Binds
+  runGhc oldOrmolu Binds
     >>= \case
-      Nothing -> 
-        _ormolu <$> 
-          execStateT 
-            (traverse (\dcl -> rmvDecl dcl 
-                               >>= flip unless (rmvBinds Nothing dcl)) allDecls) startState
-      Just unusedBindingNames ->
-        _ormolu <$> 
-          execStateT
-            (traverse (\dcl -> rmvUnusedDecl unusedBindingNames dcl
+      Nothing -> do
+            traverse_ (\dcl -> rmvDecl dcl 
+                               >>= flip unless (rmvBinds Nothing dcl)) allDecls
+            _ormolu <$> get
+      Just unusedBindingNames -> do
+            traverse_ (\dcl -> rmvUnusedDecl unusedBindingNames dcl
                                >>= flip unless (rmvDecl dcl
                                >>= flip unless (rmvBinds (Just unusedBindingNames) dcl))) 
-                      allDecls)
-            startState
+                      allDecls
+            _ormolu <$> get
 
 -- | rmv unused decls whole
 -- for FunBinds: also delete the type signature
-rmvUnusedDecl :: [BindingName] -> LHsDecl GhcPs -> StateT ReduceState IO Bool
+rmvUnusedDecl :: [BindingName] -> LHsDecl GhcPs -> ReduceM Bool
 rmvUnusedDecl unusedBindingNames (L declLoc (SimplFun funId)) 
   | lshow funId `elem` unusedBindingNames = do
     oldOrmolu <- _ormolu <$> get
@@ -58,35 +55,35 @@ rmvUnusedDecl unusedBindingNames lDecl@(L _ decl) =
     else return False
 
 -- | rmv decls whole
-rmvDecl :: LHsDecl GhcPs -> StateT ReduceState IO Bool
+rmvDecl :: LHsDecl GhcPs -> ReduceM Bool
 rmvDecl (L declLoc _) = do
   oldOrmolu <- _ormolu <$> get
   let newOrmolu = changeDecls oldOrmolu (filter (\(L iterLoc _) -> iterLoc /= declLoc))
   testAndUpdateStateFlex newOrmolu False True
 
 -- | rmv unused parts of decls
-rmvBinds :: Maybe [BindingName] -> LHsDecl GhcPs -> StateT ReduceState IO ()
+rmvBinds :: Maybe [BindingName] -> LHsDecl GhcPs -> ReduceM ()
 rmvBinds (Just bns) dcl@(TypeSigDecl _ ids swt) = do
   let newFunIds = filter ((`notElem` bns) . lshow) ids
   void $ tryNewValue dcl (TypeSigDeclX newFunIds swt)
-rmvBinds _ oldDecl@(L _ (FunDecl fid loc mtchs mo fw ft)) = do
-  let nMtchs = 
-        filter (\(L _ (Match _ _ _ grhss)) -> 
-          showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs 
-  void $ tryNewValue oldDecl (FunDecl fid loc nMtchs mo fw ft)
 rmvBinds Nothing dcl@(TypeSigDecl _ ids swt) =
   foldM_ (\nDcl fId -> 
            let nIds = filter (/= fId) ids 
            in tryNewValue nDcl (TypeSigDeclX nIds swt)) 
          dcl 
          ids
+rmvBinds _ oldDecl@(L _ (FunDecl fid loc mtchs mo fw ft)) = do
+  let nMtchs = 
+        filter (\(L _ (Match _ _ _ grhss)) -> 
+          showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs 
+  void $ tryNewValue oldDecl (FunDecl fid loc nMtchs mo fw ft)
 rmvBinds mBns ldcl@(L _ (TyClD _ _)) =
   rmvCons mBns ldcl
 rmvBinds _ _ = return ()
 
 -- | rmv unused constructors
 -- TODO: apply to more TyClD types
-rmvCons :: Maybe [BindingName] -> LHsDecl GhcPs -> StateT ReduceState IO ()
+rmvCons :: Maybe [BindingName] -> LHsDecl GhcPs -> ReduceM ()
 rmvCons (Just unusedBindingNames) ldcl@(L _ (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
   let constructors    = dd_cons oldDataDefn
       newConstructors = filter (isConstructorUsed unusedBindingNames) constructors

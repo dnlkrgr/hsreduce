@@ -94,14 +94,14 @@
     - [x] unused imports entfernen
   - Exports
     - Handling von impliziten export all
-      - [ ] Konvertieren zu explizitem export all
+      - [x] Konvertieren zu explizitem export all
     - [x] unused exports entfernen
     - Beobachtung: alle Exports entfernen ist nicht beste Strategie, siehe #14270
   - Pragmas
     - die befinden sich bei SigD!
-    - [ ] UNPACK Pragmas
-    - [ ] INLINE Pragmas
-    - [ ] other Pragmas
+      - [ ] UNPACK Pragmas
+      - [ ] INLINE Pragmas
+      - [ ] other Pragmas
     - [x] LANGUAGE Pragmas
 - On the Project Level
   - [ ] Module mergen

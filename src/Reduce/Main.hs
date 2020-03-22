@@ -1,7 +1,7 @@
-module Main (main) where
+module Reduce.Main (main) where
 
 import System.Environment (getArgs)
-import Reduce (hsreduce)
+import Reduce.Reduce (hsreduce)
 import System.FilePath.Posix
 
 main :: IO ()
@@ -19,7 +19,7 @@ printUsage :: IO ()
 printUsage = 
     putStrLn . unwords $
       [ "Usage:",
-        "hsreduce",
+        "Reduce",
         "<test-file>",
         "<hs-source-file>"
       ]

@@ -1,4 +1,4 @@
-module Passes.RemoveUnused.Pragmas where
+module Reduce.Passes.RemoveUnused.Pragmas where
 
 import Ormolu.Parser.Result as OPR (ParseResult, prExtensions)
 import Ormolu.Parser.Pragma as OPP (Pragma(..))
@@ -6,31 +6,33 @@ import Ormolu.Printer (printModule)
 import Control.Monad.State.Strict
 import Data.Foldable
 
-import Types
-import Util
+import Reduce.Types
+import Reduce.Util
 import qualified Data.Text as T
 
-reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
-reduce test sourceFile oldOrmolu = do
-    putStrLn "\n***Performing RemovePragmas***"
-    debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
+reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+reduce oldOrmolu = do
+    liftIO $ putStrLn "\n***Performing RemovePragmas***"
+    liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
     let pragmas = prExtensions oldOrmolu
-    _ormolu <$> execStateT (traverse tryAllPragmas pragmas) (ReduceState test sourceFile oldOrmolu)
+    traverse_ tryAllPragmas pragmas
+    _ormolu <$> get
 
-tryAllPragmas :: OPP.Pragma -> StateT ReduceState IO ()
+tryAllPragmas :: OPP.Pragma -> ReduceM ()
 tryAllPragmas pragmaToTry@(PragmaLanguage ss)
     | length ss == 1 = tryToRemovePragma pragmaToTry
     | otherwise = traverse_ tryLanguagePragma ss
 tryAllPragmas pragmaToTry = tryToRemovePragma pragmaToTry
 
-tryToRemovePragma :: OPP.Pragma -> StateT ReduceState IO ()
+tryToRemovePragma :: OPP.Pragma -> ReduceM ()
 tryToRemovePragma pragmaToTry = do
+  liftIO $ putStrLn $ "trying pragma: " ++ show pragmaToTry
   oldOrmolu <- _ormolu <$> get
   let oldPragmas = prExtensions oldOrmolu
-      newOrmolu = oldOrmolu { prExtensions = filter (/= pragmaToTry) oldPragmas }
+      newOrmolu  = oldOrmolu { prExtensions = filter (/= pragmaToTry) oldPragmas }
   testAndUpdateState newOrmolu
 
-tryLanguagePragma :: String -> StateT ReduceState IO ()
+tryLanguagePragma :: String -> ReduceM ()
 tryLanguagePragma s = do
     oldOrmolu <- _ormolu <$> get
     liftIO . print . show . prExtensions $ oldOrmolu

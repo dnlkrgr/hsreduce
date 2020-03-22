@@ -43,14 +43,14 @@ common dry
 
 library hsreduce-internal
   import:              dry
-  exposed-modules:     Reduce
-                       Passes.RemoveUnused.Decls
-                       Passes.RemoveUnused.Exports
-                       Passes.RemoveUnused.Imports
-                       Passes.RemoveUnused.Pragmas
-                       Passes.Stubbing
-                       Types
-                       Util
+  exposed-modules:     Reduce.Reduce
+                       Reduce.Passes.RemoveUnused.Decls
+                       Reduce.Passes.RemoveUnused.Exports
+                       Reduce.Passes.RemoveUnused.Imports
+                       Reduce.Passes.RemoveUnused.Pragmas
+                       Reduce.Passes.Stubbing
+                       Reduce.Types
+                       Reduce.Util
 
 executable hsreduce
   import:              dry

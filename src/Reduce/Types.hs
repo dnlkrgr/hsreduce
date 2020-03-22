@@ -1,11 +1,12 @@
-module Types where
+module Reduce.Types where
 
 import Ormolu.Parser.Result as OPR
 import Data.Aeson
 import GHC.Generics (Generic)
 import Data.ByteString.Lazy.Char8 ()
-import Data.List ()
-import HsSyn()
+import Control.Monad.State.Strict
+
+type ReduceM a = StateT ReduceState IO a
 
 data GhcMode = Binds | Imports
 

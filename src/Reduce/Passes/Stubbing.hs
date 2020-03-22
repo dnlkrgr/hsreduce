@@ -1,4 +1,4 @@
-module Passes.Stubbing
+module Reduce.Passes.Stubbing
   ( reduce,
   )
 where
@@ -11,47 +11,45 @@ import Ormolu.Parser (parseModule)
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import SrcLoc
-import Types
-import Util
 import Outputable
 
+import Reduce.Types
+import Reduce.Util
 
 -- | run a pass on the old module and return the new one if it's interesting
-reduce :: FilePath -> FilePath -> OPR.ParseResult -> IO OPR.ParseResult
-reduce test sourceFile oldOrmolu = do
-  putStrLn "\n***Stubbing expressions***"
-  debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
+reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+reduce oldOrmolu = do
+  liftIO $ putStrLn "\n***Stubbing expressions***"
+  liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
   let oldModule = prParsedSource oldOrmolu
   getUndefined
     >>= \case
       Nothing -> return oldOrmolu
-      Just myUndefined ->
-        _ormolu
-          <$> execStateT
-            (everywhereM (    mkM (expr2Undefined myUndefined) 
-                          >=> mkM simplifyLGRHS
-                          >=> mkM simplifyExpr
-                          >=> mkM deleteUndefinedMatches
-                          >=> mkM simplifyType 
-                          >=> mkM simplifyGADTs 
-                          >=> mkM deleteWhereClause)
-                         oldModule)
-            (ReduceState test sourceFile oldOrmolu)
+      Just myUndefined -> do
+            newModule <-  everywhereM (mkM (expr2Undefined myUndefined) 
+                                      >=> mkM simplifyLGRHS
+                                      >=> mkM simplifyExpr
+                                      >=> mkM deleteUndefinedMatches
+                                      >=> mkM simplifyType 
+                                      >=> mkM simplifyGADTs 
+                                      >=> mkM deleteWhereClause)
+                                      oldModule
+            return oldOrmolu { prParsedSource = newModule }
 
 -- | change an expression to `undefined`
-expr2Undefined :: HsExpr GhcPs -> LHsExpr GhcPs -> StateT ReduceState IO (LHsExpr GhcPs)
+expr2Undefined :: HsExpr GhcPs -> LHsExpr GhcPs -> ReduceM (LHsExpr GhcPs)
 expr2Undefined myUndefined lexp@(L _ expr) 
   | oshow expr == "undefined" = return lexp
   | otherwise = tryNewValue lexp myUndefined
 
-simplifyType :: LHsType GhcPs -> StateT ReduceState IO (LHsType GhcPs)
+simplifyType :: LHsType GhcPs -> ReduceM (LHsType GhcPs)
 simplifyType t@(L _ TupleType) = return t
 simplifyType t@(L _ (HsFunTy NoExt (L _ TupleType) (L _ TupleType))) = return t
 simplifyType oldType@(ForallType body) = tryNewValue oldType body
 simplifyType oldType@(QualType body)   = tryNewValue oldType body
 simplifyType oldType = tryNewValue oldType UnitType
 
-simplifyGADTs :: LConDecl GhcPs -> StateT ReduceState IO (LConDecl GhcPs)
+simplifyGADTs :: LConDecl GhcPs -> ReduceM (LConDecl GhcPs)
 simplifyGADTs decl@(L declLoc gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _)) = do
   let newDecl = gadtDecl{ con_forall = L forallLoc False} -- delete forall
   L _ newDecl2 <- tryNewValue decl newDecl
@@ -59,12 +57,12 @@ simplifyGADTs decl@(L declLoc gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ 
   tryNewValue (L declLoc newDecl2) newDecl3
 simplifyGADTs d = return d
 
-deleteWhereClause :: LHsLocalBinds GhcPs -> StateT ReduceState IO (LHsLocalBinds GhcPs)
+deleteWhereClause :: LHsLocalBinds GhcPs -> ReduceM (LHsLocalBinds GhcPs)
 deleteWhereClause e@(L _ (EmptyLocalBinds _)) = return e
 deleteWhereClause oldClause = tryNewValue oldClause (EmptyLocalBinds NoExt)
 
 deleteUndefinedMatches :: Located [LMatch GhcPs (LHsExpr GhcPs)]
-                       -> StateT ReduceState IO (Located [LMatch GhcPs (LHsExpr GhcPs)])
+                       -> ReduceM (Located [LMatch GhcPs (LHsExpr GhcPs)])
 deleteUndefinedMatches (L l []) = return $ L l []
 deleteUndefinedMatches (L l mtchs) = do
   let nMtchs = 
@@ -72,20 +70,20 @@ deleteUndefinedMatches (L l mtchs) = do
           showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs 
   tryNewValue (L l mtchs) nMtchs
 
-simplifyExpr :: LHsExpr GhcPs -> StateT ReduceState IO (LHsExpr GhcPs)
+simplifyExpr :: LHsExpr GhcPs -> ReduceM (LHsExpr GhcPs)
 simplifyExpr lexpr@(SingleCase _ body) = tryNewValue lexpr body
 simplifyExpr lexpr@(L _ (HsIf _ _ _ (L _ ls) (L _ rs)))
   | oshow ls == "undefined" = tryNewValue lexpr rs
   | oshow rs == "undefined" = tryNewValue lexpr ls
 simplifyExpr e = return e
 
-simplifyLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> StateT ReduceState IO (LGRHS GhcPs (LHsExpr GhcPs))
+simplifyLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> ReduceM (LGRHS GhcPs (LHsExpr GhcPs))
 simplifyLGRHS lgrhs@(L _ (GRHS _ _ body)) = tryNewValue lgrhs (GRHS NoExt [] body)
 simplifyLGRHS lgrhs = return lgrhs
 
 
 -- | getting undefined as an expression
-getUndefined :: IO (Maybe (HsExpr GhcPs))
+getUndefined :: ReduceM (Maybe (HsExpr GhcPs))
 getUndefined =
   snd <$> parseModule defaultConfig "" "x = undefined"
     >>= \case

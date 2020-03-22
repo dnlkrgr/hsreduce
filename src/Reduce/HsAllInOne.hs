@@ -1,4 +1,4 @@
-module HsAllInOne
+module Reduce.HsAllInOne
     ( hsAllInOne
     )
 where
