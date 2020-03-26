@@ -55,6 +55,14 @@ library hsreduce-internal
 executable hsreduce
   import:              dry
   main-is:             Main.hs
+  other-modules:       Reduce.Passes.RemoveUnused.Decls
+                       Reduce.Passes.RemoveUnused.Exports
+                       Reduce.Passes.RemoveUnused.Imports
+                       Reduce.Passes.RemoveUnused.Pragmas
+                       Reduce.Passes.Stubbing
+                       Reduce.Reduce
+                       Reduce.Types
+                       Reduce.Util
 
 test-suite test-hsreduce
   import:              dry

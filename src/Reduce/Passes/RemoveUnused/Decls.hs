@@ -40,11 +40,11 @@ rmvUnusedDecl :: [BindingName] -> LHsDecl GhcPs -> ReduceM Bool
 rmvUnusedDecl unusedBindingNames (L declLoc (SimplFunP funId)) 
   | lshow funId `elem` unusedBindingNames =
           changeDecls 
-                      (filter (\(L iterLoc iterDecl) -> 
-                        case iterDecl of
-                          SimplSigP tyFunId -> 
-                            ((`notElem` unusedBindingNames) . lshow) tyFunId
-                          _ -> iterLoc /= declLoc))
+            (filter (\(L iterLoc iterDecl) -> 
+              case iterDecl of
+                SimplSigP tyFunId -> 
+                  ((`notElem` unusedBindingNames) . lshow) tyFunId
+                _ -> iterLoc /= declLoc))
           . _ormolu 
           <$> get
     >>= testAndUpdateStateFlex False True
@@ -63,37 +63,37 @@ rmvDecl (L declLoc _) =
 -- | rmv unused parts of decls
 rmvBinds :: Maybe [BindingName] -> LHsDecl GhcPs -> ReduceM ()
 rmvBinds (Just bns) dcl@(TypeSigDeclP _ ids swt) = do
+  liftIO $ putStrLn $ "--- Just ub, TypeSigDeclP" ++ oshow dcl
   let newFunIds = filter ((`notElem` bns) . lshow) ids
   void $ tryNewValue dcl (TypeSigDeclX newFunIds swt)
-rmvBinds Nothing dcl@(TypeSigDeclP _ ids swt) =
-  foldM_ (\nDcl fId -> 
-           let nIds = filter (/= fId) ids 
-           in tryNewValue nDcl (TypeSigDeclX nIds swt)) 
-         dcl 
-         ids
+rmvBinds Nothing dcl@(TypeSigDeclP _ ids swt) = do
+  liftIO $ putStrLn $ "--- Nothing TypeSigDeclP" ++ oshow dcl
+  void $ tryRemoveEach (/=) (flip TypeSigDeclX swt) dcl ids
 rmvBinds _ oldDecl@(L _ (FunDeclP fid loc mtchs mo fw ft)) = do
+  liftIO $ putStrLn $ "--- fundeclp" ++ oshow fid
   let nMtchs = 
         filter (\(L _ (Match _ _ _ grhss)) -> 
           showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs 
   void $ tryNewValue oldDecl (FunDeclP fid loc nMtchs mo fw ft)
-rmvBinds mBns ldcl@(L _ (TyClD _ _)) =
+rmvBinds mBns ldcl@(L _ (TyClD _ _)) = do
+  liftIO $ putStrLn $ "--- tycld" ++ lshow ldcl
   rmvCons mBns ldcl
 rmvBinds _ _ = return ()
 
 -- | rmv unused constructors
 -- TODO: apply to more TyClD types
 rmvCons :: Maybe [BindingName] -> LHsDecl GhcPs -> ReduceM ()
-rmvCons (Just unusedBindingNames) ldcl@(L _ (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
+--rmvCons (Just unusedBindingNames) ldcl@(L _ (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
+--  let constructors    = dd_cons oldDataDefn
+--      newConstructors = filter (isConstructorUsed unusedBindingNames) constructors
+--  liftIO $ putStrLn $ "!!! newConstructors: " ++ concatMap ((++ " ") . lshow) newConstructors
+--  void $ tryNewValue ldcl $ TyClD NoExt oldDecl{ tcdDataDefn = oldDataDefn{ dd_cons = newConstructors}}
+rmvCons _ ldcl@(L _ (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
   let constructors    = dd_cons oldDataDefn
-      newConstructors = filter (isConstructorUsed unusedBindingNames) constructors
-  void $ tryNewValue ldcl $ TyClD NoExt oldDecl{ tcdDataDefn = oldDataDefn{ dd_cons = newConstructors}}
-rmvCons Nothing ldcl@(L _ (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
-  let constructors    = dd_cons oldDataDefn
-  foldM_ (\dcl cons -> 
-           let newCons = filter ((== cons2String cons) . cons2String) constructors
-           in tryNewValue dcl $ TyClD NoExt oldDecl{ tcdDataDefn = oldDataDefn{ dd_cons = newCons}})
-         ldcl 
-         constructors
+  void $ tryRemoveEach (\c -> (/= cons2String c) . cons2String) 
+                       (\l -> TyClD NoExt oldDecl {tcdDataDefn = oldDataDefn {dd_cons = l}})
+                       ldcl
+                       constructors
 rmvCons _ _ = return ()
 
 -- Left:  H98

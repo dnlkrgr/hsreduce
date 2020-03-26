@@ -1,11 +1,13 @@
-module Reduce.Main (main) where
+module Main (main) where
 
 import System.Environment (getArgs)
 import Reduce.Reduce (hsreduce)
 import System.FilePath.Posix
+import System.IO
 
 main :: IO ()
 main = do
+  hSetBuffering stdout NoBuffering
   myArgs <- getArgs
   if length myArgs /= 2 
     then printUsage

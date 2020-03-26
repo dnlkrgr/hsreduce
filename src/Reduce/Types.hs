@@ -17,9 +17,9 @@ data Interesting = Interesting | Uninteresting
 
 data ReduceState
   = ReduceState
-      { _test :: FilePath,
-        _sourceFile :: FilePath,
-        _ormolu :: OPR.ParseResult
+      { _test       :: !FilePath,
+        _sourceFile :: !FilePath,
+        _ormolu     :: !OPR.ParseResult
       }
 
 type BindingName = String
@@ -34,10 +34,10 @@ instance FromJSON Span
 
 data GhcOutput
   = GhcOutput
-      { span :: Span,
-        doc :: String,
-        severity :: String,
-        reason :: String
+      { span     :: !Span,
+        doc      :: !String,
+        severity :: !String,
+        reason   :: !String
       }
   deriving (Eq, Generic, Show)
 

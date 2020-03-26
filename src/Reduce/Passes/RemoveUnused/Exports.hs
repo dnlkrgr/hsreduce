@@ -42,8 +42,7 @@ reduce oldOrmolu = do
           _ormolu <$> get
 
 removeUnusedExport :: LIE GhcPs -> ReduceM ()
-removeUnusedExport (L _ export) = do
-  liftIO $ putStrLn $ "\ntrying: " ++ oshow export
+removeUnusedExport (L _ export) =
   changeExports (filter ((/= oshow export) . oshow . unLoc)) . _ormolu <$> get
   >>= testAndUpdateState
 

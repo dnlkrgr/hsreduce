@@ -45,8 +45,8 @@ expr2Undefined myUndefined lexp@(L _ expr)
   | otherwise = tryNewValue lexp myUndefined
 
 simplifyType :: LHsType GhcPs -> ReduceM (LHsType GhcPs)
-simplifyType t@(L _ TupleTypeP) = return t
-simplifyType t@(L _ (HsFunTy NoExt (L _ TupleTypeP) (L _ TupleTypeP))) = return t
+simplifyType t@(L _ UnitTypeP) = return t
+simplifyType t@(L _ (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP))) = return t
 simplifyType oldType@(ForallTypeP body) = tryNewValue oldType body
 simplifyType oldType@(QualTypeP body)   = tryNewValue oldType body
 simplifyType oldType = tryNewValue oldType UnitTypeP
@@ -61,12 +61,10 @@ simplifyGADTs d = return d
 
 simplifyLocalBinds :: Located (HsLocalBindsLR GhcPs GhcPs) -> ReduceM (Located (HsLocalBindsLR GhcPs GhcPs))
 simplifyLocalBinds hvb@(L _ (HsValBinds _ (ValBinds _ binds sigs))) =
-  foldM (\iterHVB (L l _) -> do
-          let newSigs = filter ((/= l) . getLoc) sigs
-          tryNewValue iterHVB (HsValBinds NoExt (ValBinds NoExt binds newSigs))
-        ) 
-        hvb 
-        sigs
+  tryRemoveEach (\l -> (/= getLoc l) . getLoc)
+                (\ns -> HsValBinds NoExt (ValBinds NoExt binds ns))
+                hvb 
+                sigs
 simplifyLocalBinds lb = return lb
 
 deleteWhereClause :: LHsLocalBinds GhcPs -> ReduceM (LHsLocalBinds GhcPs)
@@ -144,9 +142,8 @@ pattern ForallTypeP, QualTypeP :: HsType GhcPs -> LHsType GhcPs
 pattern ForallTypeP body <-  L _ (HsForAllTy _ _ (L _ body))
 pattern QualTypeP   body <-  L _ (HsQualTy _ _ (L _ body))
 
-pattern UnitTypeP, TupleTypeP :: HsType GhcPs
+pattern UnitTypeP :: HsType GhcPs
 pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
-pattern TupleTypeP <- HsTupleTy NoExt HsBoxedTuple []
 
 pattern SingleCase :: SrcSpan -> HsExpr GhcPs -> LHsExpr GhcPs
 pattern SingleCase l body <- 

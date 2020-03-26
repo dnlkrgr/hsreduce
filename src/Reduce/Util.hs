@@ -21,6 +21,17 @@ import Outputable
 
 import Reduce.Types
 
+
+tryRemoveEach :: Typeable a 
+              => (t -> t -> Bool)
+              -> ([t] -> a)
+              -> Located a
+              -> [t]
+              -> ReduceM (Located a)
+tryRemoveEach f constr e oldList =
+  foldM (\iterE ld -> let newList = filter (f ld) oldList
+                     in tryNewValue iterE (constr newList)) e oldList
+
 oshow :: Outputable a => a -> String
 oshow = showSDocUnsafe . ppr
 
