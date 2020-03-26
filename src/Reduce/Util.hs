@@ -18,16 +18,33 @@ import System.Timeout
 import HsSyn
 import SrcLoc
 import Outputable
+import Control.Monad.Reader
 
 import Reduce.Types
 
 
+
+reduceListOfSubelements :: Typeable a 
+                        => (Located a -> [SrcSpan]) 
+                        -> (SrcSpan -> Located a -> Located a) 
+                        -> Located a 
+                        -> R (Located a)
+reduceListOfSubelements getSrcSpans transform hvb = 
+  (foldr (>=>) return . map (try . transform). getSrcSpans $ hvb) hvb
+
+
+try :: Typeable a 
+    => (Located a -> Located a) 
+    -> Located a 
+    -> R (Located a)
+try g v = tryNewValue v (g v)
+
 tryRemoveEach :: Typeable a 
               => (t -> t -> Bool)
-              -> ([t] -> a)
+              -> ([t] -> Located a)
               -> Located a
               -> [t]
-              -> ReduceM (Located a)
+              -> R (Located a)
 tryRemoveEach f constr e oldList =
   foldM (\iterE ld -> let newList = filter (f ld) oldList
                      in tryNewValue iterE (constr newList)) e oldList
@@ -38,12 +55,12 @@ oshow = showSDocUnsafe . ppr
 lshow :: Outputable a => Located a -> String
 lshow = showSDocUnsafe . ppr . unLoc
 
-tryNewValue :: Typeable a => Located a -> a -> ReduceM (Located a)
-tryNewValue oldDecl@(L loc _) newValue = do
-  oldOrmolu <- _ormolu <$> get
+tryNewValue :: Typeable a => Located a -> Located a -> R (Located a)
+tryNewValue oldValue@(L loc _) newValue = do
+  oldOrmolu <- gets _ormolu
   let oldModule = prParsedSource oldOrmolu
       newModule = everywhereT (mkT (overwriteAtLoc loc newValue)) oldModule
-  testAndUpdateStateFlex oldDecl (L loc newValue) (oldOrmolu{ prParsedSource = newModule})
+  testAndUpdateStateFlex oldValue newValue (oldOrmolu{ prParsedSource = newModule})
 
 overwriteAtLoc :: SrcSpan   -- ^ loc:      location that should be updated
                -> a         -- ^ newValue: has to come before oldValue because we use it in a closure
@@ -53,26 +70,25 @@ overwriteAtLoc loc newValue oldValue@(L oldLoc _)
   | loc == oldLoc = L loc newValue
   | otherwise     = oldValue
 
-testAndUpdateState :: OPR.ParseResult -> ReduceM ()
+testAndUpdateState :: OPR.ParseResult -> R ()
 testAndUpdateState = testAndUpdateStateFlex () ()
 
-testAndUpdateStateFlex :: a -> a -> OPR.ParseResult -> ReduceM a
+testAndUpdateStateFlex :: a -> a -> OPR.ParseResult -> R a
 testAndUpdateStateFlex a b newOrmolu  = do
-  sourceFile <- _sourceFile <$> get
+  sourceFile <- asks _sourceFile 
   liftIO $ TIO.writeFile sourceFile . printModule $ newOrmolu
   runTest
     >>= \case
       Uninteresting -> return a
       Interesting -> do
         -- TODO: add information to change operation for better debugging messages
-        liftIO $ putStr "+"
         modify $ \s -> s {_ormolu = newOrmolu}
         return b
 
 -- | run the interestingness test on a timeout of 30 seconds
-runTest :: ReduceM Interesting
+runTest :: R Interesting
 runTest = do
-  test <- _test <$> get
+  test <- asks _test
   let (dirName, testName) = splitFileName test
   -- TODO: make timout duration configurable
   liftIO $ timeout (20 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
@@ -107,9 +123,9 @@ changeDecls f oldOrmolu =
   in oldOrmolu { prParsedSource = L moduleLoc oldModule { hsmodDecls = newDecls }}
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-runGhc :: OPR.ParseResult -> GhcMode -> ReduceM (Maybe [BindingName])
+runGhc :: OPR.ParseResult -> GhcMode -> R (Maybe [BindingName])
 runGhc oldOrmolu ghcMode = do
-  sourceFile <- _sourceFile <$> get
+  sourceFile <- asks _sourceFile
   -- BUG: Ormolu is printing type level lists wrong, example: Unify (p n _ 'PTag) a' = '[ 'Sub n a']
   liftIO $ TIO.writeFile sourceFile (printModule oldOrmolu)
   let extensions = prExtensions oldOrmolu

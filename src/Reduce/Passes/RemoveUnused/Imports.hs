@@ -12,7 +12,7 @@ import Reduce.Types
 import Reduce.Util
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+reduce :: OPR.ParseResult -> R OPR.ParseResult
 reduce oldOrmolu = do
   liftIO $ putStrLn "\n***Removing Imports***"
   debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
@@ -21,20 +21,20 @@ reduce oldOrmolu = do
     >>= \case
       Nothing -> do
           traverse_ removeImport oldImports
-          _ormolu <$> get
+          gets _ormolu
       Just unusedBindingNames -> do
           traverse_ (removeUnusedImport unusedBindingNames) oldImports
-          _ormolu <$> get
+          gets _ormolu
 
-removeImport :: LImportDecl GhcPs -> ReduceM ()
-removeImport (ImportName importName) = do
+removeImport :: LImportDecl GhcPs -> R ()
+removeImport (ImportName importName) =
     changeImports 
                   (filter (\(ImportName iterName) -> importName /= iterName))
     . _ormolu <$> get
   >>= testAndUpdateState
 removeImport _ = return ()
 
-removeUnusedImport :: [BindingName] -> LImportDecl GhcPs -> ReduceM ()
+removeUnusedImport :: [BindingName] -> LImportDecl GhcPs -> R ()
 removeUnusedImport unusedBindingNames imp@(ImportName importName)
   | moduleNameString importName `elem` unusedBindingNames = removeImport imp
   | otherwise = return ()

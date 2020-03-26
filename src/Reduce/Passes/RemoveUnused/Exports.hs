@@ -12,8 +12,9 @@ import Module
 import System.FilePath.Posix
 import Reduce.Types
 import Reduce.Util
+import Control.Monad.Reader
 
-reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+reduce :: OPR.ParseResult -> R OPR.ParseResult
 reduce oldOrmolu = do
   liftIO $ putStrLn "\n***Removing Exports***"
   liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
@@ -23,7 +24,7 @@ reduce oldOrmolu = do
       allDecls      = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
   case maybeExports of
     Nothing -> do
-      sourceFile <- _sourceFile <$> get
+      sourceFile <- asks _sourceFile 
       let (_, modName) = takeWhile (/= '.') <$> splitFileName sourceFile
           oldExports   = map fromJust . filter isJust . map (decl2Export . unLoc) $ allDecls
           newModName   = 
@@ -36,12 +37,12 @@ reduce oldOrmolu = do
       liftIO $ putStrLn $ concatMap ((++ " ") . lshow) oldExports
       -- TODO: if no exports were removed, turn it into Nothing again
       traverse_ removeUnusedExport oldExports
-      _ormolu <$> get
+      gets _ormolu
     Just (L _ oldExports) -> do
           traverse_ removeUnusedExport oldExports
-          _ormolu <$> get
+          gets _ormolu
 
-removeUnusedExport :: LIE GhcPs -> ReduceM ()
+removeUnusedExport :: LIE GhcPs -> R ()
 removeUnusedExport (L _ export) =
   changeExports (filter ((/= oshow export) . oshow . unLoc)) . _ormolu <$> get
   >>= testAndUpdateState

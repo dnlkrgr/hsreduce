@@ -47,7 +47,9 @@ hsreduce test filePath = do
                 -- TODO: Reduce should only copy test and the source file, nothing else! => tests should be self-contained
                 forM_ files $ \iterFile -> copyFile (sourceDir </> iterFile) (tempDir </> snd (splitFileName iterFile))
                 -- TODO: write tests to check if the new module is even parsable haskell
-                evalStateT (largestFixpoint allPassesOnce oldOrmolu) (ReduceState tempTest tempFilePath oldOrmolu)
+                fst <$> runR (RConf tempTest tempFilePath) 
+                                   (RState oldOrmolu) 
+                                   (largestFixpoint allPassesOnce oldOrmolu) 
             )
         let fileName = takeWhile (/= '.') filePath
             newSize = T.length $ printModule newOrmolu
@@ -60,7 +62,7 @@ hsreduce test filePath = do
   print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
-allPassesOnce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+allPassesOnce :: OPR.ParseResult -> R OPR.ParseResult
 allPassesOnce oldOrmolu =
   foldM (&) oldOrmolu allPasses
   where
@@ -69,7 +71,7 @@ allPassesOnce oldOrmolu =
 -- | calculate the fixpoint, by always checking if the new module is
 -- different from the old one
 
-largestFixpoint :: (OPR.ParseResult -> ReduceM OPR.ParseResult) -> OPR.ParseResult -> ReduceM OPR.ParseResult
+largestFixpoint :: (OPR.ParseResult -> R OPR.ParseResult) -> OPR.ParseResult -> R OPR.ParseResult
 largestFixpoint f =
   iterateFrom
   where

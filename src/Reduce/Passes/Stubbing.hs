@@ -1,5 +1,6 @@
 module Reduce.Passes.Stubbing (reduce) where
 
+import Debug.Trace
 import Data.List
 import Control.Monad.State.Strict
 import qualified Data.Text as T
@@ -16,7 +17,7 @@ import Reduce.Util
 
 
 -- | run a pass on the old module and return the new one if it's interesting
-reduce :: OPR.ParseResult -> ReduceM OPR.ParseResult
+reduce :: OPR.ParseResult -> R OPR.ParseResult
 reduce oldOrmolu = do
   liftIO $ putStrLn "\n***Stubbing expressions***"
   liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
@@ -25,64 +26,105 @@ reduce oldOrmolu = do
     >>= \case
       Nothing -> return oldOrmolu
       Just myUndefined -> do
-            newModule <-  everywhereM 
-                            (mkM (expr2Undefined myUndefined) 
-                                 >=> mkM deleteUndefinedMatches
-                                 >=> mkM simplifyMatch
-                                 >=> mkM simplifyLGRHS
-                                 >=> mkM simplifyLocalBinds
-                                 >=> mkM simplifyExpr
-                                 >=> mkM simplifyType 
-                                 >=> mkM simplifyGADTs 
-                                 >=> mkM deleteWhereClause)
-                                 oldModule
-            return oldOrmolu { prParsedSource = newModule }
+        newModule <-  everywhereM
+                             ( mkM (traceShow "expr2Undefined" (try (expr2Undefined myUndefined))) )
+                          -- >=> mkM (traceShow "matchDelRhsUndef" (try matchDelRhsUndef))
+                          -- >=> mkM (traceShow "matchDelIfUndefAnywhere" (try matchDelIfUndefAnywhere))
+                          -- >=> mkM (traceShow "simplifyMatch" simplifyMatch)
+                          -- >=> mkM (traceShow "simplifyLGRHS" (try simplifyLGRHS))
+                          -- >=> mkM (traceShow "filterLocalBindSigs" filterLocalBindSigs)
+                          -- >=> mkM (traceShow "simplifyExpr" (try simplifyExpr))
+                          -- >=> mkM (traceShow "simplifyType" (try simplifyType))
+                          -- >=> mkM (traceShow "gadtDelForall" (try gadtDelForall))
+                          -- >=> mkM (traceShow "gadtDelCtxt" (try gadtDelCtxt))
+                          -- >=> mkM (traceShow "deleteWhereClause" (try deleteWhereClause)))
+                        oldModule
+        return oldOrmolu { prParsedSource = newModule }
+
+type LLocalBind = Located (HsLocalBindsLR GhcPs GhcPs)
+
+
+filterLocalBindSigs :: LLocalBind -> R LLocalBind
+filterLocalBindSigs = 
+  reduceListOfSubelements lvalBinds2SrcSpans deleteLocalBindSig
+  where 
+    lvalBinds2SrcSpans =
+      \case
+        L _ (HsValBinds _ (ValBinds _ _ sigs)) -> map getLoc sigs
+        _ -> []
+    deleteLocalBindSig sigLoc =
+      \case 
+        L l (HsValBinds _ (ValBinds _ binds sigs)) ->
+            L l 
+          . HsValBinds NoExt 
+          . ValBinds NoExt binds 
+          . filter ((/= sigLoc) . getLoc) 
+          $ sigs
+        lhvb -> lhvb
+
+
+
+-- TODO: better name
+simplifyMatch :: LMatch GhcPs (LHsExpr GhcPs) -> R (LMatch GhcPs (LHsExpr GhcPs))
+simplifyMatch = 
+  reduceListOfSubelements match2SrcSpans deleteGRHS
+  where
+    match2SrcSpans =
+      \case
+        L _ (MatchP iterGRHSs _) -> map getLoc . reverse $ iterGRHSs -- reverse because the lower have to be tried first
+        _ -> []
+    deleteGRHS grhsLoc =
+      \case
+        L l m@(Match _ _ _ (GRHSs _ grhss lb)) ->
+          let newGRHSs = filter ((/= grhsLoc) . getLoc) grhss
+          in case newGRHSs of
+              [] -> L l m
+              _  -> L l $ m { m_grhss = GRHSs NoExt newGRHSs lb }
+        lm -> lm
+
 
 -- | change an expression to `undefined`
-expr2Undefined :: HsExpr GhcPs -> LHsExpr GhcPs -> ReduceM (LHsExpr GhcPs)
-expr2Undefined myUndefined lexp@(L _ expr) 
-  | oshow expr == "undefined" = return lexp
-  | otherwise = tryNewValue lexp myUndefined
+expr2Undefined :: HsExpr GhcPs -> LHsExpr GhcPs -> LHsExpr GhcPs
+expr2Undefined myUndefined lexp@(L l expr) 
+  | oshow expr == "undefined" = lexp
+  | otherwise = L l myUndefined
 
-simplifyType :: LHsType GhcPs -> ReduceM (LHsType GhcPs)
-simplifyType t@(L _ UnitTypeP) = return t
-simplifyType t@(L _ (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP))) = return t
-simplifyType oldType@(ForallTypeP body) = tryNewValue oldType body
-simplifyType oldType@(QualTypeP body)   = tryNewValue oldType body
-simplifyType oldType = tryNewValue oldType UnitTypeP
+simplifyType :: LHsType GhcPs -> LHsType GhcPs
+simplifyType t@(L _ UnitTypeP)    = t
+simplifyType t@(L _ (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP))) = t
+simplifyType (ForallTypeP l body) = L l body
+simplifyType (QualTypeP l body)   = L l body
+simplifyType (L l _)              = L l UnitTypeP
 
-simplifyGADTs :: LConDecl GhcPs -> ReduceM (LConDecl GhcPs)
-simplifyGADTs decl@(L declLoc gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _)) = do
-  let newDecl = gadtDecl{ con_forall = L forallLoc False} -- delete forall
-  L _ newDecl2 <- tryNewValue decl newDecl
-  let newDecl3 = newDecl2{ con_mb_cxt = Nothing} -- delete context
-  tryNewValue (L declLoc newDecl2) newDecl3
-simplifyGADTs d = return d
+gadtDelForall :: LConDecl GhcPs -> LConDecl GhcPs
+gadtDelForall (L l gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _)) =
+  L l gadtDecl{ con_forall = L forallLoc False} -- delete forall
+gadtDelForall d = d
 
-simplifyLocalBinds :: Located (HsLocalBindsLR GhcPs GhcPs) -> ReduceM (Located (HsLocalBindsLR GhcPs GhcPs))
-simplifyLocalBinds hvb@(L _ (HsValBinds _ (ValBinds _ binds sigs))) =
-  tryRemoveEach (\l -> (/= getLoc l) . getLoc)
-                (\ns -> HsValBinds NoExt (ValBinds NoExt binds ns))
-                hvb 
-                sigs
-simplifyLocalBinds lb = return lb
+gadtDelCtxt :: LConDecl GhcPs -> LConDecl GhcPs
+gadtDelCtxt (L l gadtDecl@ConDeclGADT{}) =
+  L l gadtDecl{ con_mb_cxt = Nothing}
+gadtDelCtxt d = d
 
-deleteWhereClause :: LHsLocalBinds GhcPs -> ReduceM (LHsLocalBinds GhcPs)
-deleteWhereClause e@(L _ (EmptyLocalBinds _)) = return e
-deleteWhereClause oldClause = tryNewValue oldClause (EmptyLocalBinds NoExt)
+
+deleteWhereClause :: LHsLocalBinds GhcPs -> LHsLocalBinds GhcPs
+deleteWhereClause e@(L _ (EmptyLocalBinds _)) = e
+deleteWhereClause (L l _) = L l (EmptyLocalBinds NoExt)
 
 -- TODO: this doesn't fit, this deletes the WHOLE match if only one grhs is undefined
-deleteUndefinedMatches :: Located [LMatch GhcPs (LHsExpr GhcPs)]
-                       -> ReduceM (Located [LMatch GhcPs (LHsExpr GhcPs)])
-deleteUndefinedMatches (L l []) = return $ L l []
-deleteUndefinedMatches (L l mtchs) = do
-  let nMtchs = 
-        filter (\(L _ (Match _ _ _ grhss@(GRHSs _ _ _))) -> 
+matchDelRhsUndef :: Located [LMatch GhcPs (LHsExpr GhcPs)]
+                       -> Located [LMatch GhcPs (LHsExpr GhcPs)]
+matchDelRhsUndef (L l []) = L l []
+matchDelRhsUndef (L l mtchs) =
+        L l $ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> 
                  showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
                mtchs 
-  L _ tmpMtchs <- tryNewValue (L l mtchs) nMtchs
-  let nMtchs2 = 
-        filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> 
+
+matchDelIfUndefAnywhere :: Located [LMatch GhcPs (LHsExpr GhcPs)]
+                        -> Located [LMatch GhcPs (LHsExpr GhcPs)]
+matchDelIfUndefAnywhere (L l []) = L l []
+matchDelIfUndefAnywhere (L l mtchs) =
+        L l $ filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> 
                not 
                  (all 
                    (("undefined" `isSubsequenceOf`) 
@@ -90,40 +132,22 @@ deleteUndefinedMatches (L l mtchs) = do
                    . pprGRHS LambdaExpr 
                    . unLoc) 
                    grhs))
-               tmpMtchs 
-  tryNewValue (L l tmpMtchs) nMtchs2
+               mtchs 
 
--- BUG: some GRHS are deleted even though the test case is not interesting thereafter!
-simplifyMatch :: LMatch GhcPs (LHsExpr GhcPs) -> ReduceM (LMatch GhcPs (LHsExpr GhcPs))
-simplifyMatch lm@(L _ (Match _ _ _ (GRHSs _ [] _))) = return lm
-simplifyMatch lm@(L _ (Match _ _ _ (GRHSs _ grhss lb))) =
-  foldM (\(L _ m@(MatchP iterGRHSs _)) (L l _) -> do
-          let newGRHSs = filter ((/= l) . getLoc) iterGRHSs
-          case newGRHSs of
-            [] -> return $ L l m
-            _  -> tryNewValue (L l m) (m { m_grhss = GRHSs NoExt newGRHSs lb })
-        ) 
-        lm
-        (reverse grhss) -- reverse because the lower have to be tried first
-simplifyMatch m = return m
+simplifyLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> LGRHS GhcPs (LHsExpr GhcPs)
+simplifyLGRHS lgrhs@(L _ (GRHS _ [] _)) = lgrhs
+simplifyLGRHS (L l (GRHS _ _ body))     = L l (GRHS NoExt [] body)
+simplifyLGRHS lgrhs = lgrhs
 
-pattern MatchP ::  [LGRHS GhcPs (LHsExpr GhcPs)] -> LHsLocalBinds GhcPs -> Match GhcPs (LHsExpr GhcPs)
-pattern MatchP grhss binds <- Match _ _ _ (GRHSs _ grhss binds)
-
-simplifyLGRHS :: LGRHS GhcPs (LHsExpr GhcPs) -> ReduceM (LGRHS GhcPs (LHsExpr GhcPs))
-simplifyLGRHS lgrhs@(L _ (GRHS _ [] _))   = return lgrhs
-simplifyLGRHS lgrhs@(L _ (GRHS _ _ body)) = tryNewValue lgrhs (GRHS NoExt [] body)
-simplifyLGRHS lgrhs = return lgrhs
-
-simplifyExpr :: LHsExpr GhcPs -> ReduceM (LHsExpr GhcPs)
-simplifyExpr lexpr@(SingleCase _ body) = tryNewValue lexpr body
-simplifyExpr lexpr@(L _ (HsIf _ _ _ (L _ ls) (L _ rs)))
-  | oshow ls == "undefined" = tryNewValue lexpr rs
-  | oshow rs == "undefined" = tryNewValue lexpr ls
-simplifyExpr e = return e
+simplifyExpr :: LHsExpr GhcPs -> LHsExpr GhcPs
+simplifyExpr (SingleCase l body) = L l body
+simplifyExpr (L l (HsIf _ _ _ (L _ ls) (L _ rs)))
+  | oshow ls == "undefined" = L l rs
+  | oshow rs == "undefined" = L l ls
+simplifyExpr e = e
 
 -- | getting undefined as an expression
-getUndefined :: ReduceM (Maybe (HsExpr GhcPs))
+getUndefined :: MonadIO m => m (Maybe (HsExpr GhcPs))
 getUndefined =
   snd <$> parseModule defaultConfig "" "x = undefined"
     >>= \case
@@ -135,12 +159,17 @@ getUndefined =
             return $ Just body
           _ -> return Nothing
 
+pattern MatchP ::  [LGRHS GhcPs (LHsExpr GhcPs)] 
+               -> LHsLocalBinds GhcPs 
+               -> Match GhcPs (LHsExpr GhcPs)
+pattern MatchP grhss binds <- Match _ _ _ (GRHSs _ grhss binds)
+
 pattern FunBindGRHSP :: GRHSs GhcPs (LHsExpr GhcPs) -> HsDecl GhcPs
 pattern FunBindGRHSP grhs <- (ValD _ (FunBind _ _ (MG _ (L _ [L _ (Match _ _ _ grhs)]) _) _ _))
 
-pattern ForallTypeP, QualTypeP :: HsType GhcPs -> LHsType GhcPs
-pattern ForallTypeP body <-  L _ (HsForAllTy _ _ (L _ body))
-pattern QualTypeP   body <-  L _ (HsQualTy _ _ (L _ body))
+pattern ForallTypeP, QualTypeP :: SrcSpan -> HsType GhcPs -> LHsType GhcPs
+pattern ForallTypeP l body <-  L l (HsForAllTy _ _ (L _ body))
+pattern QualTypeP   l body <-  L l (HsQualTy _ _ (L _ body))
 
 pattern UnitTypeP :: HsType GhcPs
 pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
