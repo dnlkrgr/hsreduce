@@ -8,8 +8,8 @@ import Module
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import SrcLoc
-import Reduce.Types
-import Reduce.Util
+import Util.Types
+import Util.Util
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: OPR.ParseResult -> R OPR.ParseResult

@@ -31,6 +31,8 @@ common dry
                      , text
                      , time
                      , transformers
+                     , unix
+                     , QuickCheck
   hs-source-dirs:      src
                      , test
   ghc-options:         -Wall
@@ -43,14 +45,14 @@ common dry
 
 library hsreduce-internal
   import:              dry
-  exposed-modules:     Reduce.Reduce
+  exposed-modules:     HsReduce
                        Reduce.Passes.RemoveUnused.Decls
                        Reduce.Passes.RemoveUnused.Exports
                        Reduce.Passes.RemoveUnused.Imports
                        Reduce.Passes.RemoveUnused.Pragmas
                        Reduce.Passes.Stubbing
-                       Reduce.Types
-                       Reduce.Util
+                       Util.Types
+                       Util.Util
 
 executable hsreduce
   import:              dry
@@ -60,9 +62,9 @@ executable hsreduce
                        Reduce.Passes.RemoveUnused.Imports
                        Reduce.Passes.RemoveUnused.Pragmas
                        Reduce.Passes.Stubbing
-                       Reduce.Reduce
-                       Reduce.Types
-                       Reduce.Util
+                       HsReduce
+                       Util.Types
+                       Util.Util
 
 test-suite test-hsreduce
   import:              dry

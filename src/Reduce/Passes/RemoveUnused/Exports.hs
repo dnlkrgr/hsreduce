@@ -10,8 +10,8 @@ import qualified Data.Text as T
 import Data.Maybe
 import Module
 import System.FilePath.Posix
-import Reduce.Types
-import Reduce.Util
+import Util.Types
+import Util.Util
 import Control.Monad.Reader
 
 reduce :: OPR.ParseResult -> R OPR.ParseResult

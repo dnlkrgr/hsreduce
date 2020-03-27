@@ -1,4 +1,4 @@
-module Reduce.Util where
+module Util.Util where
 
 import Debug.Trace
 import Control.Monad.State.Strict
@@ -20,24 +20,23 @@ import SrcLoc
 import Outputable
 import Control.Monad.Reader
 
-import Reduce.Types
+import Util.Types
 
 
 
 reduceListOfSubelements :: Typeable a 
-                        => (Located a -> [SrcSpan]) 
-                        -> (SrcSpan -> Located a -> Located a) 
+                        => (a -> [SrcSpan]) 
+                        -> (SrcSpan -> a -> a) 
                         -> Located a 
                         -> R (Located a)
-reduceListOfSubelements getSrcSpans transform hvb = 
-  (foldr (>=>) return . map (try . transform). getSrcSpans $ hvb) hvb
-
+reduceListOfSubelements getSrcSpans transform la = 
+  (foldr (>=>) return . map (try . transform). getSrcSpans . unLoc $ la) la
 
 try :: Typeable a 
-    => (Located a -> Located a) 
+    => (a -> a) 
     -> Located a 
     -> R (Located a)
-try g v = tryNewValue v (g v)
+try g (L l v) = ltryNewValue (L l v) (g v)
 
 tryRemoveEach :: Typeable a 
               => (t -> t -> Bool)
@@ -47,13 +46,7 @@ tryRemoveEach :: Typeable a
               -> R (Located a)
 tryRemoveEach f constr e oldList =
   foldM (\iterE ld -> let newList = filter (f ld) oldList
-                     in tryNewValue iterE (constr newList)) e oldList
-
-oshow :: Outputable a => a -> String
-oshow = showSDocUnsafe . ppr
-
-lshow :: Outputable a => Located a -> String
-lshow = showSDocUnsafe . ppr . unLoc
+                      in tryNewValue iterE (constr newList)) e oldList
 
 tryNewValue :: Typeable a => Located a -> Located a -> R (Located a)
 tryNewValue oldValue@(L loc _) newValue = do
@@ -61,6 +54,20 @@ tryNewValue oldValue@(L loc _) newValue = do
   let oldModule = prParsedSource oldOrmolu
       newModule = everywhereT (mkT (overwriteAtLoc loc newValue)) oldModule
   testAndUpdateStateFlex oldValue newValue (oldOrmolu{ prParsedSource = newModule})
+
+oshow :: Outputable a => a -> String
+oshow = showSDocUnsafe . ppr
+
+lshow :: Outputable a => Located a -> String
+lshow = showSDocUnsafe . ppr . unLoc
+
+ltryNewValue :: Typeable a => Located a -> a -> R (Located a)
+ltryNewValue oldValue@(L loc _) newValue = do
+  oldOrmolu <- gets _ormolu
+  let oldModule = prParsedSource oldOrmolu
+      newModule = everywhereT (mkT (overwriteAtLoc loc newValue)) oldModule
+  testAndUpdateStateFlex oldValue (L loc newValue) (oldOrmolu{ prParsedSource = newModule})
+
 
 overwriteAtLoc :: SrcSpan   -- ^ loc:      location that should be updated
                -> a         -- ^ newValue: has to come before oldValue because we use it in a closure
@@ -82,6 +89,7 @@ testAndUpdateStateFlex a b newOrmolu  = do
       Uninteresting -> return a
       Interesting -> do
         -- TODO: add information to change operation for better debugging messages
+        liftIO $ putChar '.'
         modify $ \s -> s {_ormolu = newOrmolu}
         return b
 
@@ -146,7 +154,7 @@ runGhc oldOrmolu ghcMode = do
             return Nothing
           Just (exitCode, stdout, stderr) -> case exitCode of
             ExitFailure errCode -> do
-              TIO.writeFile ("/home/daniel/workspace/Reduce/debug/" ++ fileName) (printModule oldOrmolu)
+              TIO.writeFile ("/home/daniel/workspace/hsreduce/debug/" ++ fileName) (printModule oldOrmolu)
               errorPrint $ "Failed running `" ++ command ++ "` with error code " ++ show errCode
               errorPrint "stdout: "
               let tempGhcOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]

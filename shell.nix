@@ -12,6 +12,7 @@ let
       , haskell-src-exts, stdenv, syb, text, mtl, transformers
       , bytestring, temporary, filepath, directory, ghc-paths
       , ghc-lib-parser, aeson, random, time, ormolu
+      , unix, QuickCheck
       }:
       mkDerivation {
         pname = "hsreduce";
@@ -23,6 +24,7 @@ let
           base ghc hashable haskell-names haskell-src-exts syb text 
           mtl transformers bytestring temporary filepath directory 
           ghc-lib-parser aeson random time ormolu
+          unix QuickCheck
         ];
         homepage = "dnlkrgr.com";
         description = "Minimizing Haskell programs for easier debugging of GHC bugs";

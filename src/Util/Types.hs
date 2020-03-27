@@ -1,5 +1,5 @@
 {-# language GeneralizedNewtypeDeriving #-}
-module Reduce.Types where
+module Util.Types where
 
 import Ormolu.Parser.Result as OPR
 import Data.Aeson
@@ -21,16 +21,16 @@ data RConf =
     _sourceFile :: !FilePath
   }
 
-newtype RState = 
+data RState = 
   RState {
-    _ormolu     :: OPR.ParseResult
+    _ormolu     :: !OPR.ParseResult
   }
 
 type BindingName = String
 
-newtype Span
+data Span
   = Span
-      { file :: String
+      { file :: !String
       }
   deriving (Eq, Generic, Show)
 instance FromJSON Span

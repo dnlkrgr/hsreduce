@@ -1,4 +1,4 @@
-module Reduce.HsAllInOne
+module Merge.HsAllInOne
     ( hsAllInOne
     )
 where
@@ -32,7 +32,7 @@ import           Data.Char                      ( ord )
 import           Data.Hashable                  ( hash )
 
 
-hsAllInOne :: [FilePath] -> IO ()
+hsAllInOne :: [FilePath] -> IO String
 hsAllInOne filenames = do
     modules <- for filenames $ fmap fromParseResult . parseFile
     let ours = map getName modules
@@ -45,13 +45,15 @@ hsAllInOne filenames = do
                 .   annotate env
                 <$> modules
         combined = combine mangled
-    putStrLn $ prettyPrint combined
+    return $ prettyPrint combined
 
 
 getName :: Module l -> String
 getName (Module _ Nothing _ _ _) = "Main"
 getName (Module _ (Just (ModuleHead _ (ModuleName _ n) _ _)) _ _ _) = n
+getName _ = ""
 
+getName' :: ModuleName l -> String
 getName' (ModuleName _ n) = n
 
 removeImports :: [String] -> Module l2 -> Module l2
@@ -62,7 +64,9 @@ removeImports ours (Module l mh prags imports decls) = Module
     (filter go imports)
     decls
     where go i = getName' (importModule i) `notElem` ours
+removeImports _ m = m
 
+combine :: [Module ()] -> Module ()
 combine mods = Module
     ()
     (Just (ModuleHead () (ModuleName () "Main") Nothing Nothing))
@@ -70,9 +74,9 @@ combine mods = Module
     imps
     decls
   where
-    prags = nub $ concat [ prags | Module _ _ prags _ _ <- mods ]
-    imps  = nub $ concat [ imps | Module _ _ _ imps _ <- mods ]
-    decls = concat [ decls | Module _ _ _ _ decls <- mods ]
+    prags = nub $ concat [ prags' | Module _ _ prags' _ _ <- mods ]
+    imps  = nub $ concat [ imps' | Module _ _ _ imps' _ <- mods ]
+    decls = concat [ decls' | Module _ _ _ _ decls' <- mods ]
 
 rename :: [String] -> Module (Scoped SrcSpanInfo) -> Module (Scoped SrcSpanInfo)
 rename ours x =
@@ -98,9 +102,9 @@ renameName ours we n
     , let m = getName' (symbolModule s)
     , m `elem` ours
     = mangle m (ann n) (symbolName s)
-    | Scoped (GlobalSymbol s _) _ <- ann n
+    | Scoped (GlobalSymbol _ _) _ <- ann n
     = n
-    | Scoped (ScopeError e) _ <- ann n
+    | Scoped (ScopeError _) _ <- ann n
     = n
     | -- not our name, leave unmodified
       Scoped None _ <- ann n
@@ -110,22 +114,26 @@ renameName ours we n
     = mangle we (ann n) n
 --renameName ours we n = error (prettyPrint n ++" : " ++ show (ann n))
 
-modOf :: String -> Scoped () -> Maybe String
-modOf we (Scoped (GlobalSymbol s _) _) = Just $ getName' (symbolModule s)
-modOf we (Scoped ValueBinder        _) = Just we
-modOf we (Scoped (LocalValue _)     _) = Just we
-modOf we _                             = Nothing
+-- *** GHC: "DEFINED BUT NOT USED" ***
+-- modOf :: String -> Scoped () -> Maybe String
+-- modOf _ (Scoped (GlobalSymbol s _) _)  = Just $ getName' (symbolModule s)
+-- modOf we (Scoped ValueBinder        _) = Just we
+-- modOf we (Scoped (LocalValue _)     _) = Just we
+-- modOf _ _                              = Nothing
 
+doubleUS :: String -> String
 doubleUS = concatMap go
   where
     go '_' = "__"
     go c   = [c]
 
+doubleCol :: String -> String
 doubleCol = concatMap go
   where
     go ':' = "::"
     go c   = [c]
 
+dotToUS :: String -> String
 dotToUS = concatMap go
   where
     go '.' = "_"

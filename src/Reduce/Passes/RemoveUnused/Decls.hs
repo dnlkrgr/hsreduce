@@ -12,8 +12,8 @@ import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import Outputable (showSDocUnsafe)
 import BasicTypes
-import Reduce.Types
-import Reduce.Util
+import Util.Types
+import Util.Util
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: OPR.ParseResult -> R OPR.ParseResult
@@ -120,7 +120,6 @@ getName _ = Nothing
 pattern SimplSigP, SimplFunP :: Located (IdP GhcPs) -> HsDecl GhcPs
 pattern SimplSigP lFunId <- SigD _ (TypeSig _ [lFunId] _)
 pattern SimplFunP lFunId <- ValD _ (FunBind _ lFunId _ _ _)
-
 
 -- simplifyDecl
 pattern FunDeclP :: Located (IdP GhcPs) -> SrcSpan -> [LMatch GhcPs (LHsExpr GhcPs)] -> Origin -> HsWrapper -> [Tickish Id] -> HsDecl GhcPs

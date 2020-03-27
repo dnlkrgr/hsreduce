@@ -6,8 +6,8 @@ import Ormolu.Printer (printModule)
 import Control.Monad.State.Strict
 import Data.Foldable
 
-import Reduce.Types
-import Reduce.Util
+import Util.Types
+import Util.Util
 import qualified Data.Text as T
 
 reduce :: OPR.ParseResult -> R OPR.ParseResult
