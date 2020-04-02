@@ -2,13 +2,13 @@ module Reduce.Passes.RemoveUnused.Exports where
 
 import Data.Foldable
 import Control.Monad.State.Strict
-import HsSyn
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
-import SrcLoc
 import qualified Data.Text as T
 import Data.Maybe
-import Module
+import "ghc-lib-parser" Module
+import "ghc-lib-parser" SrcLoc
+import "ghc-lib-parser" HsSyn
 import System.FilePath.Posix
 import Util.Types
 import Util.Util

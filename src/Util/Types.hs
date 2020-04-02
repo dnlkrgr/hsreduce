@@ -1,6 +1,7 @@
 {-# language GeneralizedNewtypeDeriving #-}
 module Util.Types where
 
+import Control.Applicative
 import Ormolu.Parser.Result as OPR
 import Data.Aeson
 import GHC.Generics (Generic)
@@ -13,7 +14,7 @@ runR c st (R a) = runStateT (runReaderT a c) st
 
 newtype R a = 
   R (ReaderT RConf (StateT RState IO) a)
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadState RState)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadState RState, Alternative, MonadPlus)
 
 data RConf = 
   RConf
@@ -46,8 +47,6 @@ data GhcOutput
 instance FromJSON GhcOutput
 
 data GhcMode = Binds | Imports
-
-type Pass = OPR.ParseResult -> OPR.ParseResult
 
 data Interesting = Interesting | Uninteresting
     deriving Show

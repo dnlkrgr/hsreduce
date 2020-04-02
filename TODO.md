@@ -1,10 +1,7 @@
 # ToDo's / Protocol
 
 ## MUST
-
-  - [ ] Ticket mit Container Bug reproduzieren
-  - ocharles/weeder benutzen
-    - [ ] Sebastian: wie benutzt man das?
+  - [ ] **uniplate statt syb benutzen**
   - [ ] Haskell Source Plugins anschauen
   - [ ] Structureshrink Zum Laufen Bringen
   - [ ] Automatisiert Test-Cases Hinzufügen + Laufen Lassen Können
@@ -23,6 +20,8 @@
   - 24 days of GHC extensions durchlesen
     - GADTs, Type Families anschauen
   - [ ] #14270 mit git repo reproduzieren
+  - ocharles/weeder benutzen
+  - [x] Ticket mit Container Bug reproduzieren
 
 ## SHOULD
 
@@ -42,7 +41,10 @@
   - wie effektiv sind die Pässe?
   - was waren Herausforderungen für Implementierung der Pässe?
 
-## Passes to implement
+## Merging Modules
+  - [ ] **HsAllInOne auf GHC API umstellen**
+
+## Reduction Passes 
 
 - Typsignaturen vereinfachen
   - Unit / ()
@@ -56,6 +58,7 @@
     - [x] Kontexte / Constraints entfernen
   - unnötige Parameter weg
     - [ ] dann auch in allen Verwendungen löschen
+  - Bangtypes: Bang weg
 - Typen vereinfachen / Typaliase
   - [ ] unnötige Typaliase weg
   - [ ] Typ mit 1 Konstruktor: kann gleich Typalias sein, oder?
@@ -112,6 +115,7 @@
 - Misc
   - [ ] Datei formattieren
   - [ ] case-Ausdrücke minimieren
+    - [ ] Matches entfernen und ein `_ -> ...` Match einführen
   - [ ] arithmetische, boolesche Ausdrücke vereinfachen
 - Normalization
   - [ ] renaming functions
@@ -150,6 +154,7 @@
 - 17722
 - 17684
 - 16127
+- 17516
 
 ## creduce's core
 

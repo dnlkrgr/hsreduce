@@ -14,11 +14,19 @@ extra-source-files:    CHANGELOG.md, README.md
 common dry
   default-language:    Haskell2010
   build-depends:       base
+                     , Cabal
+                     , MonadRandom
+                     , QuickCheck
                      , aeson
                      , bytestring
+                     , containers
                      , directory
+                     , extra
                      , filepath
+                     , ghc
+                     , ghc-boot-th
                      , ghc-lib-parser
+                     , ghc-paths
                      , hashable
                      , haskell-names
                      , haskell-src-exts
@@ -31,8 +39,9 @@ common dry
                      , text
                      , time
                      , transformers
+                     , uniplate
                      , unix
-                     , QuickCheck
+                     , monad-par
   hs-source-dirs:      src
                      , test
   ghc-options:         -Wall
@@ -41,6 +50,7 @@ common dry
                        PatternSynonyms
                        Rank2Types  
                        TypeFamilies
+                       PackageImports
 
 
 library hsreduce-internal
@@ -65,6 +75,8 @@ executable hsreduce
                        HsReduce
                        Util.Types
                        Util.Util
+                       Merge.HsAllInOne
+                       Merge.Arst
 
 test-suite test-hsreduce
   import:              dry

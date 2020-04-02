@@ -1,43 +1,55 @@
-{ nixpkgs ? import <nixpkgs> {}, compiler ? "ghc881", doBenchmark ? false }:
+{ nixpkgs ? import <nixpkgs> {} }:
 
 let
   pkgs = import (builtins.fetchGit {
     name ="nixos-20.03-small";
-    url = https://github.com/nixos/nixpkgs-channels/;
-    ref = "nixos-20.03-small";
-    rev = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
+    url  = https://github.com/nixos/nixpkgs-channels/;
+    ref  = "nixos-20.03-small";
+    rev  = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
   }) {};
 
-  f = { mkDerivation, base, ghc, hashable, haskell-names
-      , haskell-src-exts, stdenv, syb, text, mtl, transformers
-      , bytestring, temporary, filepath, directory, ghc-paths
-      , ghc-lib-parser, aeson, random, time, ormolu
-      , unix, QuickCheck
-      }:
-      mkDerivation {
-        pname = "hsreduce";
-        version = "0.1.0.0";
-        src = ./.;
-        isLibrary = false;
-        isExecutable = true;
-        executableHaskellDepends = [
-          base ghc hashable haskell-names haskell-src-exts syb text 
-          mtl transformers bytestring temporary filepath directory 
-          ghc-lib-parser aeson random time ormolu
-          unix QuickCheck
-        ];
-        homepage = "dnlkrgr.com";
-        description = "Minimizing Haskell programs for easier debugging of GHC bugs";
-        license = stdenv.lib.licenses.bsd3;
-      };
+  haskellPackages = pkgs.haskell.packages.ghc882;
 
-  haskellPackages = if compiler == "default"
-                       then pkgs.haskellPackages
-                       else pkgs.haskell.packages.${compiler};
-
-  variant = if doBenchmark then pkgs.haskell.lib.doBenchmark else pkgs.lib.id;
-
-  drv = variant (haskellPackages.callPackage f {});
-
-in
-  if pkgs.lib.inNixShell then drv.env else drv
+  drv = 
+    with haskellPackages;
+    mkDerivation {
+      pname = "hsreduce";
+      version = "0.1.0.0";
+      src = ./.;
+      buildDepends = [
+        MonadRandom
+        QuickCheck
+        aeson
+        base 
+        bytestring
+        cabal-install
+        containers 
+        directory 
+        extra 
+        filepath
+        ghc 
+        ghc-boot-th
+        ghc-lib-parser
+        ghc-paths 
+        hashable
+        haskell-names
+        haskell-src-exts
+        mtl
+        ormolu
+        random
+        syb
+        syb 
+        temporary
+        text 
+        time
+        transformers
+        uniplate
+        unix
+        monad-par
+      ];
+      homepage    = "dnlkrgr.com";
+      description = "Minimizing Haskell programs for easier debugging of GHC crashes";
+      license     = stdenv.lib.licenses.bsd3;
+    };
+in 
+  drv.env

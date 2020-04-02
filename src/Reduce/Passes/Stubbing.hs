@@ -3,13 +3,15 @@ module Reduce.Passes.Stubbing (reduce) where
 import Data.List
 import Control.Monad.State.Strict
 import qualified Data.Text as T
-import HsSyn
 import Ormolu.Config (defaultConfig)
 import Ormolu.Parser (parseModule)
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
-import SrcLoc
-import Outputable
+import "ghc-lib-parser" HsSyn
+import "ghc-lib-parser" SrcLoc
+import "ghc-lib-parser" Outputable
+import Data.Generics (everywhereM, mkM)
+
 
 import Util.Types
 import Util.Util
@@ -26,7 +28,7 @@ reduce oldOrmolu = do
       Nothing -> return oldOrmolu
       Just myUndefined -> do
         newModule <-  everywhereM
-                        ( mkM (try (expr2Undefined myUndefined))
+                          (mkM (try (expr2Undefined myUndefined))
                           >=> mkM (try matchDelRhsUndef)
                           >=> mkM (try matchDelIfUndefAnywhere)
                           >=> mkM simplifyMatch
@@ -34,14 +36,13 @@ reduce oldOrmolu = do
                           >=> mkM filterLocalBindSigs
                           >=> mkM (try simplifyExpr)
                           >=> mkM (try simplifyType)
-                          >=> mkM (try gadtDelForall)
-                          >=> mkM (try gadtDelCtxt)
-                          >=> mkM (try deleteWhereClause))
+                          >=> mkM (try deleteGADTforall) 
+                          >=> mkM (try deleteGADTctxt) 
+                          >=> mkM (try deleteWhereClause)) 
                         oldModule
         return oldOrmolu { prParsedSource = newModule }
 
 type LLocalBind = Located (HsLocalBindsLR GhcPs GhcPs)
-
 
 filterLocalBindSigs :: LLocalBind -> R LLocalBind
 filterLocalBindSigs = 
@@ -92,15 +93,15 @@ simplifyType (ForallTypeP body) = body
 simplifyType (QualTypeP body)   = body
 simplifyType _                  = UnitTypeP
 
-gadtDelForall :: ConDecl GhcPs -> ConDecl GhcPs
-gadtDelForall gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) =
+deleteGADTforall :: ConDecl GhcPs -> ConDecl GhcPs
+deleteGADTforall gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) =
   gadtDecl{ con_forall = L forallLoc False} -- delete forall
-gadtDelForall d = d
+deleteGADTforall d = d
 
-gadtDelCtxt :: ConDecl GhcPs -> ConDecl GhcPs
-gadtDelCtxt gadtDecl@ConDeclGADT{} =
+deleteGADTctxt :: ConDecl GhcPs -> ConDecl GhcPs
+deleteGADTctxt gadtDecl@ConDeclGADT{} =
   gadtDecl{ con_mb_cxt = Nothing}
-gadtDelCtxt d = d
+deleteGADTctxt d = d
 
 
 deleteWhereClause :: HsLocalBinds GhcPs -> HsLocalBinds GhcPs

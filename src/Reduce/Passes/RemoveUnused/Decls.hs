@@ -3,15 +3,15 @@ module Reduce.Passes.RemoveUnused.Decls where
 import Data.Foldable
 import Control.Monad.State.Strict
 import qualified Data.Text as T
-import HsSyn
-import SrcLoc
-import TcEvidence
-import CoreSyn
-import Var
+import "ghc-lib-parser" HsSyn
+import "ghc-lib-parser" SrcLoc
+import "ghc-lib-parser" TcEvidence
+import "ghc-lib-parser" CoreSyn
+import "ghc-lib-parser" Var
+import "ghc-lib-parser" BasicTypes
+import "ghc-lib-parser" Outputable (showSDocUnsafe)
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
-import Outputable (showSDocUnsafe)
-import BasicTypes
 import Util.Types
 import Util.Util
 
@@ -21,7 +21,7 @@ reduce oldOrmolu = do
   liftIO $ putStrLn "\n***Removing unused declarations***"
   debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
   let allDecls   = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
-  runGhc oldOrmolu Binds
+  getGhcWarnings oldOrmolu Binds
     >>= \case
       Nothing -> do
             traverse_ (\dcl -> rmvDecl dcl 
@@ -62,39 +62,49 @@ rmvDecl (L declLoc _) =
 
 -- | rmv unused parts of decls
 rmvBinds :: Maybe [BindingName] -> LHsDecl GhcPs -> R ()
-rmvBinds (Just bns) dcl@(TypeSigDeclP l ids swt) = do
+rmvBinds (Just bns) (L l dcl@(TypeSigDeclP ids swt)) = do
   liftIO $ putStrLn $ "--- Just ub, TypeSigDeclP" ++ oshow dcl
   let newFunIds = filter ((`notElem` bns) . lshow) ids
-  void $ tryNewValue dcl (L l $ TypeSigDeclX newFunIds swt)
-rmvBinds Nothing dcl@(TypeSigDeclP l ids swt) = do
-  liftIO $ putStrLn $ "--- Nothing TypeSigDeclP" ++ oshow dcl
-  void $ tryRemoveEach (/=) (L l . flip TypeSigDeclX swt) dcl ids
-rmvBinds _ oldDecl@(L l (FunDeclP fid loc mtchs mo fw ft)) = do
+  void $ tryNewValue (L l dcl) (TypeSigDeclX newFunIds swt)
+rmvBinds _ oldDecl@(L _ (FunDeclP fid loc mtchs mo fw ft)) = do
   liftIO $ putStrLn $ "--- fundeclp" ++ oshow fid
   let nMtchs = 
         filter (\(L _ (Match _ _ _ grhss)) -> 
           showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs 
-  void $ tryNewValue oldDecl (L l $ FunDeclP fid loc nMtchs mo fw ft)
+  void $ tryNewValue oldDecl (FunDeclP fid loc nMtchs mo fw ft)
 rmvBinds mBns ldcl@(L _ (TyClD _ _)) = do
   liftIO $ putStrLn $ "--- tycld" ++ lshow ldcl
-  rmvCons mBns ldcl
+  void $ rmvCons mBns ldcl
+rmvBinds Nothing ldcl@(L _ TypeSigDeclP{}) =
+  void $ reduceListOfSubelements typeSig2Ids transformTypeSig ldcl
+  where
+    typeSig2Ids =
+      \case
+        TypeSigDeclP ids _ -> ids
+        _ -> []
+    transformTypeSig e =
+      \case
+        TypeSigDeclP ids swt -> 
+          let newIds = filter (/= e) ids -- L l . flip TypeSigDeclX swt
+          in TypeSigDeclX newIds swt
+        d -> d
 rmvBinds _ _ = return ()
 
--- | rmv unused constructors
+
 -- TODO: apply to more TyClD types
-rmvCons :: Maybe [BindingName] -> LHsDecl GhcPs -> R ()
---rmvCons (Just unusedBindingNames) ldcl@(L _ (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
---  let constructors    = dd_cons oldDataDefn
---      newConstructors = filter (isConstructorUsed unusedBindingNames) constructors
---  liftIO $ putStrLn $ "!!! newConstructors: " ++ concatMap ((++ " ") . lshow) newConstructors
---  void $ tryNewValue ldcl $ TyClD NoExt oldDecl{ tcdDataDefn = oldDataDefn{ dd_cons = newConstructors}}
-rmvCons _ ldcl@(L l (TyClD _ oldDecl@(DataDecl _ _ _ _ oldDataDefn))) = do
-  let constructors    = dd_cons oldDataDefn
-  void $ tryRemoveEach (\c -> (/= cons2String c) . cons2String) 
-                       (\newConstrs -> L l $ TyClD NoExt oldDecl {tcdDataDefn = oldDataDefn {dd_cons = newConstrs}})
-                       ldcl
-                       constructors
-rmvCons _ _ = return ()
+rmvCons :: Maybe [BindingName] -> LHsDecl GhcPs -> R (LHsDecl GhcPs)
+rmvCons _ = reduceListOfSubelements decl2ConsStrings delCons
+  where 
+    delCons loc =
+      \case
+        (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) ->
+          let newCons = dd_cons oldDataDefn
+          in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
+        d -> d
+    decl2ConsStrings =
+      \case
+        (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
+        _ -> []
 
 -- Left:  H98
 -- Right: GADT
@@ -126,8 +136,8 @@ pattern FunDeclP :: Located (IdP GhcPs) -> SrcSpan -> [LMatch GhcPs (LHsExpr Ghc
 pattern FunDeclP lFunId matchesLoc funMatches mgOrigin funWrapper funTick = 
   ValD NoExt (FunBind NoExt lFunId (MG NoExt (L matchesLoc funMatches) mgOrigin) funWrapper funTick)
 
-pattern TypeSigDeclP :: SrcSpan -> [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> LHsDecl GhcPs
-pattern TypeSigDeclP declLoc funIds sigWctype <- L declLoc (SigD _ (TypeSig _ funIds sigWctype))
+pattern TypeSigDeclP :: [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> HsDecl GhcPs
+pattern TypeSigDeclP funIds sigWctype <- (SigD _ (TypeSig _ funIds sigWctype))
 
 pattern TypeSigDeclX :: [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> HsDecl GhcPs
 pattern TypeSigDeclX funIds sigWctype = SigD NoExt (TypeSig NoExt funIds sigWctype)

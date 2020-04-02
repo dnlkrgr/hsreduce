@@ -3,11 +3,11 @@ module Reduce.Passes.RemoveUnused.Imports where
 import Data.Foldable
 import Control.Monad.State.Strict
 import qualified Data.Text as T
-import HsSyn
-import Module
+import "ghc-lib-parser" HsSyn
+import "ghc-lib-parser" Module
+import "ghc-lib-parser" SrcLoc
 import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
-import SrcLoc
 import Util.Types
 import Util.Util
 
@@ -17,7 +17,7 @@ reduce oldOrmolu = do
   liftIO $ putStrLn "\n***Removing Imports***"
   debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
   let oldImports = hsmodImports . unLoc . prParsedSource $ oldOrmolu
-  runGhc oldOrmolu Imports
+  getGhcWarnings oldOrmolu Imports
     >>= \case
       Nothing -> do
           traverse_ removeImport oldImports
