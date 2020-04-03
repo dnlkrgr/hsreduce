@@ -191,7 +191,7 @@ getGhcWarnings oldOrmolu ghcMode = do
                   else return Nothing
   where
     ghcModeString = case ghcMode of
-      Binds -> "binds"
+      Binds   -> "binds"
       Imports -> "imports"
 
 isInProduction :: Bool
