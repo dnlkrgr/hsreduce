@@ -26,7 +26,6 @@ import System.Process
 import System.Timeout
 import Util.Types as UT
 
-trace' a = traceShow a a
 
 banner :: MonadIO m => String -> m ()
 banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
@@ -161,7 +160,8 @@ getGhcOutput sourcePath ghcMode = do
       Other -> map (\o -> (gotQual $ doc o, span2SrcSpan . fromJust . UT.span $ o))
       _     -> error "implement me"
 
-gotQual = fromMaybe "" . matchedText . (?=~ [re|([A-Za-z]+\.)+[A-Za-z#_]+|])
+gotQual :: String -> String
+gotQual = fromMaybe "" . matchedText . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
@@ -199,4 +199,5 @@ getPragmaStrings _ = Nothing
 isInProduction :: Bool
 isInProduction = False
 
+duration :: Num a => a
 duration = 20 * 1000 * 1000

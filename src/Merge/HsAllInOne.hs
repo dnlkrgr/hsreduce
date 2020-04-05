@@ -57,55 +57,36 @@ hsAllInOne filePath = do
     let fileContent = unlines [prags, imps, showGhc decls]
     TIO.writeFile sourcePath (T.pack fileContent)
 
-    -- TODO: repeat until fixpoint
-    go sourcePath fileContent >>= (go sourcePath  >=> go sourcePath)
-    return ()
+    go sourcePath fileContent
        
-go sourcePath fileContent =
-    getGhcOutput sourcePath Other >>= \case
-      Nothing -> return ""
-      Just [] -> return ""
-      Just locs -> do
-        let newFileContent = foldr mkQual fileContent $ map (fmap span2Locs)  $ traceShow (map showGhc locs) locs
-        TIO.writeFile sourcePath (T.pack newFileContent)
-        return newFileContent
-        go sourcePath newFileContent
+  where go sourcePath fileContent =
+          getGhcOutput sourcePath Other >>= \case
+            Nothing -> return ()
+            Just [] -> return ()
+            Just locs -> do
+              let newFileContent = foldr mkQual fileContent $ map (fmap span2Locs)  $ traceShow (map showGhc locs) locs
+              TIO.writeFile sourcePath (T.pack newFileContent)
+              go sourcePath newFileContent
 
 mkQual :: (String, (RealSrcLoc, RealSrcLoc)) -> String -> String
 mkQual (newName, (startLoc, endLoc)) fileContent = 
---   traceShow (unwords [showGhc startLoc
---                      -- , show $ length lineContent - length prefix - length oldName - length suffix
---                      , show $ length lineContent - length newLineContent
---                      , show $ length contentLines - length prevLines - length succLines - 1]) $
---                      , show $ last prefix == head oldName
---                      , show $ last oldName == head suffix] ) $
   unlines $ prevLines ++ [newLineContent] ++ succLines
   where 
         contentLines   = lines fileContent
         lineStart      = srcLocLine startLoc
         colStart       = srcLocCol  startLoc
         colEnd         = srcLocCol  endLoc
-        currentIndex   = lineStart - 1
+        currentIndex   = lineStart-1
         prevLines      = take currentIndex contentLines 
         succLines      = drop lineStart contentLines
         lineContent    = contentLines !! currentIndex
-        prefix         = take (colStart - 1) lineContent
-        suffix         = drop (colEnd - 1) lineContent
-        newLineContent = prefix ++ trace' newName ++ suffix
+        prefix         = take (colStart-1) lineContent
+        suffix         = drop (colEnd-1) lineContent
+        isInfix        = (==2) . length . filter (=='`') . drop (colStart-1) . take (colEnd-1) $ lineContent
+        newLineContent = if isInfix then prefix ++ "`" ++  newName ++ "`" ++ suffix else prefix ++ newName ++ suffix 
 
 span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
-
-
-
-  -- | l `elem` locs = L s . tidyNameOcc n . mkOccName ns . trace' . showSDocUnsafe . pprNameUnqualified $ n
-  -- | otherwise = traceShow (showGhc s ++ "," ++ showGhc n) ln
---   where
---     l    = span2Locs s
---     f l  = "(" ++ (showGhc $ fst l) ++ ", " ++ (showGhc $ snd l) ++ ")"
---     ns   = occNameSpace $ occName n
---     locs = map span2Locs spans
---     slocs = map f locs
 
 
 mergeModules :: [FilePath] -> [FilePath] -> IO (String, String, HsGroup GhcRn)
@@ -190,72 +171,40 @@ removeImports ours = filter go
 name2UniqueName :: ParsedSource -> Name -> Name
 name2UniqueName _ n
   | "main" == showGhc (getRdrName n) = n
-  -- | isSystemName    n                = n
-  -- | isWiredInName   n                = n
-  -- | isBuiltInSyntax n                = n
-  | isDataConName   n                = n -- traceShow ("data con: " ++ showGhc n) n 
+  | isSystemName    n                = traceShow ("name2UniqueName - SYSTEM NAME: " ++ nameStableString n) n
+  | isWiredInName   n                = n
+  | isBuiltInSyntax n                = n
+  | isDataConName   n                = n
   | isOperator . showGhc $ getRdrName n,
     not $ "$main" `isPrefixOf` nameStableString n = n -- not our operator, do not touch
 
-  -- | isOperator . showGhc $ getRdrName n,
-  --   Just m <- nameModule_maybe n,
-  --   "$main" `isPrefixOf` nameStableString n = tidyNameOcc n 
-  --                                           . mkOccName ns 
-  --                                           . renameOperator 
-  --                                           $ os 
-  --                                           ++ moduleNameString (moduleName m)
-  | isOperator . showGhc $ getRdrName n,
+  | isOperator . showGhc $ getRdrName n,                          -- our operator
     "$main" `isPrefixOf` nameStableString n = 
-                                              -- traceShow (unwords [showGhc n, showSDocUnsafe $ pprNameSpace ns, nameStableString n, renameOperator os]) $
                                               tidyNameOcc n 
                                             . mkOccName ns 
                                             . renameOperator 
                                             $ os
-  | Just m <- nameModule_maybe n,
+  | Just m <- nameModule_maybe n,                                 -- our function / variable
     "$main" `isPrefixOf` nameStableString n = tidyNameOcc n
                                             . mkOccName ns
                                             $ os 
                                             ++ "_" 
                                             ++ filter (/= '.') 
                                                       (moduleNameString (moduleName m))
-  -- | not $ "$main" `isPrefixOf` nameStableString n 
-  -- , Just m <- nameModule_maybe n
-  -- , isQual p (moduleName m) on 
-  -- = mkNameQual (moduleName m) on ns n
-
-  -- -- , "$base" `isPrefixOf` nameStableString n 
-
-  -- | Just m <- nameModule_maybe n
-  -- , not $  any (`isPrefixOf` (moduleNameString $ moduleName m)) ["GHC", "System.IO", "Data.Either", "Data.Tuple", "Text.ParserCombinators", "Data.Semigroup.Internal", "Data.Typeable.Internal"]
-  -- = mkNameQual (moduleName m) on ns n
-
-  | not $  any (`isPrefixOf` nameStableString n) blacklist, Just m <- nameModule_maybe n 
+  -- something external
+  | all (not . (`isPrefixOf` nameStableString n)) blacklist, Just m <- nameModule_maybe n 
   = mkNameQual (moduleName m) on ns n
-  -- = traceShow (nameStableString n) $ mkNameQual (moduleName m) on ns n
 
-  | Just m <- nameModule_maybe n = 
-    if any (`isSubsequenceOf` showGhc n) ["liftA", "idem"] then
-    traceShow "otherwise: " .
-    traceShow (moduleNameString $ moduleName m) $ 
-    traceShow (unwords [nameStableString n]) $ 
-    n
-    else
-    n
   | otherwise = n
   where
     on = occName n
     os = occNameString on
     ns = occNameSpace on
-    blacklist = ["$main$", "$ghc-prim$GHC", "$base$GHC", "$base$System.IO$" , "$base$Data.Tuple$", "$base$Data.Either$", "$base$Data.Typeable.Internal$", "$base$Data.Semigroup.Internal$", "$base$Text.ParserCombinators.ReadPrec$"]
-
-
+    blacklist = ["$main$", "$ghc-prim$", "$base$"]
   
 
--- TODO: wird der zweite Guard gebraucht?
 mkNameQual :: ModuleName -> OccName -> NameSpace -> Name -> Name
 mkNameQual mn on ns n = tidyNameOcc n $ mkOccName ns $ moduleNameString mn ++ "." ++ showGhc on
-
-
 
 isOperator :: String -> Bool
 isOperator = not . any isAlphaNum
