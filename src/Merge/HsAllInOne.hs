@@ -1,30 +1,34 @@
 module Merge.HsAllInOne (hsAllInOne, recListDirectory) where
 
 
+import "ghc" SrcLoc
+import Debug.Trace
 import "ghc" DynFlags
 import "ghc" Name
 import "ghc" Outputable hiding ((<>))
-import "ghc" RdrName hiding (isQual)
+import "ghc" RdrName hiding (isQual, mkUnqual, mkQual)
 import "syb" Data.Generics
 import Control.Monad.Extra
 import Control.Monad.Random
 import Data.Char
 import Data.Hashable
 import Data.List
-import Debug.Trace
 import GHC
 import GHC.Paths
 import System.Directory
 import System.FilePath.Posix
 import System.Posix.Files
-import Util.Util
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Distribution.Fields as DF
-import qualified Distribution.Fields.Field as DFF
+import qualified Distribution.Parsec.Parser as DF
+import qualified Distribution.Parsec.Field as DFF
 import Data.Maybe
+import Util.Util
+import Text.RE.TDFA.String
+import Util.Types
+
 
 
 
@@ -44,15 +48,67 @@ import Data.Maybe
 hsAllInOne :: FilePath -> IO ()
 hsAllInOne filePath = do
   let (foldrName, _) = splitFileName filePath
-  files <- nub <$> cabal2FilePaths filePath
+      sourcePath     = "AllInOne.hs"
+  files       <- nub <$> cabal2FilePaths filePath
   includeDirs <- nub <$> cabal2IncludeDirs filePath
 
-  fileContent <- liftIO (withCurrentDirectory foldrName $ mergeModules files includeDirs)
+  withCurrentDirectory foldrName $ do
+    (prags, imps, decls) <- mergeModules files includeDirs
+    let fileContent = unlines [prags, imps, showGhc decls]
+    TIO.writeFile sourcePath (T.pack fileContent)
 
-  liftIO $ TIO.writeFile (foldrName </> "AllInOne.hs") (T.pack fileContent)
+    -- TODO: repeat until fixpoint
+    go sourcePath fileContent >>= (go sourcePath  >=> go sourcePath)
+    return ()
+       
+go sourcePath fileContent =
+    getGhcOutput sourcePath Other >>= \case
+      Nothing -> return ""
+      Just [] -> return ""
+      Just locs -> do
+        let newFileContent = foldr mkQual fileContent $ map (fmap span2Locs)  $ traceShow (map showGhc locs) locs
+        TIO.writeFile sourcePath (T.pack newFileContent)
+        return newFileContent
+        go sourcePath newFileContent
+
+mkQual :: (String, (RealSrcLoc, RealSrcLoc)) -> String -> String
+mkQual (newName, (startLoc, endLoc)) fileContent = 
+--   traceShow (unwords [showGhc startLoc
+--                      -- , show $ length lineContent - length prefix - length oldName - length suffix
+--                      , show $ length lineContent - length newLineContent
+--                      , show $ length contentLines - length prevLines - length succLines - 1]) $
+--                      , show $ last prefix == head oldName
+--                      , show $ last oldName == head suffix] ) $
+  unlines $ prevLines ++ [newLineContent] ++ succLines
+  where 
+        contentLines   = lines fileContent
+        lineStart      = srcLocLine startLoc
+        colStart       = srcLocCol  startLoc
+        colEnd         = srcLocCol  endLoc
+        currentIndex   = lineStart - 1
+        prevLines      = take currentIndex contentLines 
+        succLines      = drop lineStart contentLines
+        lineContent    = contentLines !! currentIndex
+        prefix         = take (colStart - 1) lineContent
+        suffix         = drop (colEnd - 1) lineContent
+        newLineContent = prefix ++ trace' newName ++ suffix
+
+span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
+span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 
-mergeModules :: [FilePath] -> [FilePath] -> IO String
+
+  -- | l `elem` locs = L s . tidyNameOcc n . mkOccName ns . trace' . showSDocUnsafe . pprNameUnqualified $ n
+  -- | otherwise = traceShow (showGhc s ++ "," ++ showGhc n) ln
+--   where
+--     l    = span2Locs s
+--     f l  = "(" ++ (showGhc $ fst l) ++ ", " ++ (showGhc $ snd l) ++ ")"
+--     ns   = occNameSpace $ occName n
+--     locs = map span2Locs spans
+--     slocs = map f locs
+
+
+mergeModules :: [FilePath] -> [FilePath] -> IO (String, String, HsGroup GhcRn)
 mergeModules filenames includeDirs = do
   modules <- mapM (renameModule includeDirs) filenames
   let ours =
@@ -65,12 +121,11 @@ mergeModules filenames includeDirs = do
           )
           modules
       imps  = unlines . nub . map (\(_, i, _) -> unlines . map showGhc . mkImportsQual . removeImports ours $ i) $ modules
-      decls = showGhc . foldr (appendGroups . (\ (_, _, d) -> d)) emptyRnGroup $ modules
+      decls = foldr (appendGroups . (\ (_, _, d) -> d)) emptyRnGroup $ modules
       enabledExtensions = 
-        unlines $ map (\s -> "{-# language " ++ s ++ " #-}") $ filter (`isSubsequenceOf` decls) ["CPP", "BangPatterns", "MagicHash", "StandaloneDeriving", "TypeFamilies", "PatternGuards"]
+        unlines . map showPragma . getPragmas $ showGhc decls
 
-  return $ unlines [enabledExtensions, imps , decls]
-
+  return (enabledExtensions, imps , decls)
 
 
 -- TODO: collect and return all pragmas
@@ -95,9 +150,30 @@ renameModule includeDirs fileName = do
     return
       . (\(d, i, _, _) -> (p, tail i, d))
       . fromJust
-      . everywhere (mkT $ name2UniqueName (parsedSource p))
+      . everywhere (mkT unqualBinds . mkT (name2UniqueName (parsedSource p)))
       . renamedSource
       $ t
+
+unqualBinds :: HsBindLR GhcRn GhcRn -> HsBindLR GhcRn GhcRn
+unqualBinds fb@(FunBind _ (L l n) fm  _ _) 
+  | gotQual (showGhc n) /= "" = newFB
+  | otherwise = fb
+  where newFM = everywhere (mkT unqualMatchCtxt) fm
+        newFB = fb { fun_id = L l $ unqualName n, fun_matches = newFM }
+unqualBinds hb = hb
+  
+unqualMatchCtxt :: HsMatchContext Name -> HsMatchContext Name
+unqualMatchCtxt = fmap unqualName
+
+unqualName :: Name -> Name
+unqualName n = tidyNameOcc n $ mkOccName ns $ mkUnqual (showGhc n)
+   where
+     on = occName n
+     ns = occNameSpace on
+
+mkUnqual :: String -> String
+mkUnqual = 
+  (*=~/ [ed|(([A-Z][A-Za-z0-9_]*)\.)+${e}([A-Za-z][A-Za-z0-9_']*)///${e}|]) 
 
 -- TODO: wird das jemals gebraucht? 
 -- ja: falls sich die Importe in die Quere kommen
@@ -110,29 +186,31 @@ removeImports ours = filter go
     go (L _ i) = (unLoc . ideclName $ i) `notElem` ours
 
 
+-- TODO: remove `isDataConName n` check, this is just now to make the code work, this probably doesn't work for the general case
 name2UniqueName :: ParsedSource -> Name -> Name
-name2UniqueName p n
+name2UniqueName _ n
   | "main" == showGhc (getRdrName n) = n
-  | isSystemName    n                = n
-  | isWiredInName   n                = n
-  | isBuiltInSyntax n                = n
-  | isDataConName   n                = n  -- our data constr should actually be overwritten
+  -- | isSystemName    n                = n
+  -- | isWiredInName   n                = n
+  -- | isBuiltInSyntax n                = n
+  | isDataConName   n                = n -- traceShow ("data con: " ++ showGhc n) n 
   | isOperator . showGhc $ getRdrName n,
     not $ "$main" `isPrefixOf` nameStableString n = n -- not our operator, do not touch
 
+  -- | isOperator . showGhc $ getRdrName n,
+  --   Just m <- nameModule_maybe n,
+  --   "$main" `isPrefixOf` nameStableString n = tidyNameOcc n 
+  --                                           . mkOccName ns 
+  --                                           . renameOperator 
+  --                                           $ os 
+  --                                           ++ moduleNameString (moduleName m)
   | isOperator . showGhc $ getRdrName n,
-    Just m <- nameModule_maybe n,
-    "$main" `isPrefixOf` nameStableString n = tidyNameOcc n 
-                                            . mkOccName ns 
-                                            . renameOperator 
-                                            $ os 
-                                            ++ moduleNameString (moduleName m)
-  | isOperator . showGhc $ getRdrName n,
-    "$main" `isPrefixOf` nameStableString n = tidyNameOcc n 
+    "$main" `isPrefixOf` nameStableString n = 
+                                              -- traceShow (unwords [showGhc n, showSDocUnsafe $ pprNameSpace ns, nameStableString n, renameOperator os]) $
+                                              tidyNameOcc n 
                                             . mkOccName ns 
                                             . renameOperator 
                                             $ os
-
   | Just m <- nameModule_maybe n,
     "$main" `isPrefixOf` nameStableString n = tidyNameOcc n
                                             . mkOccName ns
@@ -140,50 +218,43 @@ name2UniqueName p n
                                             ++ "_" 
                                             ++ filter (/= '.') 
                                                       (moduleNameString (moduleName m))
-  | not $ "$main" `isPrefixOf` nameStableString n 
-  , Just m <- nameModule_maybe n
-  , isQual p (moduleName m) on 
+  -- | not $ "$main" `isPrefixOf` nameStableString n 
+  -- , Just m <- nameModule_maybe n
+  -- , isQual p (moduleName m) on 
+  -- = mkNameQual (moduleName m) on ns n
+
+  -- -- , "$base" `isPrefixOf` nameStableString n 
+
+  -- | Just m <- nameModule_maybe n
+  -- , not $  any (`isPrefixOf` (moduleNameString $ moduleName m)) ["GHC", "System.IO", "Data.Either", "Data.Tuple", "Text.ParserCombinators", "Data.Semigroup.Internal", "Data.Typeable.Internal"]
+  -- = mkNameQual (moduleName m) on ns n
+
+  | not $  any (`isPrefixOf` nameStableString n) blacklist, Just m <- nameModule_maybe n 
   = mkNameQual (moduleName m) on ns n
+  -- = traceShow (nameStableString n) $ mkNameQual (moduleName m) on ns n
 
-  -- , "$base" `isPrefixOf` nameStableString n 
-
-  -- | Just m <- nameModule_maybe n = mkNameQual p (moduleName m) on ns n
-  | Just m <- nameModule_maybe n
-  , not $  any (`isPrefixOf` (moduleNameString $ moduleName m)) ["GHC", "System.IO", "Data.Either", "Data.Tuple", "Text.ParserCombinators", "Data.Semigroup.Internal", "Data.Typeable.Internal"]
-  = mkNameQual (moduleName m) on ns n
-
-  | otherwise = n 
+  | Just m <- nameModule_maybe n = 
+    if any (`isSubsequenceOf` showGhc n) ["liftA", "idem"] then
+    traceShow "otherwise: " .
+    traceShow (moduleNameString $ moduleName m) $ 
+    traceShow (unwords [nameStableString n]) $ 
+    n
+    else
+    n
+  | otherwise = n
   where
     on = occName n
     os = occNameString on
     ns = occNameSpace on
-    mn = moduleName <$> nameModule_maybe n
+    blacklist = ["$main$", "$ghc-prim$GHC", "$base$GHC", "$base$System.IO$" , "$base$Data.Tuple$", "$base$Data.Either$", "$base$Data.Typeable.Internal$", "$base$Data.Semigroup.Internal$", "$base$Text.ParserCombinators.ReadPrec$"]
 
 
-isQual :: ParsedSource -> ModuleName -> OccName -> Bool
-isQual (L _ p) mn on
-  | Just (Qual _ _) <- everything orElse (Nothing `mkQ` findR imps mn on) p =
-    True
-  | otherwise = False
-  where
-    imps =
-      mapMaybe ((\i -> sequence (unLoc $ ideclName i, unLoc <$> ideclAs i)) . unLoc) $ hsmodImports p
   
 
 -- TODO: wird der zweite Guard gebraucht?
 mkNameQual :: ModuleName -> OccName -> NameSpace -> Name -> Name
 mkNameQual mn on ns n = tidyNameOcc n $ mkOccName ns $ moduleNameString mn ++ "." ++ showGhc on
 
--- TODO: wird der erste Guard gebraucht?
-findR :: [(ModuleName, ModuleName)] -> ModuleName -> OccName -> RdrName -> Maybe RdrName
-findR imps mn on rn@(Qual mn' on')
-  | mn == mn' && on == on' = Just rn
-
-  | length [() | (mnFull, mnAs) <- imps, mn' == mnAs, mn == mnFull] == 1 && on == on' = Just rn
-
-  | otherwise = Nothing
-
-findR _ _ _ _ = Nothing
 
 
 isOperator :: String -> Bool
@@ -213,6 +284,9 @@ randomOpString = do
 showGhc :: (Outputable a) => a -> String
 showGhc = showPpr unsafeGlobalDynFlags
 
+fieldLineBS :: DFF.FieldLine a -> B8.ByteString
+fieldLineBS (DFF.FieldLine _ bs) = bs
+
 -- TODO: die unteren beiden Funktionen zusammenfassen
 cabal2FilePaths :: FilePath -> IO [FilePath]
 cabal2FilePaths =
@@ -223,7 +297,7 @@ cabal2FilePaths =
                 then f 
                 else map (\case '.' -> '/'; c -> c) f ++ ".hs") 
           . B8.unpack 
-          . DFF.fieldLineBS)
+          . fieldLineBS)
     . concatMap  field2FieldLines 
     . concatMap  (keepFields ["main-is", "other-modules"] . getFields) 
     . keepFields ["executable", "library"] 
@@ -237,7 +311,7 @@ cabal2IncludeDirs :: FilePath -> IO [FilePath]
 cabal2IncludeDirs = 
   fmap
     (
-      map ( B8.unpack . DFF.fieldLineBS)
+      map ( B8.unpack . fieldLineBS)
     . concatMap  field2FieldLines 
     . concatMap (keepFields ["include-dirs"] . getFields)
     . keepFields ["executable", "library"] 

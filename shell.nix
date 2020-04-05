@@ -8,7 +8,7 @@ let
     rev  = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
   }) {};
 
-  haskellPackages = pkgs.haskell.packages.ghc882;
+  haskellPackages = pkgs.haskell.packages.ghc865;
 
   drv = 
     with haskellPackages;
@@ -22,6 +22,7 @@ let
         aeson
         base 
         bytestring
+        Cabal
         cabal-install
         containers 
         directory 
@@ -46,6 +47,8 @@ let
         uniplate
         unix
         monad-par
+        regex
+        regex-base
       ];
       homepage    = "dnlkrgr.com";
       description = "Minimizing Haskell programs for easier debugging of GHC crashes";

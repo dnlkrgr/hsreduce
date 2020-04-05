@@ -14,43 +14,45 @@ import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import Util.Types
 import Util.Util
+import Control.Monad.Reader
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: OPR.ParseResult -> R OPR.ParseResult
 reduce oldOrmolu = do
+  sourceFile <- asks _sourceFile
   liftIO $ putStrLn "\n***Removing unused declarations***"
   debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
   let allDecls   = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
-  getGhcWarnings oldOrmolu Binds
+  liftIO (getGhcOutput sourceFile Binds)
     >>= \case
       Nothing -> do
             traverse_ (\dcl -> rmvDecl dcl 
                                >>= flip unless (rmvBinds Nothing dcl)) allDecls
             _ormolu <$> get
-      Just unusedBindingNames -> do
-            traverse_ (\dcl -> rmvUnusedDecl unusedBindingNames dcl
-                               >>= flip unless (rmvDecl dcl
-                               >>= flip unless (rmvBinds (Just unusedBindingNames) dcl))) 
-                      allDecls
-            _ormolu <$> get
+      -- Just unusedStrings -> do
+      --       traverse_ (\dcl -> rmvUnusedDecl unusedStrings dcl
+      --                          >>= flip unless (rmvDecl dcl
+      --                          >>= flip unless (rmvBinds (Just unusedStrings) dcl))) 
+      --                 allDecls
+      --       _ormolu <$> get
 
 -- | rmv unused decls whole
 -- for FunBinds: also delete the type signature
-rmvUnusedDecl :: [BindingName] -> LHsDecl GhcPs -> R Bool
-rmvUnusedDecl unusedBindingNames (L declLoc (SimplFunP funId)) 
-  | lshow funId `elem` unusedBindingNames =
+rmvUnusedDecl :: [String] -> LHsDecl GhcPs -> R Bool
+rmvUnusedDecl unusedStrings (L declLoc (SimplFunP funId)) 
+  | lshow funId `elem` unusedStrings =
           changeDecls 
             (filter (\(L iterLoc iterDecl) -> 
               case iterDecl of
                 SimplSigP tyFunId -> 
-                  ((`notElem` unusedBindingNames) . lshow) tyFunId
+                  ((`notElem` unusedStrings) . lshow) tyFunId
                 _ -> iterLoc /= declLoc))
           . _ormolu 
           <$> get
     >>= testAndUpdateStateFlex False True
   | otherwise = return False
-rmvUnusedDecl unusedBindingNames lDecl@(L _ decl) =
-  if maybe False ((`elem` unusedBindingNames) . oshow) . getName $ decl
+rmvUnusedDecl unusedStrings lDecl@(L _ decl) =
+  if maybe False ((`elem` unusedStrings) . oshow) . getName $ decl
     then rmvDecl lDecl
     else return False
 
@@ -61,7 +63,7 @@ rmvDecl (L declLoc _) =
   >>= testAndUpdateStateFlex False True 
 
 -- | rmv unused parts of decls
-rmvBinds :: Maybe [BindingName] -> LHsDecl GhcPs -> R ()
+rmvBinds :: Maybe [String] -> LHsDecl GhcPs -> R ()
 rmvBinds (Just bns) (L l dcl@(TypeSigDeclP ids swt)) = do
   liftIO $ putStrLn $ "--- Just ub, TypeSigDeclP" ++ oshow dcl
   let newFunIds = filter ((`notElem` bns) . lshow) ids
@@ -92,7 +94,7 @@ rmvBinds _ _ = return ()
 
 
 -- TODO: apply to more TyClD types
-rmvCons :: Maybe [BindingName] -> LHsDecl GhcPs -> R (LHsDecl GhcPs)
+rmvCons :: Maybe [String] -> LHsDecl GhcPs -> R (LHsDecl GhcPs)
 rmvCons _ = reduceListOfSubelements decl2ConsStrings delCons
   where 
     delCons loc =
@@ -114,9 +116,9 @@ cons2String (GADTDeclP names) = Right $ map (oshow . unLoc) names
 cons2String _ = Left ""
 
 isConstructorUsed :: [String] -> LConDecl GhcPs -> Bool
-isConstructorUsed unusedBindingNames (H98DeclP rdrName) = oshow rdrName `notElem` unusedBindingNames
-isConstructorUsed unusedBindingNames (GADTDeclP names) =
-  all (\(L _ rdrName) -> oshow rdrName `notElem` unusedBindingNames) names
+isConstructorUsed unusedStrings (H98DeclP rdrName) = oshow rdrName `notElem` unusedStrings
+isConstructorUsed unusedStrings (GADTDeclP names) =
+  all (\(L _ rdrName) -> oshow rdrName `notElem` unusedStrings) names
 isConstructorUsed _ _ = True
 
 -- TODO: what other decls make sense here?

@@ -2,6 +2,10 @@
 
 ## MUST
   - [ ] **uniplate statt syb benutzen**
+  - [ ] **paths lib benutzen**
+  - [ ] **ExceptT benutzen**
+  - [ ] **Testen mit QuickCheck, hedgehog, tasty, usw.**
+  - [ ] **performante Datentypen benutzen (Text, strikte ByteStrings, usw.)**
   - [ ] Haskell Source Plugins anschauen
   - [ ] Structureshrink Zum Laufen Bringen
   - [ ] Automatisiert Test-Cases Hinzufügen + Laufen Lassen Können

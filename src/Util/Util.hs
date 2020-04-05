@@ -1,32 +1,21 @@
-module Util.Util
-  ( debugPrint,
-    try,
-    reduceListOfSubelements,
-    getGhcWarnings,
-    lshow,
-    oshow,
-    changeDecls,
-    changeImports,
-    changeExports,
-    testAndUpdateState,
-    testAndUpdateStateFlex,
-    tryNewValue,
-    banner
-  )
-where
+module Util.Util where
 
+import Text.RE.TDFA.String
+import qualified Data.Text.IO as TIO
+import qualified Data.Text as T
+import qualified "ghc" SrcLoc as SL
+import "ghc" FastString
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson (decode)
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.Data
 import Data.Generics
-import Data.List (isPrefixOf)
+import Data.List
 import Data.Maybe
-import qualified Data.Text.IO as TIO (writeFile)
 import Debug.Trace
 import Ormolu.Parser.Pragma as OPP (Pragma (PragmaLanguage))
-import Ormolu.Parser.Result as OPR (ParseResult, prExtensions, prParsedSource)
+import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
 import Ormolu.Printer (printModule)
 import "ghc-lib-parser" Outputable
 import "ghc-lib-parser" HsSyn
@@ -35,7 +24,9 @@ import System.Exit
 import System.FilePath.Posix
 import System.Process
 import System.Timeout
-import Util.Types
+import Util.Types as UT
+
+trace' a = traceShow a a
 
 banner :: MonadIO m => String -> m ()
 banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
@@ -57,7 +48,7 @@ reduceListOfSubelements ::
   Located a ->
   R (Located a)
 reduceListOfSubelements getCmpElements transform la =
-  (foldr (>=>) return . map (try . transform) . getCmpElements . unLoc $ la) la
+  (foldr ((>=>) . try . transform) return . getCmpElements . unLoc $ la) la
 
 tryNewValue :: Typeable a => Located a -> a -> R (Located a)
 tryNewValue oldValue@(L loc _) newValue = do
@@ -108,7 +99,7 @@ runTest = do
   let (dirName, testName) = splitFileName test
   -- TODO: make timout duration configurable
   liftIO $
-    timeout (20 * 1000 * 1000) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
+    timeout duration (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
       >>= \case
         Nothing -> do
           errorPrint "runTest: timed out"
@@ -140,62 +131,51 @@ changeImports f oldOrmolu =
    in oldOrmolu {prParsedSource = L moduleLoc oldModule {hsmodImports = newImports}}
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-getGhcWarnings :: OPR.ParseResult -> GhcMode -> R (Maybe [BindingName])
-getGhcWarnings oldOrmolu ghcMode = do
-  sourceFile <- asks _sourceFile
-  -- BUG: Ormolu is printing type level lists wrong, example: Unify (p n _ 'PTag) a' = '[ 'Sub n a']
-  liftIO $ TIO.writeFile sourceFile (printModule oldOrmolu)
-  let extensions = prExtensions oldOrmolu
-      maybeLanguagePragmas = fmap concat . traverse getPragmaStrings . filter isLanguagePragma $ extensions
-  case maybeLanguagePragmas of
-    Nothing -> do
-      errorPrint ""
-      return Nothing
-    Just languagePragmas -> do
-      --debugPrint $ "Running `ghc -Wunused-binds -ddump-json` on file: " ++ sourceFile
-      let (dirName, fileName) = splitFileName sourceFile
-          command =
-            "ghc -Wunused-" ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) <$> languagePragmas) ++ " " ++ fileName
-      liftIO $
-        timeout (30 * 1000 * 1000) (readCreateProcessWithExitCode ((shell command) {cwd = Just dirName}) "")
-          >>= \case
-            Nothing -> do
-              errorPrint "Process timed out."
-              return Nothing
-            Just (exitCode, stdout, stderr) -> case exitCode of
-              ExitFailure errCode -> do
-                TIO.writeFile ("/home/daniel/workspace/hsreduce/debug/" ++ fileName) (printModule oldOrmolu)
-                errorPrint $ "Failed running `" ++ command ++ "` with error code " ++ show errCode
-                errorPrint "stdout: "
-                let tempGhcOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
-                forM_ (map doc $ catMaybes tempGhcOutput) (\s -> putStrLn "" >> putStrLn s)
-                errorPrint $ "stderr: " ++ stderr
-                return Nothing
-              ExitSuccess ->
-                if stdout /= ""
-                  then do
-                    -- dropping first line because it doesn't fit into our JSON schema
-                    let maybeOutput = map (decode . pack) . drop 1 $ lines stdout :: [Maybe GhcOutput]
-                    if Nothing `elem` maybeOutput
-                      then do
-                        errorPrint "Unable to parse some of the ghc output to JSON."
-                        errorPrint $ "Unparsable Output: " ++ stdout
-                        return Nothing
-                      else do
-                        let unusedBindingNames =
-                              map (takeWhile (/= '’') . drop 1 . dropWhile (/= '‘') . doc)
-                                . filter (isPrefixOf "Opt_WarnUnused" . reason)
-                                . map fromJust
-                                $ maybeOutput
-                        return $ Just unusedBindingNames
-                  else return Nothing
+getGhcOutput :: FilePath -> GhcMode -> IO (Maybe [(String, SL.RealSrcSpan)])
+getGhcOutput sourcePath ghcMode = do
+  pragmas <- getPragmas . T.unpack <$> TIO.readFile sourcePath
+  let (dirName, fileName) = splitFileName sourcePath
+      command             = "ghc " 
+                            ++ ghcModeString 
+                            ++ " -ddump-json " 
+                            ++ unwords (("-X" ++) <$> pragmas) 
+                            ++ " " ++ fileName
+  (_, stdout, _) <- fromMaybe (error "getGhcOutput") 
+                 <$> timeout duration
+                             (readCreateProcessWithExitCode 
+                             ((shell command) {cwd = Just dirName}) "")
+  return $ case stdout of 
+    "" -> Nothing
+    _ -> do
+      -- dropping first line because it doesn't fit into our JSON schema
+      mapFunc . filterFunc <$> mapM (decode . pack) (lines stdout)
   where
     ghcModeString = case ghcMode of
-      Binds   -> "binds"
-      Imports -> "imports"
+      Binds   -> "-Wunused-binds"
+      Imports -> "-Wunused-imports"
+      Other   -> ""
+    filterFunc = case ghcMode of
+      Other -> filter (isSubsequenceOf "ot in scope:" . doc)
+      _     -> filter (const True)
+    mapFunc = case ghcMode of
+      Other -> map (\o -> (gotQual $ doc o, span2SrcSpan . fromJust . UT.span $ o))
+      _     -> error "implement me"
 
-isInProduction :: Bool
-isInProduction = False
+gotQual = fromMaybe "" . matchedText . (?=~ [re|([A-Za-z]+\.)+[A-Za-z#_]+|])
+
+
+span2SrcSpan :: Span -> SL.RealSrcSpan
+span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
+  where n = mkFastString f
+
+showPragma :: String -> String
+showPragma s = "{-# LANGUAGE " ++ s ++ " #-}"
+
+-- TODO: use regexes here
+getPragmas :: String -> [String]
+getPragmas source = 
+  filter (`isSubsequenceOf` source) 
+         ["CPP", "BangPatterns", "MagicHash", "StandaloneDeriving", "TypeFamilies", "PatternGuards"]
 
 debug :: MonadIO m => (a -> m ()) -> a -> m ()
 debug f s
@@ -215,3 +195,8 @@ isLanguagePragma _ = False
 getPragmaStrings :: OPP.Pragma -> Maybe [String]
 getPragmaStrings (PragmaLanguage ss) = Just ss
 getPragmaStrings _ = Nothing
+
+isInProduction :: Bool
+isInProduction = False
+
+duration = 20 * 1000 * 1000

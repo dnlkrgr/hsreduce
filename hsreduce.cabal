@@ -42,6 +42,8 @@ common dry
                      , uniplate
                      , unix
                      , monad-par
+                     , regex
+                     , regex-base
   hs-source-dirs:      src
                      , test
   ghc-options:         -Wall
@@ -51,6 +53,7 @@ common dry
                        Rank2Types  
                        TypeFamilies
                        PackageImports
+                       QuasiQuotes
 
 
 library hsreduce-internal
