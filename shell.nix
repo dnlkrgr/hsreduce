@@ -30,13 +30,11 @@ let
         filepath
         ghc 
         ghc-boot-th
-        ghc-lib-parser
         ghc-paths 
         hashable
         haskell-names
         haskell-src-exts
         mtl
-        ormolu
         random
         syb
         syb 
@@ -49,6 +47,7 @@ let
         monad-par
         regex
         regex-base
+        regex-tdfa
       ];
       homepage    = "dnlkrgr.com";
       description = "Minimizing Haskell programs for easier debugging of GHC crashes";

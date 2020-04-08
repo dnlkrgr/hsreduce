@@ -41,3 +41,6 @@ error.txt
 *.swp
 *.hie
 *_hsreduce.hs
+Undefined.hs
+Undefined.hi
+Undefined.o

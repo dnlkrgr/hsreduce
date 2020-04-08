@@ -1,13 +1,11 @@
-module Merge.HsAllInOne (hsAllInOne, recListDirectory) where
+module Merge.HsAllInOne (hsAllInOne) where
 
 
-import "ghc" SrcLoc
 import Debug.Trace
+import "ghc" SrcLoc
 import "ghc" DynFlags
 import "ghc" Name
-import "ghc" Outputable hiding ((<>))
 import "ghc" RdrName hiding (isQual, mkUnqual, mkQual)
-import "syb" Data.Generics
 import Control.Monad.Extra
 import Control.Monad.Random
 import Data.Char
@@ -17,7 +15,6 @@ import GHC
 import GHC.Paths
 import System.Directory
 import System.FilePath.Posix
-import System.Posix.Files
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
@@ -28,8 +25,8 @@ import Data.Maybe
 import Util.Util
 import Text.RE.TDFA.String
 import Util.Types
-
-
+import Parser.Parser
+import Data.Generics.Uniplate.Data
 
 
 -- TODO: 
@@ -38,7 +35,6 @@ import Util.Types
   -- * qualify names?
   -- * rename data constr?
     -- * why is it printed with "`"?
--- [ ] pragmas: make list of commonly used ones
 -- [ ] does this work for alternative Preludes?
 -- [ ] get the file paths for the Haskell files from the main Haskell file
 -- [ ] make `isOperator` a stronger predicate
@@ -47,32 +43,32 @@ import Util.Types
 -- get data from cabal file
 hsAllInOne :: FilePath -> IO ()
 hsAllInOne filePath = do
+  putStrLn $ "***Running hsAllInOne***"
   let (foldrName, _) = splitFileName filePath
       sourcePath     = "AllInOne.hs"
   files       <- nub <$> cabal2FilePaths filePath
   includeDirs <- nub <$> cabal2IncludeDirs filePath
 
   withCurrentDirectory foldrName $ do
-    (prags, imps, decls) <- mergeModules files includeDirs
-    let fileContent = unlines [prags, imps, showGhc decls]
-    TIO.writeFile sourcePath (T.pack fileContent)
+    fileContent <- mergeModules files includeDirs
+    TIO.writeFile sourcePath fileContent
 
     go sourcePath fileContent
-       
+
   where go sourcePath fileContent =
           getGhcOutput sourcePath Other >>= \case
             Nothing -> return ()
             Just [] -> return ()
             Just locs -> do
-              let newFileContent = foldr mkQual fileContent $ map (fmap span2Locs)  $ traceShow (map showGhc locs) locs
-              TIO.writeFile sourcePath (T.pack newFileContent)
+              let newFileContent = foldr mkQual fileContent . map (fmap span2Locs) $ locs
+              TIO.writeFile sourcePath newFileContent
               go sourcePath newFileContent
 
-mkQual :: (String, (RealSrcLoc, RealSrcLoc)) -> String -> String
+mkQual :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 mkQual (newName, (startLoc, endLoc)) fileContent = 
-  unlines $ prevLines ++ [newLineContent] ++ succLines
+  T.unlines $ prevLines ++ [newLineContent] ++ succLines
   where 
-        contentLines   = lines fileContent
+        contentLines   = T.lines fileContent
         lineStart      = srcLocLine startLoc
         colStart       = srcLocCol  startLoc
         colEnd         = srcLocCol  endLoc
@@ -80,16 +76,19 @@ mkQual (newName, (startLoc, endLoc)) fileContent =
         prevLines      = take currentIndex contentLines 
         succLines      = drop lineStart contentLines
         lineContent    = contentLines !! currentIndex
-        prefix         = take (colStart-1) lineContent
-        suffix         = drop (colEnd-1) lineContent
-        isInfix        = (==2) . length . filter (=='`') . drop (colStart-1) . take (colEnd-1) $ lineContent
-        newLineContent = if isInfix then prefix ++ "`" ++  newName ++ "`" ++ suffix else prefix ++ newName ++ suffix 
+        prefix         = T.take (colStart-1) lineContent
+        suffix         = T.drop (colEnd-1) lineContent
+        isInfix        = (==2) . T.length . T.filter (=='`') . T.drop (colStart-1) . T.take (colEnd-1) $ lineContent
+        newLineContent =
+          if isInfix
+          then prefix `T.append` "`" `T.append`  newName `T.append` "`" `T.append` suffix
+          else prefix `T.append` newName `T.append` suffix 
 
 span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 
-mergeModules :: [FilePath] -> [FilePath] -> IO (String, String, HsGroup GhcRn)
+mergeModules :: [FilePath] -> [FilePath] -> IO T.Text
 mergeModules filenames includeDirs = do
   modules <- mapM (renameModule includeDirs) filenames
   let ours =
@@ -101,12 +100,12 @@ mergeModules filenames includeDirs = do
                 $ parsedSource p
           )
           modules
-      imps  = unlines . nub . map (\(_, i, _) -> unlines . map showGhc . mkImportsQual . removeImports ours $ i) $ modules
-      decls = foldr (appendGroups . (\ (_, _, d) -> d)) emptyRnGroup $ modules
+      imps  = T.unlines . nub . map (\(_, i, _) -> T.unlines . map (T.pack . showGhc) . mkImportsQual . removeImports ours $ i) $ modules
+      decls = T.pack . showGhc . foldr (appendGroups . (\ (_, _, d) -> d)) emptyRnGroup $ modules
       enabledExtensions = 
-        unlines . map showPragma . getPragmas $ showGhc decls
+        T.unlines . map (T.pack . show) . getExtensions $ decls
 
-  return (enabledExtensions, imps , decls)
+  return $ T.unlines [enabledExtensions, imps , decls]
 
 
 -- TODO: collect and return all pragmas
@@ -131,15 +130,16 @@ renameModule includeDirs fileName = do
     return
       . (\(d, i, _, _) -> (p, tail i, d))
       . fromJust
-      . everywhere (mkT unqualBinds . mkT (name2UniqueName (parsedSource p)))
+      . transformBi unqualBinds
+      . transformBi (name2UniqueName (parsedSource p))
       . renamedSource
       $ t
 
 unqualBinds :: HsBindLR GhcRn GhcRn -> HsBindLR GhcRn GhcRn
 unqualBinds fb@(FunBind _ (L l n) fm  _ _) 
-  | gotQual (showGhc n) /= "" = newFB
+  | gotQual (T.pack $ showGhc n) /= "" = newFB
   | otherwise = fb
-  where newFM = everywhere (mkT unqualMatchCtxt) fm
+  where newFM = transformBi unqualMatchCtxt fm
         newFB = fb { fun_id = L l $ unqualName n, fun_matches = newFM }
 unqualBinds hb = hb
   
@@ -230,8 +230,6 @@ randomOpString = do
   where
     operatorSymbols = "<@#%^&*/>"
 
-showGhc :: (Outputable a) => a -> String
-showGhc = showPpr unsafeGlobalDynFlags
 
 fieldLineBS :: DFF.FieldLine a -> B8.ByteString
 fieldLineBS (DFF.FieldLine _ bs) = bs
@@ -280,13 +278,3 @@ getFields :: DF.Field a -> [DF.Field a]
 getFields (DF.Section _ _ f) = f
 getFields _ = []
 
-recListDirectory :: FilePath -> IO [FilePath]
-recListDirectory dir =
-  listDirectory dir >>=
-    fmap concat . mapM 
-      (\f ->
-        let f' = dir </> f 
-        in (isDirectory <$> getFileStatus f') >>= 
-           \case
-             False -> return [f']
-             True  -> recListDirectory f')

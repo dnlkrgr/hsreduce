@@ -1,27 +1,24 @@
-module Reduce.Passes.RemoveUnused.Exports where
+module Reduce.Passes.RemoveUnused.Exports (reduce) where
 
 import Data.Foldable
 import Control.Monad.State.Strict
-import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
-import Ormolu.Printer (printModule)
-import qualified Data.Text as T
 import Data.Maybe
-import "ghc-lib-parser" Module
-import "ghc-lib-parser" SrcLoc
-import "ghc-lib-parser" HsSyn
 import System.FilePath.Posix
 import Util.Types
 import Util.Util
 import Control.Monad.Reader
+import qualified Data.Text as T
+import "ghc" GHC
 
-reduce :: OPR.ParseResult -> R OPR.ParseResult
-reduce oldOrmolu = do
+reduce :: R ()
+reduce = do
+  oldOrmolu <- get
   liftIO $ putStrLn "\n***Removing Exports***"
-  liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
-  let L l oldModule = prParsedSource oldOrmolu
+  liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldOrmolu)
+  let L l oldModule = _parsed oldOrmolu
       maybeModName  = hsmodName oldModule
       maybeExports  = hsmodExports oldModule
-      allDecls      = hsmodDecls . unLoc . prParsedSource $ oldOrmolu
+      allDecls      = hsmodDecls . unLoc . _parsed $ oldOrmolu
   case maybeExports of
     Nothing -> do
       sourceFile <- asks _sourceFile 
@@ -32,19 +29,16 @@ reduce oldOrmolu = do
               Nothing -> Just . L noSrcSpan . mkModuleName $ modName
               m -> m
           newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
-          newOrmolu = oldOrmolu { prParsedSource = L l newModule }
-      modify $ \s -> s { _ormolu = newOrmolu }
+          newOrmolu = oldOrmolu { _parsed = L l newModule }
+      put newOrmolu
       liftIO $ putStrLn $ concatMap ((++ " ") . lshow) oldExports
       -- TODO: if no exports were removed, turn it into Nothing again
       traverse_ removeUnusedExport oldExports
-      gets _ormolu
-    Just (L _ oldExports) -> do
-          traverse_ removeUnusedExport oldExports
-          gets _ormolu
+    Just (L _ oldExports) -> traverse_ removeUnusedExport oldExports
 
 removeUnusedExport :: LIE GhcPs -> R ()
 removeUnusedExport (L _ export) =
-  changeExports (filter ((/= oshow export) . oshow . unLoc)) . _ormolu <$> get
+  changeExports (filter ((/= oshow export) . oshow . unLoc)) <$> get
   >>= testAndUpdateState
 
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)

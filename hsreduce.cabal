@@ -25,13 +25,11 @@ common dry
                      , filepath
                      , ghc
                      , ghc-boot-th
-                     , ghc-lib-parser
                      , ghc-paths
                      , hashable
                      , haskell-names
                      , haskell-src-exts
                      , mtl
-                     , ormolu
                      , process
                      , random
                      , syb
@@ -44,6 +42,7 @@ common dry
                      , monad-par
                      , regex
                      , regex-base
+                     , regex-tdfa
   hs-source-dirs:      src
                      , test
   ghc-options:         -Wall
@@ -54,11 +53,15 @@ common dry
                        TypeFamilies
                        PackageImports
                        QuasiQuotes
+                       GeneralizedNewtypeDeriving 
+                       OverloadedStrings 
 
 
 library hsreduce-internal
   import:              dry
-  exposed-modules:     HsReduce
+  exposed-modules:     
+                       HsReduce
+                       Parser.Parser
                        Reduce.Passes.RemoveUnused.Decls
                        Reduce.Passes.RemoveUnused.Exports
                        Reduce.Passes.RemoveUnused.Imports
@@ -66,20 +69,11 @@ library hsreduce-internal
                        Reduce.Passes.Stubbing
                        Util.Types
                        Util.Util
+                       Merge.HsAllInOne
 
 executable hsreduce
   import:              dry
   main-is:             Main.hs
-  other-modules:       Reduce.Passes.RemoveUnused.Decls
-                       Reduce.Passes.RemoveUnused.Exports
-                       Reduce.Passes.RemoveUnused.Imports
-                       Reduce.Passes.RemoveUnused.Pragmas
-                       Reduce.Passes.Stubbing
-                       HsReduce
-                       Util.Types
-                       Util.Util
-                       Merge.HsAllInOne
-                       Merge.Arst
 
 test-suite test-hsreduce
   import:              dry

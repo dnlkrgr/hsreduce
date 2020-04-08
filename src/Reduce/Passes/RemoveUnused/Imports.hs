@@ -1,47 +1,42 @@
-module Reduce.Passes.RemoveUnused.Imports where
+module Reduce.Passes.RemoveUnused.Imports (reduce) where
 
 import Data.Foldable
 import Control.Monad.State.Strict
 import qualified Data.Text as T
-import "ghc-lib-parser" HsSyn
-import "ghc-lib-parser" Module
-import "ghc-lib-parser" SrcLoc
-import Ormolu.Parser.Result as OPR (ParseResult, prParsedSource)
-import Ormolu.Printer (printModule)
 import Util.Types
 import Util.Util
 import Control.Monad.Reader
+import "ghc" GHC
 
--- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-reduce :: OPR.ParseResult -> R OPR.ParseResult
-reduce oldOrmolu = do
+-- | run ghc with -Wunused-binds -ddump-json and delete imports that are mentioned there
+reduce :: R ()
+reduce = do
+  oldOrmolu <- get
   sourceFile <- asks _sourceFile
   liftIO $ putStrLn "\n***Removing Imports***"
-  debugPrint $ "Size of old ormolu: " ++ (show . T.length $ printModule oldOrmolu)
-  let oldImports = hsmodImports . unLoc . prParsedSource $ oldOrmolu
+  -- debugPrint $ "Size of old ormolu: " ++ (show . T.length $ showGhc oldOrmolu)
+  let oldImports = hsmodImports . unLoc . _parsed $ oldOrmolu
   liftIO (getGhcOutput sourceFile Imports)
     >>= \case
-      Nothing -> do
-          traverse_ removeImport oldImports
-          gets _ormolu
-      -- Just unusedStrings -> do
-      --     traverse_ (removeUnusedImport unusedStrings) oldImports
-      --     gets _ormolu
+      Nothing -> traverse_ removeImport oldImports
+      Just l -> do
+          let unusedStrings = map fst l
+          traverse_ (removeUnusedImport unusedStrings) oldImports
 
 removeImport :: LImportDecl GhcPs -> R ()
 removeImport (ImportName importName) =
     changeImports 
                   (filter (\(ImportName iterName) -> importName /= iterName))
-    . _ormolu <$> get
+    <$> get
   >>= testAndUpdateState
 removeImport _ = return ()
 
-removeUnusedImport :: [String] -> LImportDecl GhcPs -> R ()
+removeUnusedImport :: [T.Text] -> LImportDecl GhcPs -> R ()
 removeUnusedImport unusedStrings imp@(ImportName importName)
-  | moduleNameString importName `elem` unusedStrings = removeImport imp
+  | (T.pack $ moduleNameString importName) `elem` unusedStrings = removeImport imp
   | otherwise = return ()
 removeUnusedImport _ (L _ (XImportDecl _)) = return ()
 removeUnusedImport _ (L _ ImportDecl {}) = return ()
 
-pattern ImportName :: forall l pass. ModuleName -> GenLocated l (ImportDecl pass)
+pattern ImportName :: ModuleName -> GenLocated l (ImportDecl GhcPs)
 pattern ImportName iterName <- L _ (ImportDecl _ _ (L _ iterName) _ _ _ _ _ _ _)

@@ -1,13 +1,14 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 module Util.Types where
 
+import qualified Data.Text as T
+import "ghc-boot-th" GHC.LanguageExtensions.Type
 import Control.Applicative
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson
 import GHC.Generics (Generic)
-import Ormolu.Parser.Result as OPR
+import "ghc" GHC
+import "ghc" Outputable
 
 runR :: RConf -> RState -> R a -> IO (a, RState)
 runR c st (R a) = runStateT (runReaderT a c) st
@@ -24,14 +25,22 @@ data RConf
 
 data RState
   = RState
-      { _ormolu :: !OPR.ParseResult
+      { _pragmas   :: [Pragma]
+      , _parsed :: ParsedSource
+      , _renamed :: Maybe RenamedSource
+      , _typechecked :: Maybe TypecheckedSource
       }
 
-type BindingName = String
+showState :: RState -> T.Text
+showState (RState prags ps _ _)  =
+  T.unlines
+  $ map showPragma prags
+  ++ [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
+
 
 data Span
   = Span
-      { file :: !String
+      { file :: !T.Text
       , startLine :: !Int
       , startCol :: !Int
       , endLine :: !Int
@@ -44,8 +53,8 @@ instance FromJSON Span
 data GhcOutput
   = GhcOutput
       { span :: !(Maybe Span),
-        doc :: !String,
-        reason :: !(Maybe String)
+        doc :: !T.Text,
+        reason :: !(Maybe T.Text)
       }
   deriving (Eq, Generic, Show)
 instance FromJSON GhcOutput
@@ -55,6 +64,11 @@ data GhcMode = Binds | Imports | Other
 data Interesting = Interesting | Uninteresting
   deriving (Show)
 
--- arst = "{\"span\": null,\"doc\": \"[1 of 1] Compiling Main             ( AllInOne.hs, AllInOne.o )\",\"severity\": \"SevOutput\",\"reason\": null}"
--- brst = "{\"span\": {\"file\": \"AllInOne.hs\",\"startLine\": 1082,\"startCol\": 3,\"endLine\": 1082,\"endCol\": 12},\"doc\": \"Not in scope: type constructor or class \\u2018Coercible\\u2019\\nPerhaps you meant \\u2018Data.Coerce.Coercible\\u2019 (imported from Data.Coerce)\",\"severity\": \"SevError\",\"reason\": null}"
--- crst = "{\"file\": \"AllInOne.hs\",\"startLine\": 1082,\"startCol\": 3,\"endLine\": 1082,\"endCol\": 12}"
+-- TODO: maybe use another type than text for OPTION and INCLUDE
+data Pragma = Language Extension | Option T.Text | Include T.Text
+  deriving (Eq, Show)
+
+showPragma :: Pragma -> T.Text
+showPragma (Language e) = "{-# LANGUAGE " `T.append` T.pack (show e) `T.append` " #-}"
+showPragma (Option o)   = "{-# OPTIONS_GHC " `T.append` o `T.append` " #-}"
+showPragma (Include i)  = "{-# INCLUDE " `T.append` i `T.append` " #-}"
