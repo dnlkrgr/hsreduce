@@ -22,7 +22,9 @@ reduce = do
 
 stubbings :: RState -> R ParsedSource
 stubbings =
-  (     traceShow ("expr2Undefined" :: String)          . transformBiM (try expr2Undefined )
+  (
+        traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
+    >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (try deleteGADTctxt)
     >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
     >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
     >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
@@ -30,15 +32,11 @@ stubbings =
     >=> traceShow ("filterLocalBindSigs" :: String)     . transformBiM filterLocalBindSigs
     >=> traceShow ("simplifyExpr" :: String)            . transformBiM (try simplifyExpr)
     >=> traceShow ("simplifyType" :: String)            . transformBiM (try simplifyType)
-    >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
-    >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (try deleteGADTctxt)
-    >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause))
+    >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause)
+    >=> traceShow ("expr2Undefined" :: String)          . transformBiM (try expr2Undefined))
   . _parsed
 
--- LLocalBind
--- LMatch GhcPs (LHsExpr GhcPs)
--- HsExpr GhcPs
--- HsType GhcPs
+
 
 type LLocalBind = Located (HsLocalBindsLR GhcPs GhcPs)
 

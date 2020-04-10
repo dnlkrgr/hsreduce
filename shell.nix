@@ -31,9 +31,11 @@ let
         ghc 
         ghc-boot-th
         ghc-paths 
+        pkgs.ghcid
         hashable
         haskell-names
         haskell-src-exts
+        megaparsec
         mtl
         random
         syb

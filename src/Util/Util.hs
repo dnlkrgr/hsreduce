@@ -73,9 +73,9 @@ testAndUpdateState :: RState -> R ()
 testAndUpdateState = testAndUpdateStateFlex () ()
 
 testAndUpdateStateFlex :: a -> a -> RState -> R a
-testAndUpdateStateFlex a b s@(RState prags ps _ _) = do
+testAndUpdateStateFlex a b s = do
   sourceFile <- asks _sourceFile
-  liftIO $ TIO.writeFile sourceFile . T.unlines $ [T.unlines $ map showPragma prags, T.pack . showGhc $ ps]
+  liftIO $ TIO.writeFile sourceFile . showState $ s
   runTest
     >>= \case
       Uninteresting -> return a
@@ -128,6 +128,7 @@ changeImports f oldOrmolu =
 getGhcOutput :: FilePath -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
 getGhcOutput sourcePath ghcMode = do
   pragmas <- getPragmas <$> TIO.readFile sourcePath
+
   let (dirName, fileName) = splitFileName sourcePath
       command             = "ghc "
                             ++ ghcModeString
@@ -138,21 +139,30 @@ getGhcOutput sourcePath ghcMode = do
                  <$> timeout duration
                              (readCreateProcessWithExitCode 
                              ((shell command) {cwd = Just dirName}) "")
+
   return $ case stdout of 
     "" -> Nothing
     -- dropping first line because it doesn't fit into our JSON schema
-    _  -> mapFunc . filterFunc <$> mapM (decode . LBS.fromStrict . TE.encodeUtf8) (T.lines $ T.pack stdout) 
+    _  ->   mapFunc
+          . filterFunc
+          <$> mapM (decode . LBS.fromStrict . TE.encodeUtf8) (T.lines $ T.pack stdout) 
   where
     ghcModeString = case ghcMode of
       Binds   -> "-Wunused-binds"
       Imports -> "-Wunused-imports"
       Other   -> ""
+
     filterFunc = case ghcMode of
       Other -> filter (T.isInfixOf "ot in scope:" . doc)
-      _     -> filter ((isJust . UT.span) <&&> (isJust . reason) <&&> (T.isPrefixOf "Opt_WarnUnused" . fromJust . reason))
+      _     -> filter ((isJust . UT.span)
+                       <&&> (isJust . reason)
+                       <&&> (T.isPrefixOf "Opt_WarnUnused" . fromJust . reason))
+
     mapFunc = case ghcMode of
       Other -> map (\o -> (gotQual $ doc o, span2SrcSpan . fromJust . UT.span $ o))
-      _     -> map (liftA2 (,) (T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') . doc) (span2SrcSpan . fromJust . UT.span))
+      _     -> map ((,)
+                    <$> (T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') . doc)
+                    <*> (span2SrcSpan . fromJust . UT.span))
 
 
 gotQual :: T.Text -> T.Text
@@ -173,14 +183,6 @@ debugPrint = debug (liftIO . putStrLn . ("[debug] " ++))
 
 errorPrint :: MonadIO m => String -> m ()
 errorPrint = debug (liftIO . putStrLn . ("[error] " ++))
-
--- isLanguagePragma :: OPP.Pragma -> Bool
--- isLanguagePragma (PragmaLanguage _) = True
--- isLanguagePragma _ = False
--- 
--- getPragmaStrings :: OPP.Pragma -> Maybe [String]
--- getPragmaStrings (PragmaLanguage ss) = Just ss
--- getPragmaStrings _ = Nothing
 
 isInProduction :: Bool
 isInProduction = False
@@ -206,3 +208,6 @@ recListDirectory dir =
 
 showGhc :: (Outputable a) => a -> String
 showGhc = showPpr unsafeGlobalDynFlags
+
+trace' :: Show a => a -> a
+trace' a = traceShow a a

@@ -7,7 +7,7 @@ import Data.Data (gmapT)
 
 data T = T {-# UNPACK #-} !Float
 
-data Dumb = Dumb | AlsoDumb
+data Dumb = Dumb | AlsoDumb | MoreDumb | T4 | T5
 
 data DumbProduct = StillDumb Int String
 
@@ -42,3 +42,10 @@ drst
   | undefined > 0 = 3
   | 2 < 3 = 4
   | otherwise = undefined
+
+
+erst a b c d = case a of
+  Nothing ->
+    if b
+      then c
+      else d

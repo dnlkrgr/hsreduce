@@ -1,5 +1,6 @@
 module Reduce.Passes.RemoveUnused.Decls (reduce) where
 
+import Debug.Trace
 import Data.Foldable
 import Control.Monad.State.Strict
 import qualified Data.Text as T
@@ -23,14 +24,14 @@ reduce = do
   liftIO (getGhcOutput sourceFile Binds)
     >>= \case
       Nothing ->
-        traverse_ (\dcl -> rmvDecl dcl
-                           >>= flip unless (rmvBinds Nothing dcl))
+        traverse_ (\dcl -> traceShow ("rmvDecl" :: String) (rmvDecl dcl)
+                           >>= flip unless (traceShow ("rmvBinds" :: String) $ rmvBinds Nothing dcl))
                   allDecls
       Just l -> do
         let unusedStrings = map fst l
-        traverse_ (\dcl -> rmvUnusedDecl unusedStrings dcl
-                           >>= flip unless (rmvDecl dcl
-                           >>= flip unless (rmvBinds (Just unusedStrings) dcl)))
+        traverse_ (\dcl -> traceShow ("rmvUnusedDecl" :: String) (rmvUnusedDecl unusedStrings dcl)
+                           >>= flip unless (traceShow ("rmvDecl" :: String) (rmvDecl dcl)
+                           >>= flip unless (traceShow ("rmvBinds" :: String) $ rmvBinds (Just unusedStrings) dcl)))
                   allDecls
 
 -- | rmv unused decls whole

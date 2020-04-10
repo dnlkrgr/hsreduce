@@ -29,6 +29,7 @@ common dry
                      , hashable
                      , haskell-names
                      , haskell-src-exts
+                     , megaparsec
                      , mtl
                      , process
                      , random
@@ -60,7 +61,7 @@ common dry
 library hsreduce-internal
   import:              dry
   exposed-modules:     
-                       HsReduce
+                       Reduce.HsReduce
                        Parser.Parser
                        Reduce.Passes.RemoveUnused.Decls
                        Reduce.Passes.RemoveUnused.Exports
