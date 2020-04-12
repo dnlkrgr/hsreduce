@@ -127,13 +127,13 @@ changeImports f oldOrmolu =
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 getGhcOutput :: FilePath -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
 getGhcOutput sourcePath ghcMode = do
-  pragmas <- getPragmas <$> TIO.readFile sourcePath
+  pragmas <- getPragmas sourcePath
 
   let (dirName, fileName) = splitFileName sourcePath
       command             = "ghc "
                             ++ ghcModeString
                             ++ " -ddump-json "
-                            ++ unwords (("-X" ++) . show <$> pragmas)
+                            ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas)
                             ++ " " ++ fileName
   (_, stdout, _) <- fromMaybe (error "getGhcOutput") 
                  <$> timeout duration

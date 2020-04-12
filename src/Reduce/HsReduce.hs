@@ -31,7 +31,7 @@ hsreduce test filePath = do
   putStrLn "*******************************************************"
   startTime   <- utctDayTime <$> getCurrentTime
   fileContent <- TIO.readFile filePath
-  beginState  <- parse filePath []
+  beginState  <- parse [] [] filePath 
   let oldSize = T.length fileContent
       sourceDir = fst $ splitFileName filePath
   files <- listDirectory sourceDir

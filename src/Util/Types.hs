@@ -1,7 +1,6 @@
 module Util.Types where
 
 import qualified Data.Text as T
-import "ghc-boot-th" GHC.LanguageExtensions.Type
 import Control.Applicative
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -34,7 +33,7 @@ data RState
 showState :: RState -> T.Text
 showState (RState prags ps _ _)  =
   T.unlines
-  $ map showPragma prags
+  $ map (T.pack . show) prags
   ++ [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
 
 
@@ -65,10 +64,15 @@ data Interesting = Interesting | Uninteresting
   deriving (Show)
 
 -- TODO: maybe use another type than text for OPTION and INCLUDE
-data Pragma = Language Extension | Option T.Text | Include T.Text
-  deriving (Eq, Show)
+data Pragma = Language T.Text | GhcOption T.Text | Include T.Text
+  deriving Eq
 
-showPragma :: Pragma -> T.Text
-showPragma (Language e) = "{-# LANGUAGE " `T.append` T.pack (show e) `T.append` " #-}"
-showPragma (Option o)   = "{-# OPTIONS_GHC " `T.append` o `T.append` " #-}"
-showPragma (Include i)  = "{-# INCLUDE " `T.append` i `T.append` " #-}"
+showExtension :: Pragma -> T.Text
+showExtension (Language e)  = e
+showExtension (GhcOption _) = ""
+showExtension (Include _)   = ""
+
+instance Show Pragma where
+  show (Language e)  = "{-# LANGUAGE "    ++ T.unpack e ++ " #-}"
+  show (GhcOption o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
+  show (Include i)   = "{-# INCLUDE "     ++ T.unpack i ++ " #-}"

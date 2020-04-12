@@ -19,12 +19,10 @@ common dry
                      , QuickCheck
                      , aeson
                      , bytestring
-                     , containers
                      , directory
                      , extra
                      , filepath
                      , ghc
-                     , ghc-boot-th
                      , ghc-paths
                      , hashable
                      , haskell-names
@@ -42,8 +40,6 @@ common dry
                      , unix
                      , monad-par
                      , regex
-                     , regex-base
-                     , regex-tdfa
   hs-source-dirs:      src
                      , test
   ghc-options:         -Wall

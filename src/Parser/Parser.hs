@@ -3,14 +3,11 @@ module Parser.Parser (parse, getPragmas) where
 import Data.Either
 import Data.Functor
 import Control.Applicative
-import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import "ghc-boot-th" GHC.LanguageExtensions.Type
 import "ghc" GHC
 import "ghc" DynFlags
 import GHC.Paths
-import "regex" Text.RE.TDFA.Text hiding ((=~))
 import Util.Types
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Char
@@ -22,8 +19,8 @@ type Parser = M.Parsec Void T.Text
 
 
 -- TODO: collect and return all pragmas
-parse :: FilePath -> [FilePath] -> IO RState
-parse fileName includeDirs = do
+parse :: [FilePath] -> [FilePath] -> FilePath -> IO RState
+parse includeDirs srcDirs fileName = do
   banner $ "Parsing: " ++ fileName
 
   modName <-
@@ -38,34 +35,51 @@ parse fileName includeDirs = do
   (p,t) <- runGhc (Just libdir) $ do
     dflags          <- getSessionDynFlags
     (dflags', _, _) <- parseDynamicFlags dflags []
-    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirs }
+    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirs, importPaths = srcDirs }
 
     target <- guessTarget fileName Nothing
     setTargets [target]
     _ <- load LoadAllTargets
     modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
 
-    p <- parseModule modSum 
-    -- TODO: catch exceptions that could be thrown by typechecking?
+    p <- parseModule modSum
+    -- TODO: catch and handle exceptions that could be thrown by typechecking
     t <- typecheckModule p
     return (p, t)
 
-  prags <- map Language . getExtensions <$> TIO.readFile fileName
+  prags <- getPragmas fileName
+
   return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t)
 
+getPragmas :: FilePath -> IO [Pragma]
+getPragmas f =
+        ([Language "DoAndIfThenElse"] ++)
+        . filter ((/= "Safe") . showExtension)
+        . concat
+        . fromRight []
+        . sequence
+        . filter isRight
+        . map (M.parse pragmas f )
+        . T.lines
+        <$> TIO.readFile f
 
--- TODO: use regexes here
-getExtensions :: T.Text -> [Extension]
-getExtensions source = 
-  filter ((`T.isInfixOf` source) . T.pack . show)
-         $ allExtensions
+pragmas :: Parser [Pragma]
+pragmas = do
+  void $ string "{-#"
+  space
+  f <- pragmaType
+  space
+  n <- T.pack <$> some letterChar
+  ns <- many (char ',' >> T.pack <$> some letterChar)
+  space
+  void $ string "#-}"
+  return . map f $ n : ns
 
-allExtensions :: [Extension]
-allExtensions =  map toEnum [0..114]
-
--- TODO: this doesn't match all pragmas
-getPragmas :: T.Text -> [T.Text]
-getPragmas = fromMaybe [] . traverse matchedText . allMatches . (*=~ [re|{-# +([A-Z][A-Za-z]+) +#-}|])
+pragmaType :: Parser (T.Text -> Pragma)
+pragmaType =
+  ((string "language" <|> string "LANGUAGE") >> return Language)
+  <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return GhcOption)
+  <|> ((string "INCLUDE" <|> string "include") >> return GhcOption)
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum
 getModName :: T.Text -> Either (M.ParseErrorBundle T.Text Void) T.Text
@@ -73,11 +87,11 @@ getModName = fmap T.concat . sequence . filter isRight . map (M.parse getModName
 
 getModName' :: Parser T.Text
 getModName' = do
-  void $ space
+  void space
   void $ string "module"
-  void $ space
+  void space
   n <- T.concat <$> some name
-  void $ space
+  void space
   return n
 
 name :: Parser T.Text

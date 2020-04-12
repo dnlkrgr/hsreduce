@@ -45,10 +45,11 @@ hsAllInOne filePath = do
 
   let rootPath = fst $ splitFileName filePath
       sourcePath = rootPath <> "AllInOne.hs"
-  files       <- trace' <$> cabal2FilePaths filePath
-  includeDirs <- trace' <$> cabal2IncludeDirs filePath
-
-  fileContent <- mergeModules files includeDirs
+  sections <- fromRight [] . DPP.readFields <$> BS.readFile filePath
+  let includeDirs = getIncludeDirs rootPath sections
+      srcDirs = getSrcDirs rootPath sections
+  files       <- trace' <$> cabal2FilePaths srcDirs sections
+  fileContent <- mergeModules includeDirs srcDirs files
   TIO.writeFile sourcePath fileContent
 
   banner "Cleaning up"
@@ -66,6 +67,98 @@ hsAllInOne filePath = do
               TIO.writeFile sourcePath newFileContent
               go sourcePath newFileContent
 
+
+mergeModules :: [FilePath] -> [FilePath] -> [FilePath] -> IO T.Text
+mergeModules includeDirs srcDirs filenames = do
+  modules <- mapM (renameModule includeDirs srcDirs) filenames
+
+  banner "Finished merging"
+
+  let ours =
+          concatMap
+          ( \(_, ast, _, _) ->
+              maybe [mkModuleName "Main"] ((: []) . unLoc)
+                . hsmodName
+                . unLoc
+                $ ast
+          )
+          modules
+
+      imps  = T.unlines
+              . nub
+              . map (\(_, _, i, _) -> T.unlines
+                      . map (T.pack . showGhc)
+                      . mkImportsQual
+                      . removeImports ours $ i)
+              $ modules
+
+      decls = T.pack
+              . showGhc
+              . transformBi (unqualOurNames ours)
+              . foldr (appendGroups . (\(_, _, _, d) -> d)) emptyRnGroup
+              $ modules
+
+      prags = T.unlines
+              . nub
+              . concatMap (\(p, _, _, _) -> map (T.pack . show) $ p)
+              $ modules
+
+  return $ T.unlines [prags, imps , decls]
+
+
+renameModule :: [FilePath]
+             -> [FilePath]
+             -> FilePath
+             -> IO ([Pragma], ParsedSource, [LImportDecl GhcRn], HsGroup GhcRn)
+renameModule includeDirs srcDirs fileName = do
+  banner $ "Renaming: " ++ fileName
+
+  RState prags ast (Just r) _  <- parse includeDirs srcDirs fileName
+
+  banner "Finished parsing"
+
+  return
+    . (\(d, i, _, _) -> (prags, ast, tail i, d))
+    . transformBi unqualBinds
+    . transformBi name2UniqueName
+    $ r
+
+-- TODO: remove `isDataConName n` check, this is just now to make the code work,
+-- this probably doesn't work for the general case
+name2UniqueName :: Name -> Name
+name2UniqueName n
+  | ":<|" `isSubsequenceOf` nameStableString n = traceShow ("isOperator? " ++ show (isOperator $ showGhc $ getRdrName n)) $ traceShow ("isDataCon? " ++ show (isDataConName n)) $ traceShow ("OH MY GOD: " ++ nameStableString n) n
+  | "main" == showGhc (getRdrName n) = n
+  | isSystemName    n                = traceShow ("name2UniqueName - SYSTEM NAME: " ++ nameStableString n) n
+  | isWiredInName   n                = n
+  | isBuiltInSyntax n                = n
+  | isDataConName   n                = n
+  | isOperator . showGhc $ getRdrName n,
+    not $ "$main" `isPrefixOf` nameStableString n = n -- not our operator, do not touch
+
+  | isOperator . showGhc $ getRdrName n,                          -- our operator
+    "$main" `isPrefixOf` nameStableString n =
+                                              tidyNameOcc n
+                                            . mkOccName ns
+                                            . renameOperator
+                                            $ os
+  | Just m <- nameModule_maybe n,                                 -- our function / variable
+    "$main" `isPrefixOf` nameStableString n = tidyNameOcc n
+                                            . mkOccName ns
+                                            $ os
+                                            ++ "_"
+                                            ++ filter (/= '.')
+                                                      (moduleNameString (moduleName m))
+  -- something external
+  | all (not . (`isPrefixOf` nameStableString n)) blacklist, Just m <- nameModule_maybe n
+  = mkNameQual (moduleName m) on ns n
+
+  | otherwise = n
+  where
+    on = occName n
+    os = occNameString on
+    ns = occNameSpace on
+    blacklist = ["$main$", "$ghc-prim$", "$base$"]
 
 mkQual :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 mkQual (newName, (startLoc, endLoc)) fileContent =
@@ -91,57 +184,13 @@ span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 
-mergeModules :: [FilePath] -> [FilePath] -> IO T.Text
-mergeModules filenames includeDirs = do
-  modules <- mapM (renameModule includeDirs) filenames
+unqualOurNames :: [ModuleName] -> Name -> Name
+unqualOurNames ours n
+  | Just m <- nameModule_maybe n
+  , moduleName m `elem` ours
+  = unqualName n
 
-  banner "Finished merging"
-
-  let ours =
-          concatMap
-          ( \(_, ast, _, _) ->
-              maybe [mkModuleName "Main"] ((: []) . unLoc)
-                . hsmodName
-                . unLoc
-                $ ast
-          )
-          modules
-
-      imps  = T.unlines
-              . nub
-              . map (\(_, _, i, _) -> T.unlines
-                      . map (T.pack . showGhc)
-                      . mkImportsQual
-                      . removeImports ours $ i)
-              $ modules
-
-      decls = T.pack
-              . showGhc
-              . foldr (appendGroups . (\(_, _, _, d) -> d)) emptyRnGroup
-              $ modules
-
-      prags = T.unlines
-              . map (\(p, _, _, _) -> T.unlines . map showPragma $ p)
-              $ modules
-
-  return $ T.unlines [prags, imps , decls]
-
-
-renameModule :: [FilePath]
-             -> FilePath
-             -> IO ([Pragma], ParsedSource, [LImportDecl GhcRn], HsGroup GhcRn)
-renameModule includeDirs fileName = do
-  banner $ "Renaming: " ++ fileName
-
-  RState prags ast (Just r) _  <- parse fileName includeDirs
-
-  banner "Finished parsing"
-
-  return
-    . (\(d, i, _, _) -> (prags, ast, tail i, d))
-    . transformBi unqualBinds
-    . transformBi name2UniqueName
-    $ r
+  | otherwise = n
 
 unqualBinds :: HsBindLR GhcRn GhcRn -> HsBindLR GhcRn GhcRn
 unqualBinds fb@(FunBind _ (L l n) fm  _ _)
@@ -165,49 +214,18 @@ mkUnqual =
   (*=~/ [ed|(([A-Z][A-Za-z0-9_]*)\.)+${e}([A-Za-z][A-Za-z0-9_']*)///${e}|])
 
 mkImportsQual :: [LImportDecl GhcRn] -> [LImportDecl GhcRn]
-mkImportsQual = map (\(L l i) -> L l $ i {ideclQualified = True, ideclHiding = Nothing, ideclAs = Nothing})
+mkImportsQual = map (\(L l i) ->
+                       L l
+                       $ i { ideclQualified = True
+                           , ideclHiding    = Nothing
+                           , ideclAs        = Nothing
+                           , ideclSafe      = False})
 
 removeImports :: [ModuleName] -> [LImportDecl GhcRn] -> [LImportDecl GhcRn]
 removeImports ours = filter go
   where
     go (L _ i) = (unLoc . ideclName $ i) `notElem` ours
 
-
--- TODO: remove `isDataConName n` check, this is just now to make the code work,
--- this probably doesn't work for the general case
-name2UniqueName :: Name -> Name
-name2UniqueName n
-  | "main" == showGhc (getRdrName n) = n
-  | isSystemName    n                = traceShow ("name2UniqueName - SYSTEM NAME: " ++ nameStableString n) n
-  | isWiredInName   n                = n
-  | isBuiltInSyntax n                = n
-  | isDataConName   n                = n
-  | isOperator . showGhc $ getRdrName n,
-    not $ "$main" `isPrefixOf` nameStableString n = n -- not our operator, do not touch
-
-  | isOperator . showGhc $ getRdrName n,                          -- our operator
-    "$main" `isPrefixOf` nameStableString n = 
-                                              tidyNameOcc n
-                                            . mkOccName ns
-                                            . renameOperator
-                                            $ os
-  | Just m <- nameModule_maybe n,                                 -- our function / variable
-    "$main" `isPrefixOf` nameStableString n = tidyNameOcc n
-                                            . mkOccName ns
-                                            $ os
-                                            ++ "_"
-                                            ++ filter (/= '.')
-                                                      (moduleNameString (moduleName m))
-  -- something external
-  | all (not . (`isPrefixOf` nameStableString n)) blacklist, Just m <- nameModule_maybe n
-  = mkNameQual (moduleName m) on ns n
-
-  | otherwise = n
-  where
-    on = occName n
-    os = occNameString on
-    ns = occNameSpace on
-    blacklist = ["$main$", "$ghc-prim$", "$base$"]
 
 
 mkNameQual :: ModuleName -> OccName -> NameSpace -> Name -> Name
@@ -241,59 +259,42 @@ randomOpString = do
 fieldLineBS :: DPF.FieldLine a -> B8.ByteString
 fieldLineBS (DPF.FieldLine _ bs) = bs
 
--- TODO: alle src dirs an alle paths consen und dann nach Existenz filtern
-cabal2FilePaths :: FilePath -> IO [FilePath]
-cabal2FilePaths f = do
-  sections <- keepFields ["executable", "library"] . fromRight [] . DPP.readFields <$> BS.readFile f
+cabal2FilePaths :: [FilePath] -> [DPF.Field a] -> IO [FilePath]
+cabal2FilePaths srcDirs =
+  filterM doesFileExist
+  . nub
+  . concatMap ((\n -> map (\d -> d </> n) srcDirs) . modName2FileName)
+  . concatMap (field2FilePaths ["main-is", "other-modules", "exposed-modules"])
+  . keepFields ["executable", "library"]
 
-  let rootPath  = trace' . fst $ splitFileName f
 
-      srcDirs   = map fieldLine2String
-                . concatMap field2FieldLines
-                . concatMap (keepFields ["hs-source-dirs"] . getFields)
-                $ sections
-
-      filePaths = nub
-                . concatMap ((\n -> map (\d -> rootPath <> d </> n) srcDirs) . modName2FileName . fieldLine2String)
-                . concatMap field2FieldLines
-                . concatMap (keepFields ["main-is", "other-modules"] . getFields)
-                $ sections
-
-  filterM doesFileExist filePaths
-
-fieldLine2String :: DPF.FieldLine a -> String
-fieldLine2String = B8.unpack . fieldLineBS
+field2FilePaths :: [BS.ByteString] -> DPF.Field a -> [FilePath]
+field2FilePaths names (DPF.Section _ _ f) = concatMap (field2FilePaths names) f
+field2FilePaths names (DPF.Field n f)
+  | DPF.getName n `elem` names = map (B8.unpack . fieldLineBS) f
+  | otherwise = []
 
 modName2FileName :: String -> String
 modName2FileName f
   | f == "Main.hs" = f
   | otherwise = map (\case '.' -> '/'; c -> c) f ++ ".hs"
 
-cabal2IncludeDirs :: FilePath -> IO [FilePath]
-cabal2IncludeDirs f =
+getIncludeDirs :: FilePath -> [DPF.Field a] -> [FilePath]
+getIncludeDirs rootPath =
   nub
-  . map ((rootPath <>) . fieldLine2String)
-  . concatMap field2FieldLines
-  . concatMap (keepFields ["include-dirs"] . getFields)
-  . keepFields ["executable", "library"] . fromRight []
-  . DPP.readFields
-  <$> BS.readFile f
+  . map (rootPath <>)
+  . concatMap (field2FilePaths ["include-dirs"])
 
-  where rootPath = (fst $ splitFileName f)
-
+getSrcDirs :: FilePath -> [DPF.Field a] -> [FilePath]
+getSrcDirs rootPath =
+  nub
+  . map (rootPath <>)
+  . concatMap (field2FilePaths ["hs-source-dirs"])
 
 mkNewCabal :: FilePath -> IO ()
 mkNewCabal f = (*=~/ [ed|main-is: *([A-Z][A-Za-z]+.hs)///main-is: AllInOne.hs|])
              <$> TIO.readFile f
              >>= TIO.writeFile f
 
-field2FieldLines :: DPF.Field a -> [DPF.FieldLine a]
-field2FieldLines (DPF.Field _ fl) = fl
-field2FieldLines _ = []
-
 keepFields :: [String] -> [DPF.Field a] -> [DPF.Field a]
 keepFields names = filter ((`elem` map B8.pack names) . DPF.getName . DPF.fieldName)
-
-getFields :: DPF.Field a -> [DPF.Field a]
-getFields (DPF.Section _ _ f) = f
-getFields _ = []
