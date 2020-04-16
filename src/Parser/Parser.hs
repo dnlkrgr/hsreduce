@@ -1,5 +1,6 @@
-module Parser.Parser (parse, getPragmas) where
+module Parser.Parser (parse, getPragmas, mod2DepNames) where
 
+import System.FilePath.Posix
 import Data.Either
 import Data.Functor
 import Control.Applicative
@@ -13,9 +14,24 @@ import qualified Text.Megaparsec as M
 import Text.Megaparsec.Char
 import Data.Void
 
-
 type Parser = M.Parsec Void T.Text
 
+mod2DepNames :: [FilePath] -> [FilePath] -> FilePath -> IO [String]
+mod2DepNames includeDirs srcDirs fileName = do
+  let rootPath = fst $ splitFileName fileName
+
+  mg <- runGhc (Just libdir) $ do
+    dflags          <- getSessionDynFlags
+    (dflags', _, _) <- parseDynamicFlags dflags []
+    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirs, importPaths = srcDirs }
+
+    target <- guessTarget fileName Nothing
+    setTargets [target]
+    _ <- load LoadAllTargets
+
+    getModuleGraph
+
+  return . map ((rootPath ++) . (++ ".hs") . map (\c -> if c == '.' then '/' else c) . moduleNameString . ms_mod_name) . mgModSummaries $ mg
 
 
 -- TODO: collect and return all pragmas
@@ -53,7 +69,8 @@ parse includeDirs srcDirs fileName = do
 
 getPragmas :: FilePath -> IO [Pragma]
 getPragmas f =
-        ([Language "DoAndIfThenElse"] ++)
+        -- ([Language "DoAndIfThenElse", Language "BlockArguments", Language "DataKinds", Language "UndecidableInstances" , Language "FlexibleContexts"] ++)
+        ([Language "StandaloneDeriving"] ++)
         . filter ((/= "Safe") . showExtension)
         . concat
         . fromRight []

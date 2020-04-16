@@ -151,23 +151,43 @@ getGhcOutput sourcePath ghcMode = do
       Binds   -> "-Wunused-binds"
       Imports -> "-Wunused-imports"
       Other   -> ""
+      ParseIndent   -> ""
 
     filterFunc = case ghcMode of
-      Other -> filter (T.isInfixOf "ot in scope:" . doc)
+      Other -> filter ((T.isInfixOf "Perhaps you meant" <&&> T.isInfixOf "ot in scope:") . doc)
+      ParseIndent -> filter (T.isInfixOf "parse error (possibly incorrect indentation" . doc)
       _     -> filter ((isJust . UT.span)
                        <&&> (isJust . reason)
                        <&&> (T.isPrefixOf "Opt_WarnUnused" . fromJust . reason))
 
     mapFunc = case ghcMode of
-      Other -> map (\o -> (gotQual $ doc o, span2SrcSpan . fromJust . UT.span $ o))
+      Other -> map (\o -> (getQualText $ doc o, span2SrcSpan . fromJust . UT.span $ o))
+      ParseIndent -> map (\o -> ("", span2SrcSpan . fromJust . UT.span $ o))
       _     -> map ((,)
                     <$> (T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') . doc)
                     <*> (span2SrcSpan . fromJust . UT.span))
 
+isQual :: T.Text -> Bool
+isQual =
+  matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
-gotQual :: T.Text -> T.Text
-gotQual = fromMaybe "" . matchedText . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
+getQualText :: T.Text -> T.Text
+getQualText =
+    ((not . null) ?: (f . head) $ (const ""))
+  . allMatches
+  . (*=~ [re|‘([A-Za-z]+\.)+[A-Za-z0-9#_']+’|])
+  . T.unlines
+  . drop 1
+  . T.lines
+  where f = T.init . T.tail . fromMaybe "" . matchedText
+
+(?:) :: (a -> Bool) -> (a -> b) -> (a -> b) -> a -> b
+(?:) p t f x
+  | p x  = t x
+  | True = f x
+
+infixl 8 ?:
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
@@ -192,7 +212,6 @@ duration = 20 * 1000 * 1000
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
-
 
 recListDirectory :: FilePath -> IO [FilePath]
 recListDirectory dir =

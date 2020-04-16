@@ -1,5 +1,27 @@
-* morge testing
-** arst
-** brst
-* testing
-** also testing
+* Mergen / hsAllInOne.hs
+** Util.hs/getQual
+*** da wirklich auch alles behandeln
+** operators richtig behandeln
+** RdrName
+*** die auch alle behandeln
+** [#A] Typsynonyme / use the module names from the import decls and match them with the module name here!
+*** bei getGhcOutput den Ersatz holen
+*** und dann einfach den Text an der Stelle austauschen
+*** use the import module name to qualify and use module name here to find out importdecl
+*** die Modulnamen aus den imports zum Qualifizieren nehmen
+** Record field selectors werden nicht richtig ersetzt
+** [#A] default declarations
+** [#A] DataKinds / Pragmas
+*** warum wird das nicht gefunden oder geprintet?
+*** UndecidableInstances
+*** FlexibleContexts
+** [#C] BUG: cannot handle COMPLETE pragmas for now (TODO: also handle this via getGhcOutput)
+** [#C] does this work for alternative Preludes?
+** [#C] get the file paths for the Haskell files from the main Haskell file
+** [#C] `isOperator`: use operator syntax from Haskell2010 report
+** DONE Preludes aus qualified names raus
+   CLOSED: [2020-04-15 Wed 11:40]
+** DONE Prelude aus imports raus
+   CLOSED: [2020-04-15 Wed 11:40]
+* Reduzieren
+** es gibt noch einen Bug bei ticket15696_2

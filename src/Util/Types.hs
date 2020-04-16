@@ -58,7 +58,7 @@ data GhcOutput
   deriving (Eq, Generic, Show)
 instance FromJSON GhcOutput
 
-data GhcMode = Binds | Imports | Other
+data GhcMode = Binds | Imports | ParseIndent | Other
 
 data Interesting = Interesting | Uninteresting
   deriving (Show)

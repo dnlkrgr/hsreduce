@@ -1,6 +1,5 @@
 module Merge.HsAllInOne (hsAllInOne) where
 
-
 import Data.Either
 import Debug.Trace
 import "ghc" SrcLoc
@@ -12,7 +11,6 @@ import Data.Char
 import Data.Hashable
 import Data.List
 import GHC
-import System.Directory
 import System.FilePath.Posix
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
@@ -27,17 +25,6 @@ import Parser.Parser
 import Data.Generics.Uniplate.Data
 
 
--- TODO:
--- [ ] remove all the ugly hacks / make decisions
-  -- * qualify imports?
-  -- * qualify names?
-  -- * rename data constr?
-    -- * why is it printed with "`"?
--- [ ] does this work for alternative Preludes?
--- [ ] get the file paths for the Haskell files from the main Haskell file
--- [ ] make `isOperator` a stronger predicate
-
-
 -- get data from cabal file
 hsAllInOne :: FilePath -> IO ()
 hsAllInOne filePath = do
@@ -47,25 +34,44 @@ hsAllInOne filePath = do
       sourcePath = rootPath <> "AllInOne.hs"
   sections <- fromRight [] . DPP.readFields <$> BS.readFile filePath
   let includeDirs = getIncludeDirs rootPath sections
-      srcDirs = getSrcDirs rootPath sections
-  files       <- trace' <$> cabal2FilePaths srcDirs sections
-  fileContent <- mergeModules includeDirs srcDirs files
+      srcDirs  = getSrcDirs rootPath sections
+      mainFile = cabal2Main srcDirs sections
+  files <- mod2DepNames includeDirs srcDirs mainFile
+
+
+  fileContent <-
+    T.unlines
+    . filter (not . ("{-# COMPLETE" `T.isPrefixOf`))
+    . T.lines
+    <$> mergeModules includeDirs srcDirs files
   TIO.writeFile sourcePath fileContent
+
 
   banner "Cleaning up"
 
-  go sourcePath fileContent
+  getGhcOutput sourcePath ParseIndent >>= \case
+    Nothing -> do
+      cleanUp sourcePath fileContent
+    Just [] -> do
+      cleanUp sourcePath fileContent
+    Just mySpans -> do
+      let newFileContent = foldr mkIndent fileContent . map (fmap span2Locs) $ mySpans
+      TIO.writeFile sourcePath newFileContent
+
+      cleanUp sourcePath newFileContent
 
   mkNewCabal filePath
 
-  where go sourcePath fileContent =
-          (trace' <$> getGhcOutput sourcePath Other) >>= \case
-            Nothing -> return ()
-            Just [] -> return ()
-            Just mySpans -> do
-              let newFileContent = foldr mkQual fileContent . map (fmap span2Locs) $ mySpans
-              TIO.writeFile sourcePath newFileContent
-              go sourcePath newFileContent
+
+cleanUp :: FilePath -> T.Text -> IO ()
+cleanUp sourcePath fileContent =
+  getGhcOutput sourcePath Other >>= \case
+    Nothing -> return ()
+    Just [] -> return ()
+    Just mySpans -> do
+      let newFileContent = foldr replaceWithGhcOutput fileContent . map (fmap span2Locs) $ mySpans
+      TIO.writeFile sourcePath newFileContent
+      cleanUp sourcePath newFileContent
 
 
 mergeModules :: [FilePath] -> [FilePath] -> [FilePath] -> IO T.Text
@@ -105,13 +111,16 @@ mergeModules includeDirs srcDirs filenames = do
 
   return $ T.unlines [prags, imps , decls]
 
-
 renameModule :: [FilePath]
              -> [FilePath]
              -> FilePath
              -> IO ([Pragma], ParsedSource, [LImportDecl GhcRn], HsGroup GhcRn)
 renameModule includeDirs srcDirs fileName = do
   banner $ "Renaming: " ++ fileName
+
+  print includeDirs
+  print srcDirs
+  print fileName
 
   RState prags ast (Just r) _  <- parse includeDirs srcDirs fileName
 
@@ -120,35 +129,47 @@ renameModule includeDirs srcDirs fileName = do
   return
     . (\(d, i, _, _) -> (prags, ast, tail i, d))
     . transformBi unqualBinds
+    . transformBi qualAmbiguousField
+    . transformBi qualField
     . transformBi name2UniqueName
     $ r
 
--- TODO: remove `isDataConName n` check, this is just now to make the code work,
--- this probably doesn't work for the general case
 name2UniqueName :: Name -> Name
 name2UniqueName n
-  | ":<|" `isSubsequenceOf` nameStableString n = traceShow ("isOperator? " ++ show (isOperator $ showGhc $ getRdrName n)) $ traceShow ("isDataCon? " ++ show (isDataConName n)) $ traceShow ("OH MY GOD: " ++ nameStableString n) n
-  | "main" == showGhc (getRdrName n) = n
+  -- don't rename things from the Main module to avoid making the test case print uninteresting output
+  -- example: data cons renamed from T2 to T2_Main
+  --   doesn't match in interestingness test matching on `fromList [T2, T2]`
+  | "$main$Main$" `isPrefixOf` nameStableString n = n
+
+  -- built-in things
   | isSystemName    n                = traceShow ("name2UniqueName - SYSTEM NAME: " ++ nameStableString n) n
   | isWiredInName   n                = n
   | isBuiltInSyntax n                = n
-  | isDataConName   n                = n
-  | isOperator . showGhc $ getRdrName n,
-    not $ "$main" `isPrefixOf` nameStableString n = n -- not our operator, do not touch
+  | isDataConName   n
+  , isOperator $ tail os = n
 
-  | isOperator . showGhc $ getRdrName n,                          -- our operator
-    "$main" `isPrefixOf` nameStableString n =
-                                              tidyNameOcc n
-                                            . mkOccName ns
-                                            . renameOperator
-                                            $ os
-  | Just m <- nameModule_maybe n,                                 -- our function / variable
-    "$main" `isPrefixOf` nameStableString n = tidyNameOcc n
-                                            . mkOccName ns
-                                            $ os
-                                            ++ "_"
-                                            ++ filter (/= '.')
-                                                      (moduleNameString (moduleName m))
+  -- not our operator, do not touch
+  | isOperator . showGhc $ getRdrName n,
+    not $ "$main$" `isPrefixOf` nameStableString n = n
+
+  -- our operator
+  | Just m <- nameModule_maybe n
+  , isOperator . showGhc $ getRdrName n
+  , "$main$" `isPrefixOf` nameStableString n =
+                                               tidyNameOcc n
+                                             . mkOccName ns
+                                             . renameOperator
+                                             $ (os ++ filter (/= '.') (moduleNameString (moduleName m)))
+
+  -- our function / variable
+  | Just m <- nameModule_maybe n,
+    "$main$" `isPrefixOf` nameStableString n
+  = tidyNameOcc n
+  . mkOccName ns
+  $ os
+  ++ "_"
+  ++ filter (/= '.') (moduleNameString (moduleName m))
+
   -- something external
   | all (not . (`isPrefixOf` nameStableString n)) blacklist, Just m <- nameModule_maybe n
   = mkNameQual (moduleName m) on ns n
@@ -160,9 +181,22 @@ name2UniqueName n
     ns = occNameSpace on
     blacklist = ["$main$", "$ghc-prim$", "$base$"]
 
-mkQual :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
-mkQual (newName, (startLoc, endLoc)) fileContent =
+mkIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+mkIndent (_, (startLoc, _)) fileContent =
   T.unlines $ prevLines ++ [newLineContent] ++ succLines
+  where
+        contentLines   = T.lines fileContent
+        lineStart      = srcLocLine startLoc
+        currentIndex   = lineStart-1
+        prevLines      = take currentIndex contentLines
+        succLines      = drop lineStart contentLines
+        lineContent    = contentLines !! currentIndex
+        newLineContent = "  " `T.append` lineContent
+
+
+replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
+  = T.unlines $ prevLines ++ [newLineContent] ++ succLines
   where
         contentLines   = T.lines fileContent
         lineStart      = srcLocLine startLoc
@@ -178,11 +212,10 @@ mkQual (newName, (startLoc, endLoc)) fileContent =
         newLineContent =
           if isInfix
           then prefix `T.append` "`" `T.append`  newName `T.append` "`" `T.append` suffix
-          else prefix `T.append` newName `T.append` suffix 
+          else prefix `T.append` newName `T.append` suffix
 
 span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
-
 
 unqualOurNames :: [ModuleName] -> Name -> Name
 unqualOurNames ours n
@@ -194,7 +227,7 @@ unqualOurNames ours n
 
 unqualBinds :: HsBindLR GhcRn GhcRn -> HsBindLR GhcRn GhcRn
 unqualBinds fb@(FunBind _ (L l n) fm  _ _)
-  | gotQual (T.pack $ showGhc n) /= "" = newFB
+  | isQual (T.pack $ showGhc n) = newFB
   | otherwise = fb
   where newFM = transformBi unqualMatchCtxt fm
         newFB = fb { fun_id = L l $ unqualName n, fun_matches = newFM }
@@ -208,6 +241,27 @@ unqualName n = tidyNameOcc n $ mkOccName ns $ T.unpack $ mkUnqual (T.pack $ show
    where
      on = occName n
      ns = occNameSpace on
+
+qualAmbiguousField :: AmbiguousFieldOcc GhcRn -> AmbiguousFieldOcc GhcRn
+qualAmbiguousField (Unambiguous n (L l (Unqual on)))
+  | Just mn <- moduleName <$> nameModule_maybe n
+  , "$main$" `isPrefixOf `nameStableString n =
+  Unambiguous n $ L l $ Unqual $ mkOccName ns $ os ++ "_" ++ filter (/= '.') (moduleNameString mn)
+  where
+    os = occNameString on
+    ns = occNameSpace on
+qualAmbiguousField a = a -- in other cases there is nothing we can do
+
+qualField :: FieldOcc GhcRn -> FieldOcc GhcRn
+qualField c@(FieldOcc n (L l (Unqual on)))
+  | Just mn <- moduleName <$> nameModule_maybe n
+  , "$main$" `isPrefixOf `nameStableString n =
+      FieldOcc n (L l $ Unqual (mkOccName ns $ os ++ "_" ++ filter (/= '.') (moduleNameString mn)))
+  | otherwise = traceShow ("otherwise :-(" :: String) c
+  where ns = occNameSpace on
+        os = occNameString on
+qualField c = c
+
 
 mkUnqual :: T.Text -> T.Text
 mkUnqual =
@@ -224,8 +278,8 @@ mkImportsQual = map (\(L l i) ->
 removeImports :: [ModuleName] -> [LImportDecl GhcRn] -> [LImportDecl GhcRn]
 removeImports ours = filter go
   where
-    go (L _ i) = (unLoc . ideclName $ i) `notElem` ours
-
+    go (L _ i) = let modName = unLoc . ideclName $ i
+                 in modName `notElem` ours && ("Prelude" /= (moduleNameString modName))
 
 
 mkNameQual :: ModuleName -> OccName -> NameSpace -> Name -> Name
@@ -251,22 +305,21 @@ randomOpString = do
     if b
       then randomOpString
       else return ""
-  return $ '<' : s1 ++ s2 ++ ">"
+  return $ s1 ++ s2
   where
-    operatorSymbols = "<@#%^&*/>"
+    operatorSymbols = "!#$%&*+<>?@^~"
 
 
 fieldLineBS :: DPF.FieldLine a -> B8.ByteString
 fieldLineBS (DPF.FieldLine _ bs) = bs
 
-cabal2FilePaths :: [FilePath] -> [DPF.Field a] -> IO [FilePath]
-cabal2FilePaths srcDirs =
-  filterM doesFileExist
+cabal2Main :: [FilePath] -> [DPF.Field a] -> FilePath
+cabal2Main srcDirs =
+  head
   . nub
   . concatMap ((\n -> map (\d -> d </> n) srcDirs) . modName2FileName)
-  . concatMap (field2FilePaths ["main-is", "other-modules", "exposed-modules"])
+  . concatMap (field2FilePaths ["main-is"])
   . keepFields ["executable", "library"]
-
 
 field2FilePaths :: [BS.ByteString] -> DPF.Field a -> [FilePath]
 field2FilePaths names (DPF.Section _ _ f) = concatMap (field2FilePaths names) f
