@@ -11,11 +11,11 @@ import "ghc" GHC
 -- | run ghc with -Wunused-binds -ddump-json and delete imports that are mentioned there
 reduce :: R ()
 reduce = do
-  oldOrmolu <- get
+  oldState <- get
   sourceFile <- asks _sourceFile
   liftIO $ putStrLn "\n***Removing Imports***"
-  -- debugPrint $ "Size of old ormolu: " ++ (show . T.length $ showGhc oldOrmolu)
-  let oldImports = hsmodImports . unLoc . _parsed $ oldOrmolu
+  -- debugPrint $ "Size of old state: " ++ (show . T.length $ showGhc oldState)
+  let oldImports = hsmodImports . unLoc . _parsed $ oldState
   liftIO (getGhcOutput sourceFile Imports)
     >>= \case
       Nothing -> traverse_ removeImport oldImports
@@ -25,8 +25,7 @@ reduce = do
 
 removeImport :: LImportDecl GhcPs -> R ()
 removeImport (ImportName importName) =
-    changeImports 
-                  (filter (\(ImportName iterName) -> importName /= iterName))
+    changeImports (filter (\(ImportName iterName) -> importName /= iterName))
     <$> get
   >>= testAndUpdateState
 removeImport _ = return ()

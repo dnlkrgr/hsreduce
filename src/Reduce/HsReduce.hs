@@ -35,7 +35,6 @@ hsreduce test filePath = do
   let oldSize = T.length fileContent
       sourceDir = fst $ splitFileName filePath
   files <- listDirectory sourceDir
-  print files
   newState <-
     withTempDirectory
       "."
@@ -68,7 +67,7 @@ allActions :: R ()
 allActions = do
   runTest >>=
     \case
-      Uninteresting -> error "*** test is uninteresting from the start! ***"
+      Uninteresting -> error "*** test is uninteresting at the start! ***"
       Interesting -> do
         liftIO $ putStrLn ":-) Test is interesting at the start"
         largestFixpoint allPassesOnce
@@ -80,8 +79,8 @@ allPassesOnce = do
   Imports.reduce
   Pragmas.reduce
   Exports.reduce
-  Decls.reduce
   Stubbing.reduce
+  Decls.reduce
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- smaller than the old one
@@ -96,11 +95,11 @@ largestFixpoint f =
       newLength <- BS.length . TE.encodeUtf8 . T.pack . showGhc . _parsed <$> get
       liftIO $ debugPrint $ "old length: " ++ show oldLength
       liftIO $ debugPrint $ "new length: " ++ show newLength
-      liftIO $ debugPrint $ "new ormolu is this many chars shorter than the old one: " ++ show (oldLength - newLength)
+      liftIO $ debugPrint $ "new state is this many chars shorter than the old one: " ++ show (oldLength - newLength)
       if newLength < oldLength
         then do
-          liftIO $ debugPrint "taking new ormolu"
+          liftIO $ debugPrint "taking new state"
           iterateFrom
         else do
-          liftIO $ debugPrint "taking old ormolu"
+          liftIO $ debugPrint "taking old state"
           return ()

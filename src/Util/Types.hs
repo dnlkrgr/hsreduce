@@ -64,15 +64,15 @@ data Interesting = Interesting | Uninteresting
   deriving (Show)
 
 -- TODO: maybe use another type than text for OPTION and INCLUDE
-data Pragma = Language T.Text | GhcOption T.Text | Include T.Text
+data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
   deriving Eq
 
 showExtension :: Pragma -> T.Text
 showExtension (Language e)  = e
-showExtension (GhcOption _) = ""
+showExtension (OptionsGhc _) = ""
 showExtension (Include _)   = ""
 
 instance Show Pragma where
   show (Language e)  = "{-# LANGUAGE "    ++ T.unpack e ++ " #-}"
-  show (GhcOption o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
+  show (OptionsGhc o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
   show (Include i)   = "{-# INCLUDE "     ++ T.unpack i ++ " #-}"

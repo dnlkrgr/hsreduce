@@ -19,13 +19,13 @@ glue = do
         case isProject of
           "--cabal"    -> do
             hsAllInOne filePath
-            hsreduce test "AllInOne.hs"
+            hsreduce test (fst (splitFileName filePath) ++ "AllInOne.hs")
           "--no-cabal" -> hsreduce test filePath
           _ -> printUsage
       else printUsage
 
 printUsage :: IO ()
-printUsage = 
+printUsage =
     putStrLn . unwords $
       [ "Usage:",
         "Reduce",

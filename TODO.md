@@ -46,7 +46,7 @@
   - was waren Herausforderungen für Implementierung der Pässe?
 
 ## Merging Modules
-  - [ ] **HsAllInOne auf GHC API umstellen**
+  - [x] **HsAllInOne auf GHC API umstellen**
 
 ## Reduction Passes 
 

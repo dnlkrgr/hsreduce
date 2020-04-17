@@ -19,7 +19,7 @@ reduce = do
   oldModule <- _parsed <$> get
   sourceFile <- asks _sourceFile
   liftIO $ putStrLn "\n***Removing unused declarations***"
-  debugPrint $ "Size of old ormolu: " ++ (show . T.length . T.pack . lshow $ oldModule)
+  debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . lshow $ oldModule)
   let allDecls = hsmodDecls . unLoc $ oldModule
   liftIO (getGhcOutput sourceFile Binds)
     >>= \case

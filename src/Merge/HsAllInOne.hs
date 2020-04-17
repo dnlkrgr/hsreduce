@@ -118,10 +118,6 @@ renameModule :: [FilePath]
 renameModule includeDirs srcDirs fileName = do
   banner $ "Renaming: " ++ fileName
 
-  print includeDirs
-  print srcDirs
-  print fileName
-
   RState prags ast (Just r) _  <- parse includeDirs srcDirs fileName
 
   banner "Finished parsing"

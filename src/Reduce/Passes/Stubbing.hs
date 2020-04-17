@@ -17,7 +17,7 @@ reduce :: R ()
 reduce = do
   oldState  <- get
   liftIO $ putStrLn "\n***Stubbing expressions***"
-  liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldState)
+  liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldState)
   stubbings oldState >> return ()
 
 stubbings :: RState -> R ParsedSource

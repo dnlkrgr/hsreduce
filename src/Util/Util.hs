@@ -104,25 +104,25 @@ runTest = do
             ExitSuccess -> return Interesting
 
 changeDecls :: ([LHsDecl GhcPs] -> [LHsDecl GhcPs]) -> RState -> RState
-changeDecls f oldOrmolu =
-  let L moduleLoc oldModule = _parsed oldOrmolu
+changeDecls f oldState =
+  let L moduleLoc oldModule = _parsed oldState
       allDecls = hsmodDecls oldModule
       newDecls = f allDecls
-   in oldOrmolu {_parsed = L moduleLoc oldModule {hsmodDecls = newDecls}}
+   in oldState {_parsed = L moduleLoc oldModule {hsmodDecls = newDecls}}
 
 changeExports :: ([LIE GhcPs] -> [LIE GhcPs]) -> RState -> RState
-changeExports f oldOrmolu =
-  let L moduleLoc oldModule = _parsed oldOrmolu
+changeExports f oldState =
+  let L moduleLoc oldModule = _parsed oldState
       L exportsLoc oldExports = fromJust $ hsmodExports oldModule
       newExports = f (traceShow (concatMap ((++ " ") . lshow) oldExports) oldExports)
-   in oldOrmolu {_parsed = L moduleLoc oldModule {hsmodExports = Just (L exportsLoc newExports)}}
+   in oldState {_parsed = L moduleLoc oldModule {hsmodExports = Just (L exportsLoc newExports)}}
 
 changeImports :: ([LImportDecl GhcPs] -> [LImportDecl GhcPs]) -> RState -> RState
-changeImports f oldOrmolu =
-  let L moduleLoc oldModule = _parsed oldOrmolu
+changeImports f oldState =
+  let L moduleLoc oldModule = _parsed oldState
       allImports = hsmodImports oldModule
       newImports = f allImports
-   in oldOrmolu {_parsed = L moduleLoc oldModule {hsmodImports = newImports}}
+   in oldState {_parsed = L moduleLoc oldModule {hsmodImports = newImports}}
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 getGhcOutput :: FilePath -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])

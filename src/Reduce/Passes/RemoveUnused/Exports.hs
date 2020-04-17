@@ -12,13 +12,13 @@ import "ghc" GHC
 
 reduce :: R ()
 reduce = do
-  oldOrmolu <- get
+  oldState <- get
   liftIO $ putStrLn "\n***Removing Exports***"
-  liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldOrmolu)
-  let L l oldModule = _parsed oldOrmolu
+  liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldState)
+  let L l oldModule = _parsed oldState
       maybeModName  = hsmodName oldModule
       maybeExports  = hsmodExports oldModule
-      allDecls      = hsmodDecls . unLoc . _parsed $ oldOrmolu
+      allDecls      = hsmodDecls . unLoc . _parsed $ oldState
   case maybeExports of
     Nothing -> do
       sourceFile <- asks _sourceFile 
@@ -29,8 +29,8 @@ reduce = do
               Nothing -> Just . L noSrcSpan . mkModuleName $ modName
               m -> m
           newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
-          newOrmolu = oldOrmolu { _parsed = L l newModule }
-      put newOrmolu
+          newState = oldState { _parsed = L l newModule }
+      put newState
       liftIO $ putStrLn $ concatMap ((++ " ") . lshow) oldExports
       -- TODO: if no exports were removed, turn it into Nothing again
       traverse_ removeUnusedExport oldExports

@@ -67,11 +67,10 @@ parse includeDirs srcDirs fileName = do
 
   return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t)
 
+-- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: FilePath -> IO [Pragma]
 getPragmas f =
-        -- ([Language "DoAndIfThenElse", Language "BlockArguments", Language "DataKinds", Language "UndecidableInstances" , Language "FlexibleContexts"] ++)
-        ([Language "StandaloneDeriving"] ++)
-        . filter ((/= "Safe") . showExtension)
+          filter ((/= "Safe") . showExtension)
         . concat
         . fromRight []
         . sequence
@@ -87,7 +86,7 @@ pragmas = do
   f <- pragmaType
   space
   n <- T.pack <$> some letterChar
-  ns <- many (char ',' >> T.pack <$> some letterChar)
+  ns <- many (char ',' >> space >> T.pack <$> some letterChar)
   space
   void $ string "#-}"
   return . map f $ n : ns
@@ -95,8 +94,8 @@ pragmas = do
 pragmaType :: Parser (T.Text -> Pragma)
 pragmaType =
   ((string "language" <|> string "LANGUAGE") >> return Language)
-  <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return GhcOption)
-  <|> ((string "INCLUDE" <|> string "include") >> return GhcOption)
+  <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return OptionsGhc)
+  <|> ((string "INCLUDE" <|> string "include") >> return Include)
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum
 getModName :: T.Text -> Either (M.ParseErrorBundle T.Text Void) T.Text

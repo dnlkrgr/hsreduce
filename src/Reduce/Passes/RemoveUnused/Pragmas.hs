@@ -10,13 +10,12 @@ import Util.Util
 reduce :: R ()
 reduce = do
     liftIO $ putStrLn "\n***Performing RemovePragmas***"
-    oldOrmolu <- get
-    liftIO $ debugPrint $ "Size of old ormolu: " ++ (show . T.length . T.pack . showGhc $ _parsed oldOrmolu)
-    traverse_ tryToRemovePragma (_pragmas oldOrmolu)
+    oldState <- get
+    liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . showGhc $ _parsed oldState)
+    traverse_ tryToRemovePragma (_pragmas oldState)
 
 tryToRemovePragma :: Pragma -> R ()
 tryToRemovePragma pragmaToTry = do
   liftIO $ putStrLn $ "trying pragma: " ++ show pragmaToTry
-  modify $ \s -> s { _pragmas = filter (/= pragmaToTry) (_pragmas s)}
-  newState <- get
+  newState <- gets $ \s -> s { _pragmas = filter (/= pragmaToTry) (_pragmas s)}
   testAndUpdateState newState
