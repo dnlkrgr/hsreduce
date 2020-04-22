@@ -21,17 +21,16 @@ reduce = do
       allDecls      = hsmodDecls . unLoc . _parsed $ oldState
   case maybeExports of
     Nothing -> do
-      sourceFile <- asks _sourceFile 
+      sourceFile <- asks _sourceFile
       let (_, modName) = takeWhile (/= '.') <$> splitFileName sourceFile
           oldExports   = map fromJust . filter isJust . map (decl2Export . unLoc) $ allDecls
-          newModName   = 
-            case maybeModName of 
+          newModName   =
+            case maybeModName of
               Nothing -> Just . L noSrcSpan . mkModuleName $ modName
               m -> m
           newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
           newState = oldState { _parsed = L l newModule }
       put newState
-      liftIO $ putStrLn $ concatMap ((++ " ") . lshow) oldExports
       -- TODO: if no exports were removed, turn it into Nothing again
       traverse_ removeUnusedExport oldExports
     Just (L _ oldExports) -> traverse_ removeUnusedExport oldExports

@@ -23,17 +23,16 @@ reduce = do
 stubbings :: RState -> R ParsedSource
 stubbings =
   (
-        traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
+        traceShow ("simplifyExpr" :: String)            . transformBiM (try simplifyExpr)
+    >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
     >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (try deleteGADTctxt)
     >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
     >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
     >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
     >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (try simplifyLGRHS)
     >=> traceShow ("filterLocalBindSigs" :: String)     . transformBiM filterLocalBindSigs
-    >=> traceShow ("simplifyExpr" :: String)            . transformBiM (try simplifyExpr)
     >=> traceShow ("simplifyType" :: String)            . transformBiM (try simplifyType)
-    >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause)
-    >=> traceShow ("expr2Undefined" :: String)          . transformBiM (try expr2Undefined))
+    >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause))
   . _parsed
 
 
@@ -75,14 +74,6 @@ simplifyMatch =
               _  -> m { m_grhss = GRHSs NoExt newGRHSs lb }
         m -> m
 
-
--- | change an expression to `undefined`
-expr2Undefined :: HsExpr GhcPs -> HsExpr GhcPs
-expr2Undefined expr
-  | oshow expr == "undefined" = expr
-  | otherwise = HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined"
-
-
 simplifyType :: HsType GhcPs -> HsType GhcPs
 simplifyType t@UnitTypeP        = t
 simplifyType t@(HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP)) = t
@@ -99,7 +90,6 @@ deleteGADTctxt :: ConDecl GhcPs -> ConDecl GhcPs
 deleteGADTctxt gadtDecl@ConDeclGADT{} =
   gadtDecl{ con_mb_cxt = Nothing}
 deleteGADTctxt d = d
-
 
 deleteWhereClause :: HsLocalBinds GhcPs -> HsLocalBinds GhcPs
 deleteWhereClause e@(EmptyLocalBinds _) = e
@@ -138,7 +128,9 @@ simplifyExpr (SingleCase body) = body
 simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
   | oshow ls == "undefined" = rs
   | oshow rs == "undefined" = ls
-simplifyExpr e = e
+simplifyExpr expr
+  | oshow expr == "undefined" = expr
+  | otherwise = HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined"
 
 
 pattern MatchP ::  [LGRHS GhcPs (LHsExpr GhcPs)]

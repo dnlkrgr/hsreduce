@@ -76,7 +76,7 @@ testAndUpdateStateFlex :: a -> a -> RState -> R a
 testAndUpdateStateFlex a b s = do
   sourceFile <- asks _sourceFile
   liftIO $ TIO.writeFile sourceFile . showState $ s
-  runTest
+  runTest defaultDuration
     >>= \case
       Uninteresting -> return a
       Interesting -> do
@@ -87,13 +87,13 @@ testAndUpdateStateFlex a b s = do
 
 -- TODO: before running test: check if parseable, renaming and typchecking succeed
 -- | run the interestingness test on a timeout of 30 seconds
-runTest :: R Interesting
-runTest = do
+runTest :: Word -> R Interesting
+runTest duration = do
   test <- asks _test
   let (dirName, testName) = splitFileName test
   -- TODO: make timout duration configurable
   liftIO $
-    timeout duration (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
+    timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
       >>= \case
         Nothing -> do
           errorPrint "runTest: timed out"
@@ -136,7 +136,7 @@ getGhcOutput sourcePath ghcMode = do
                             ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas)
                             ++ " " ++ fileName
   (_, stdout, _) <- fromMaybe (error "getGhcOutput") 
-                 <$> timeout duration
+                 <$> timeout (fromIntegral defaultDuration)
                              (readCreateProcessWithExitCode 
                              ((shell command) {cwd = Just dirName}) "")
 
@@ -207,8 +207,8 @@ errorPrint = debug (liftIO . putStrLn . ("[error] " ++))
 isInProduction :: Bool
 isInProduction = False
 
-duration :: Num a => a
-duration = 20 * 1000 * 1000
+defaultDuration :: Word
+defaultDuration = 30 * 1000 * 1000
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)

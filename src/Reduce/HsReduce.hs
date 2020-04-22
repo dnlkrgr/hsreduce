@@ -65,7 +65,7 @@ hsreduce test filePath = do
 
 allActions :: R ()
 allActions = do
-  runTest >>=
+  runTest (120 * 1000 * 1000) >>=
     \case
       Uninteresting -> error "*** test is uninteresting at the start! ***"
       Interesting -> do
@@ -79,8 +79,8 @@ allPassesOnce = do
   Imports.reduce
   Pragmas.reduce
   Exports.reduce
-  Stubbing.reduce
   Decls.reduce
+  Stubbing.reduce
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- smaller than the old one

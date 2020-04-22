@@ -1,5 +1,6 @@
 module Merge.HsAllInOne (hsAllInOne) where
 
+import System.Directory
 import Data.Either
 import Debug.Trace
 import "ghc" SrcLoc
@@ -35,7 +36,7 @@ hsAllInOne filePath = do
   sections <- fromRight [] . DPP.readFields <$> BS.readFile filePath
   let includeDirs = getIncludeDirs rootPath sections
       srcDirs  = getSrcDirs rootPath sections
-      mainFile = cabal2Main srcDirs sections
+  mainFile <- cabal2Main srcDirs sections
   files <- mod2DepNames includeDirs srcDirs mainFile
 
 
@@ -309,9 +310,10 @@ randomOpString = do
 fieldLineBS :: DPF.FieldLine a -> B8.ByteString
 fieldLineBS (DPF.FieldLine _ bs) = bs
 
-cabal2Main :: [FilePath] -> [DPF.Field a] -> FilePath
+cabal2Main :: [FilePath] -> [DPF.Field a] -> IO FilePath
 cabal2Main srcDirs =
-  head
+  fmap head
+  . filterM doesFileExist
   . nub
   . concatMap ((\n -> map (\d -> d </> n) srcDirs) . modName2FileName)
   . concatMap (field2FilePaths ["main-is"])
@@ -326,7 +328,9 @@ field2FilePaths names (DPF.Field n f)
 modName2FileName :: String -> String
 modName2FileName f
   | f == "Main.hs" = f
-  | otherwise = map (\case '.' -> '/'; c -> c) f ++ ".hs"
+  | ext == "" = map (\case '.' -> '/'; c -> c) f ++ ".hs"
+  | otherwise = map (\case '.' -> '/'; c -> c) fileName ++ ".hs"
+  where (fileName, ext) = splitExtension f
 
 getIncludeDirs :: FilePath -> [DPF.Field a] -> [FilePath]
 getIncludeDirs rootPath =
@@ -337,7 +341,7 @@ getIncludeDirs rootPath =
 getSrcDirs :: FilePath -> [DPF.Field a] -> [FilePath]
 getSrcDirs rootPath =
   nub
-  . map (rootPath <>)
+  . map ((rootPath <>) . filter (/= ','))
   . concatMap (field2FilePaths ["hs-source-dirs"])
 
 mkNewCabal :: FilePath -> IO ()
