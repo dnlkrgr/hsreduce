@@ -3,9 +3,7 @@ module Util.Util where
 import qualified Data.Text.Encoding as TE
 import "ghc" GHC hiding (GhcMode, ghcMode)
 import "ghc" DynFlags hiding (GhcMode, ghcMode)
-import System.Directory
-import System.FilePath.Posix
-import System.Posix.Files
+import Path
 import Control.Applicative
 import Text.RE.TDFA.Text
 import qualified Data.Text.IO as TIO
@@ -27,18 +25,15 @@ import Util.Types as UT
 import Parser.Parser
 import Data.Generics.Uniplate.Data
 
-banner :: MonadIO m => String -> m ()
-banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
-  where
-    n = 80 - length s
-    s' = replicate (div n 2) '='
 
 try :: Data a => (a -> a) -> Located a -> R (Located a)
 try g (L l v) = tryNewValue (L l v) (g v)
 
 reduceListOfSubelements ::
   (Data a, Eq e) =>
+  -- | how to get a list of comparable elements
   (a -> [e]) ->
+  -- | based on comparable info, change element a
   (e -> a -> a) ->
   Located a ->
   R (Located a)
@@ -49,13 +44,7 @@ tryNewValue :: Data a => Located a -> a -> R (Located a)
 tryNewValue oldValue@(L loc _) newValue = do
   oldState <- get
   let newSource = transformBi (overwriteAtLoc loc newValue) (_parsed oldState)
-  testAndUpdateStateFlex oldValue (L loc newValue) (oldState { _parsed = newSource})
-
-oshow :: Outputable a => a -> String
-oshow = showSDocUnsafe . ppr
-
-lshow :: Outputable a => Located a -> String
-lshow = showSDocUnsafe . ppr . unLoc
+  testAndUpdateStateFlex oldValue (L loc newValue) (oldState { _parsed = newSource })
 
 overwriteAtLoc ::
   -- | loc:      location that should be updated
@@ -75,7 +64,7 @@ testAndUpdateState = testAndUpdateStateFlex () ()
 testAndUpdateStateFlex :: a -> a -> RState -> R a
 testAndUpdateStateFlex a b s = do
   sourceFile <- asks _sourceFile
-  liftIO $ TIO.writeFile sourceFile . showState $ s
+  liftIO $ TIO.writeFile (fromAbsFile sourceFile) . showState $ s
   runTest defaultDuration
     >>= \case
       Uninteresting -> return a
@@ -90,10 +79,11 @@ testAndUpdateStateFlex a b s = do
 runTest :: Word -> R Interesting
 runTest duration = do
   test <- asks _test
-  let (dirName, testName) = splitFileName test
+  let dirName = parent test
+  let testName = filename test
   -- TODO: make timout duration configurable
   liftIO $
-    timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ testName) {cwd = Just dirName}) "")
+    timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) "")
       >>= \case
         Nothing -> do
           errorPrint "runTest: timed out"
@@ -125,20 +115,21 @@ changeImports f oldState =
    in oldState {_parsed = L moduleLoc oldModule {hsmodImports = newImports}}
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-getGhcOutput :: FilePath -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
+getGhcOutput :: Path Abs File -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
 getGhcOutput sourcePath ghcMode = do
   pragmas <- getPragmas sourcePath
 
-  let (dirName, fileName) = splitFileName sourcePath
+  let dirName  = parent sourcePath
+      fileName = filename sourcePath
       command             = "ghc "
                             ++ ghcModeString
                             ++ " -ddump-json "
                             ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas)
-                            ++ " " ++ fileName
+                            ++ " " ++ fromRelFile fileName
   (_, stdout, _) <- fromMaybe (error "getGhcOutput") 
                  <$> timeout (fromIntegral defaultDuration)
                              (readCreateProcessWithExitCode 
-                             ((shell command) {cwd = Just dirName}) "")
+                             ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
 
   return $ case stdout of 
     "" -> Nothing
@@ -213,20 +204,21 @@ defaultDuration = 30 * 1000 * 1000
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
 
-recListDirectory :: FilePath -> IO [FilePath]
-recListDirectory dir =
-  listDirectory dir >>=
-    fmap concat . mapM
-      (\f ->
-        let f' = dir </> f
-        in (isDirectory <$> getFileStatus f') >>=
-           \case
-             False -> return [f']
-             True  -> recListDirectory f')
-
 
 showGhc :: (Outputable a) => a -> String
 showGhc = showPpr unsafeGlobalDynFlags
 
 trace' :: Show a => a -> a
 trace' a = traceShow a a
+
+banner :: MonadIO m => String -> m ()
+banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
+  where
+    n = 80 - length s
+    s' = replicate (div n 2) '='
+
+oshow :: Outputable a => a -> String
+oshow = showSDocUnsafe . ppr
+
+lshow :: Outputable a => Located a -> String
+lshow = showSDocUnsafe . ppr . unLoc

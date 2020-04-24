@@ -1,5 +1,6 @@
 module Util.Types where
 
+import Path
 import qualified Data.Text as T
 import Control.Applicative
 import Control.Monad.Reader
@@ -18,8 +19,8 @@ newtype R a
 
 data RConf
   = RConf
-      { _test :: !FilePath,
-        _sourceFile :: !FilePath
+      { _test :: Path Abs File,
+        _sourceFile :: Path Abs File
       }
 
 data RState

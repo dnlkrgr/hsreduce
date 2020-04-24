@@ -1,9 +1,11 @@
 module Reduce.Passes.Stubbing (reduce) where
 
+import Data.Maybe
 import Debug.Trace
 import qualified Data.Text as T
 import Data.List
 import Control.Monad.State.Strict
+import "ghc" BasicTypes
 import "ghc" GHC
 import "ghc" Outputable
 import "ghc" OccName
@@ -23,24 +25,36 @@ reduce = do
 stubbings :: RState -> R ParsedSource
 stubbings =
   (
-        traceShow ("simplifyExpr" :: String)            . transformBiM (try simplifyExpr)
-    >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
-    >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (try deleteGADTctxt)
-    >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
-    >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
-    >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
-    >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (try simplifyLGRHS)
-    >=> traceShow ("filterLocalBindSigs" :: String)     . transformBiM filterLocalBindSigs
-    >=> traceShow ("simplifyType" :: String)            . transformBiM (try simplifyType)
-    >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause))
+         traceShow ("filterRecordFields" :: String )     . transformBiM filterRecordFields
+     >=> traceShow ("simplifyExpr" :: String)            . transformBiM (try simplifyExpr)
+     >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
+     >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (try deleteGADTctxt)
+     >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
+     >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
+     >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
+     >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (try simplifyLGRHS)
+     >=> traceShow ("filterLocalBinds" :: String)        . transformBiM filterLocalBinds
+     >=> traceShow ("simplifyType" :: String)            . transformBiM (try simplifyType)
+     >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause)
+     >=> traceShow ("inlineFunctions" :: String)         . transformBiM inlineFunctions)
   . _parsed
 
 
+-- arst :: HsRecFields GhcPs a -> R (HsRecFields GhcPs a)
+-- arst =
+--   reduceListOfSubelements (map getLoc . rec_flds) undefined
+
+
+filterRecordFields :: Located [LConDeclField GhcPs] -> R (Located [LConDeclField GhcPs])
+filterRecordFields =
+  reduceListOfSubelements (map getLoc . id) g
+  where
+    g loc decls = filter ((/= loc) . getLoc) $ traceShow ("decls " ++ showGhc decls) decls
 
 type LLocalBind = Located (HsLocalBindsLR GhcPs GhcPs)
 
-filterLocalBindSigs :: LLocalBind -> R LLocalBind
-filterLocalBindSigs =
+filterLocalBinds :: LLocalBind -> R LLocalBind
+filterLocalBinds =
   reduceListOfSubelements lvalBinds2SrcSpans deleteLocalBindSig
   where
     lvalBinds2SrcSpans =
@@ -123,7 +137,65 @@ simplifyLGRHS grhs@((GRHS _ [] _)) = grhs
 simplifyLGRHS (GRHS _ _ body)      = GRHS NoExt [] body
 simplifyLGRHS grhs = grhs
 
+
+-- function inlining
+-- TODO: check when to inline
+
+-- 1. maybe even do this at funbinds / val decls?
+-- -> if the function is small and often called => inline it
+-- count occurences
+
+-- 2. maybe just inline everytime?
+inlineFunctions :: LHsExpr GhcPs -> R (LHsExpr GhcPs)
+inlineFunctions old@(L _ (HsApp _ (L l1 (HsVar _ (L _ n))) expr)) = do
+
+  p <- gets _parsed
+
+  let funMatches =
+          map snd
+        . filter ((== n) . fst)
+        . fromMaybe []
+        . traverse getNameAndMatchGroup
+        . getFunBinds
+        $ p
+
+  if (null funMatches)
+    then return old
+    else do
+
+      let (MG _ (L l2 matches) _ : _) = funMatches
+      liftIO $ putStrLn $ "\n\nlength matches: " ++ show (length matches)
+
+      let (con, ctxt) = if length matches == 1
+                        then (HsLam, LambdaExpr)
+                        else (HsLamCase,CaseAlt)
+          newMG = MG NoExt (L l2 $ map (changeMatchContext ctxt) matches) FromSource
+          new   = HsApp NoExt (L l1 (HsPar NoExt (noLoc (con NoExt newMG)))) expr
+
+      liftIO . putStrLn $ "new: " ++ showGhc new
+      tryNewValue old new
+inlineFunctions e = return e
+
+changeMatchContext :: HsMatchContext RdrName
+     -> LMatch GhcPs (LHsExpr GhcPs)
+     -> LMatch GhcPs (LHsExpr GhcPs)
+changeMatchContext ctxt (L l (Match _ _ p g)) =
+  L l $ Match NoExt ctxt p g
+changeMatchContext _ m = m
+
+getFunBinds :: ParsedSource -> [HsBindLR GhcPs GhcPs]
+getFunBinds p = [ f | f@(FunBind {}) <- universeBi p ]
+
+getNameAndMatchGroup :: HsBindLR idL idR
+                     -> Maybe (IdP idL, MatchGroup idR (LHsExpr idR))
+getNameAndMatchGroup (FunBind _ (L _ n) mg _ _) = Just (n, mg)
+getNameAndMatchGroup _ = Nothing
+
+-- expr -> undefined
+-- delete if-then-else branches
+-- case expr with one case -> body
 simplifyExpr :: HsExpr GhcPs -> HsExpr GhcPs
+simplifyExpr (HsPar _ (L _ expr)) = expr
 simplifyExpr (SingleCase body) = body
 simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
   | oshow ls == "undefined" = rs

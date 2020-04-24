@@ -11,6 +11,11 @@ data Dumb = Dumb | AlsoDumb | MoreDumb | T4 | T5
 
 data DumbProduct = StillDumb Int String
 
+data DumbRec = DumbRec {
+  a :: Int
+  , b :: String
+  }
+
 main :: IO ()
 main = do
   let arst = myFun Nothing
@@ -49,3 +54,9 @@ erst a b c d = case a of
     if b
       then c
       else d
+
+
+frst = grst Nothing
+
+grst Nothing = 2 * n + 3 / 5
+  where n = 5

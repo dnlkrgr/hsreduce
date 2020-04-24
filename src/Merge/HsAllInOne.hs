@@ -1,5 +1,6 @@
 module Merge.HsAllInOne (hsAllInOne) where
 
+import Data.Maybe
 import System.Directory
 import Data.Either
 import Debug.Trace
@@ -12,7 +13,7 @@ import Data.Char
 import Data.Hashable
 import Data.List
 import GHC
-import System.FilePath.Posix
+import Path
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
@@ -27,25 +28,26 @@ import Data.Generics.Uniplate.Data
 
 
 -- get data from cabal file
-hsAllInOne :: FilePath -> IO ()
+hsAllInOne :: Path Abs File -> IO ()
 hsAllInOne filePath = do
   banner "Running hsAllInOne"
 
-  let rootPath = fst $ splitFileName filePath
-      sourcePath = rootPath <> "AllInOne.hs"
-  sections <- fromRight [] . DPP.readFields <$> BS.readFile filePath
-  let includeDirs = getIncludeDirs rootPath sections
-      srcDirs  = getSrcDirs rootPath sections
-  mainFile <- cabal2Main srcDirs sections
-  files <- mod2DepNames includeDirs srcDirs mainFile
+  let rootPath = parent filePath
+  sourcePath  <- (rootPath </>) <$> parseRelFile "AllInOne.hs"
+  sections    <- fromRight [] . DPP.readFields <$> BS.readFile (fromAbsFile filePath)
+  let includeDirs = fromMaybe [] $ getDirs ["include-dirs"] rootPath sections
+      srcDirs     = fromMaybe [] $ getDirs ["hs-source-dirs"] rootPath sections
+  mainFile    <- cabal2Main srcDirs sections
+  files       <- mod2DepNames includeDirs srcDirs mainFile
+
+
 
 
   fileContent <-
     T.unlines
-    . filter (not . ("{-# COMPLETE" `T.isPrefixOf`))
     . T.lines
     <$> mergeModules includeDirs srcDirs files
-  TIO.writeFile sourcePath fileContent
+  TIO.writeFile (fromAbsFile sourcePath) fileContent
 
 
   banner "Cleaning up"
@@ -57,25 +59,25 @@ hsAllInOne filePath = do
       cleanUp sourcePath fileContent
     Just mySpans -> do
       let newFileContent = foldr mkIndent fileContent . map (fmap span2Locs) $ mySpans
-      TIO.writeFile sourcePath newFileContent
+      TIO.writeFile (fromAbsFile sourcePath) newFileContent
 
       cleanUp sourcePath newFileContent
 
   mkNewCabal filePath
 
 
-cleanUp :: FilePath -> T.Text -> IO ()
+cleanUp :: Path Abs File -> T.Text -> IO ()
 cleanUp sourcePath fileContent =
   getGhcOutput sourcePath Other >>= \case
     Nothing -> return ()
     Just [] -> return ()
     Just mySpans -> do
       let newFileContent = foldr replaceWithGhcOutput fileContent . map (fmap span2Locs) $ mySpans
-      TIO.writeFile sourcePath newFileContent
+      TIO.writeFile (fromAbsFile sourcePath) newFileContent
       cleanUp sourcePath newFileContent
 
 
-mergeModules :: [FilePath] -> [FilePath] -> [FilePath] -> IO T.Text
+mergeModules :: [Path Abs Dir] -> [Path Abs Dir] -> [Path Abs File] -> IO T.Text
 mergeModules includeDirs srcDirs filenames = do
   modules <- mapM (renameModule includeDirs srcDirs) filenames
 
@@ -91,6 +93,13 @@ mergeModules includeDirs srcDirs filenames = do
           )
           modules
 
+      prags = T.unlines
+              . nub
+              . concatMap (\(p, _, _, _) -> map (T.pack . show) $ p)
+              $ modules
+
+      modName = "module Main (main) where"
+
       imps  = T.unlines
               . nub
               . map (\(_, _, i, _) -> T.unlines
@@ -105,19 +114,15 @@ mergeModules includeDirs srcDirs filenames = do
               . foldr (appendGroups . (\(_, _, _, d) -> d)) emptyRnGroup
               $ modules
 
-      prags = T.unlines
-              . nub
-              . concatMap (\(p, _, _, _) -> map (T.pack . show) $ p)
-              $ modules
 
-  return $ T.unlines [prags, imps , decls]
+  return $ T.unlines [prags, modName, imps , decls]
 
-renameModule :: [FilePath]
-             -> [FilePath]
-             -> FilePath
+renameModule :: [Path Abs Dir]
+             -> [Path Abs Dir]
+             -> Path Abs File
              -> IO ([Pragma], ParsedSource, [LImportDecl GhcRn], HsGroup GhcRn)
 renameModule includeDirs srcDirs fileName = do
-  banner $ "Renaming: " ++ fileName
+  banner $ "Renaming: " ++ fromAbsFile fileName
 
   RState prags ast (Just r) _  <- parse includeDirs srcDirs fileName
 
@@ -310,44 +315,50 @@ randomOpString = do
 fieldLineBS :: DPF.FieldLine a -> B8.ByteString
 fieldLineBS (DPF.FieldLine _ bs) = bs
 
-cabal2Main :: [FilePath] -> [DPF.Field a] -> IO FilePath
+cabal2Main :: [Path Abs Dir] -> [DPF.Field a] -> IO (Path Abs File)
 cabal2Main srcDirs =
   fmap head
-  . filterM doesFileExist
-  . nub
-  . concatMap ((\n -> map (\d -> d </> n) srcDirs) . modName2FileName)
-  . concatMap (field2FilePaths ["main-is"])
+  . filterM (doesFileExist . trace' . fromAbsFile)
+  . fromJust
+  . fmap (concatMap (\n -> map (\d -> d </> n) srcDirs) . concat)
+  . traverse (file2Paths modName2FileName ["main-is"])
   . keepFields ["executable", "library"]
 
-field2FilePaths :: [BS.ByteString] -> DPF.Field a -> [FilePath]
-field2FilePaths names (DPF.Section _ _ f) = concatMap (field2FilePaths names) f
-field2FilePaths names (DPF.Field n f)
-  | DPF.getName n `elem` names = map (B8.unpack . fieldLineBS) f
-  | otherwise = []
+file2Paths :: (FilePath -> Maybe (Path Rel a))
+                -> [BS.ByteString]
+                -> DPF.Field b
+                -> Maybe [Path Rel a]
+file2Paths g names (DPF.Section _ _ f) =
+  concat <$> traverse (file2Paths g names) f
+file2Paths g names (DPF.Field n f)
+  | DPF.getName n `elem` names
+  = sequence . filter isJust . map g $ map (B8.unpack . fieldLineBS) f
+  | otherwise = return []
 
-modName2FileName :: String -> String
+modName2FileName :: String -> Maybe (Path Rel File)
 modName2FileName f
-  | f == "Main.hs" = f
-  | ext == "" = map (\case '.' -> '/'; c -> c) f ++ ".hs"
-  | otherwise = map (\case '.' -> '/'; c -> c) fileName ++ ".hs"
-  where (fileName, ext) = splitExtension f
+   | f == "Main.hs" = parseRelFile f
+   | ".hs" `isSubsequenceOf` f =
+     let fileName = take (length f - 3) f
+     in parseRelFile $ map (\case '.' -> '/'; c -> c) fileName ++ ".hs"
+   | otherwise = parseRelFile $ map (\case '.' -> '/'; c -> c) f ++ ".hs"
 
-getIncludeDirs :: FilePath -> [DPF.Field a] -> [FilePath]
-getIncludeDirs rootPath =
-  nub
-  . map (rootPath <>)
-  . concatMap (field2FilePaths ["include-dirs"])
+getDirs :: [BS.ByteString]
+        -> Path Abs Dir
+        -> [DPF.Field a]
+        -> Maybe [Path Abs Dir]
+getDirs dirNames rootPath sections = do
+  r <- concat <$> traverse (file2Paths parseRelDir dirNames) sections
+  map (rootPath </>)
+    <$> traverse (parseRelDir . filter (/= ',') . fromRelDir) r
 
-getSrcDirs :: FilePath -> [DPF.Field a] -> [FilePath]
-getSrcDirs rootPath =
-  nub
-  . map ((rootPath <>) . filter (/= ','))
-  . concatMap (field2FilePaths ["hs-source-dirs"])
-
-mkNewCabal :: FilePath -> IO ()
-mkNewCabal f = (*=~/ [ed|main-is: *([A-Z][A-Za-z]+.hs)///main-is: AllInOne.hs|])
-             <$> TIO.readFile f
-             >>= TIO.writeFile f
+mkNewCabal :: Path Abs File -> IO ()
+mkNewCabal f =
+  (*=~/ [ed|main-is: *([A-Z][A-Za-z]+.hs)///main-is: AllInOne.hs|])
+  <$> TIO.readFile f'
+  >>= TIO.writeFile f'
+  where f' = fromAbsFile f
 
 keepFields :: [String] -> [DPF.Field a] -> [DPF.Field a]
-keepFields names = filter ((`elem` map B8.pack names) . DPF.getName . DPF.fieldName)
+keepFields names =
+  filter ((`elem` map B8.pack names) . DPF.getName . DPF.fieldName)

@@ -1,10 +1,11 @@
 module Reduce.HsReduce
   ( hsreduce,
+    arst
   )
 where
 
 import System.Posix.Files
-import System.FilePath.Posix
+import Path
 import System.Directory
 import Control.Monad
 import Control.Monad.Reader
@@ -26,33 +27,42 @@ import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 
-hsreduce :: FilePath -> FilePath -> IO ()
+root = "/home/daniel/workspace/hsreduce/test-cases/trying-out/"
+arst = do
+  source <- parseAbsFile $ root ++ "Trying-out.hs"
+  test <- parseAbsFile $ root ++ "interesting.sh"
+  hsreduce test source
+
+hsreduce :: Path Abs File -> Path Abs File -> IO ()
 hsreduce test filePath = do
   putStrLn "*******************************************************"
   startTime   <- utctDayTime <$> getCurrentTime
-  fileContent <- TIO.readFile filePath
-  beginState  <- parse [] [] filePath 
+  fileContent <- TIO.readFile $ fromAbsFile filePath
+  beginState  <- parse [] [] filePath
   let oldSize = T.length fileContent
-      sourceDir = fst $ splitFileName filePath
-  files <- listDirectory sourceDir
+      sourceDir = parent filePath
+  files <- listDirectory (fromAbsDir sourceDir)
+  currentDir <- getCurrentDirectory
   newState <-
     withTempDirectory
-      "."
+      currentDir
       "temp"
-      (\tempDir -> do
-         let tempTest     = tempDir </> snd (splitFileName test)
-             tempFilePath = tempDir </> snd (splitFileName filePath)
-         forM_ files $ \iterFile -> do
-           let oldPath = (sourceDir </> iterFile)
+      (\t -> do
+         tempDir <- parseAbsDir t
+         let tempTest     = tempDir </> filename test
+             tempFilePath = tempDir </> filename filePath
+         forM_ files $ \f -> do
+           iterFile <- parseRelFile f
+           let oldPath = fromAbsFile $ sourceDir </> iterFile
            status <- getFileStatus oldPath
            if isDirectory status
-              then copyDirectoryRecursive normal oldPath (tempDir </> snd (splitFileName iterFile))
-              else copyFile oldPath (tempDir </> snd (splitFileName iterFile))
+              then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
+              else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
          snd <$> runR (RConf tempTest tempFilePath)
                                 beginState
                                 allActions
       )
-  let fileName = takeWhile (/= '.') filePath
+  let fileName = takeWhile (/= '.') . fromAbsFile $ filePath
       newSize = T.length . T.pack $ showGhc . _parsed $ newState
       ratio =
         round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int

@@ -1,6 +1,6 @@
 module Parser.Parser (parse, getPragmas, mod2DepNames) where
 
-import System.FilePath.Posix
+import Path
 import Data.Either
 import Data.Functor
 import Control.Applicative
@@ -16,44 +16,61 @@ import Data.Void
 
 type Parser = M.Parsec Void T.Text
 
-mod2DepNames :: [FilePath] -> [FilePath] -> FilePath -> IO [String]
+mod2DepNames :: [Path Abs Dir]
+             -> [Path Abs Dir]
+             -> Path Abs File
+             -> IO [Path Abs File]
 mod2DepNames includeDirs srcDirs fileName = do
-  let rootPath = fst $ splitFileName fileName
 
   mg <- runGhc (Just libdir) $ do
     dflags          <- getSessionDynFlags
     (dflags', _, _) <- parseDynamicFlags dflags []
-    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirs, importPaths = srcDirs }
 
-    target <- guessTarget fileName Nothing
+    let includeDirStrings = map fromAbsDir includeDirs
+        srcDirStrings     = map fromAbsDir srcDirs
+    _ <-
+      setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
+
+    target <- guessTarget (fromAbsFile fileName) Nothing
     setTargets [target]
     _ <- load LoadAllTargets
 
     getModuleGraph
 
-  return . map ((rootPath ++) . (++ ".hs") . map (\c -> if c == '.' then '/' else c) . moduleNameString . ms_mod_name) . mgModSummaries $ mg
+  let rootPath = parent fileName
 
+
+  traverse (\f -> parseRelFile f
+             >>= addFileExtension "hs"
+             >>= return . (rootPath </>))
+    . map (map (\c -> if c == '.' then '/' else c)
+           . moduleNameString
+           . ms_mod_name)
+    . mgModSummaries
+    $ mg
 
 -- TODO: collect and return all pragmas
-parse :: [FilePath] -> [FilePath] -> FilePath -> IO RState
+parse :: [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
 parse includeDirs srcDirs fileName = do
-  banner $ "Parsing: " ++ fileName
+  banner $ "Parsing: " ++ (fromAbsFile fileName)
 
   modName <-
     (\case
       Left _ -> "Main"
       Right t -> t)
     . getModName
-    <$> TIO.readFile fileName
+    <$> TIO.readFile (fromAbsFile fileName)
 
   print modName
 
   (p,t) <- runGhc (Just libdir) $ do
     dflags          <- getSessionDynFlags
     (dflags', _, _) <- parseDynamicFlags dflags []
-    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirs, importPaths = srcDirs }
+    let includeDirStrings = map fromAbsDir includeDirs
+        srcDirStrings     = map fromAbsDir srcDirs
+    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
 
-    target <- guessTarget fileName Nothing
+    target <- guessTarget (fromAbsFile fileName) Nothing
     setTargets [target]
     _ <- load LoadAllTargets
     modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
@@ -68,16 +85,16 @@ parse includeDirs srcDirs fileName = do
   return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t)
 
 -- TODO: how to handle Safe vs. Trustworthy?
-getPragmas :: FilePath -> IO [Pragma]
+getPragmas :: Path Abs File -> IO [Pragma]
 getPragmas f =
-          filter ((/= "Safe") . showExtension)
-        . concat
-        . fromRight []
-        . sequence
-        . filter isRight
-        . map (M.parse pragmas f )
-        . T.lines
-        <$> TIO.readFile f
+    filter ((/= "Safe") . showExtension)
+  . concat
+  . fromRight []
+  . sequence
+  . filter isRight
+  . map (M.parse pragmas (fromAbsFile f))
+  . T.lines
+  <$> TIO.readFile (fromAbsFile f)
 
 pragmas :: Parser [Pragma]
 pragmas = do

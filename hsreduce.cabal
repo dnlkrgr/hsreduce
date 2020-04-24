@@ -21,7 +21,7 @@ common dry
                      , bytestring
                      , directory
                      , extra
-                     , filepath
+                     , path
                      , ghc
                      , ghc-paths
                      , hashable
@@ -52,7 +52,8 @@ common dry
                        QuasiQuotes
                        GeneralizedNewtypeDeriving 
                        OverloadedStrings 
-
+                       ScopedTypeVariables
+                       TemplateHaskell
 
 library hsreduce-internal
   import:              dry

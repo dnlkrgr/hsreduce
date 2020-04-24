@@ -3,7 +3,7 @@ module Reduce.Passes.RemoveUnused.Exports (reduce) where
 import Data.Foldable
 import Control.Monad.State.Strict
 import Data.Maybe
-import System.FilePath.Posix
+import Path
 import Util.Types
 import Util.Util
 import Control.Monad.Reader
@@ -15,21 +15,24 @@ reduce = do
   oldState <- get
   liftIO $ putStrLn "\n***Removing Exports***"
   liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldState)
+
   let L l oldModule = _parsed oldState
       maybeModName  = hsmodName oldModule
-      maybeExports  = hsmodExports oldModule
       allDecls      = hsmodDecls . unLoc . _parsed $ oldState
+      maybeExports  = hsmodExports oldModule
+
   case maybeExports of
     Nothing -> do
-      sourceFile <- asks _sourceFile
-      let (_, modName) = takeWhile (/= '.') <$> splitFileName sourceFile
-          oldExports   = map fromJust . filter isJust . map (decl2Export . unLoc) $ allDecls
-          newModName   =
+      modName <- takeWhile (/= '.') . fromAbsFile . _sourceFile <$> ask
+
+      let oldExports = map fromJust . filter isJust . map (decl2Export . unLoc) $ allDecls
+          newModName =
             case maybeModName of
               Nothing -> Just . L noSrcSpan . mkModuleName $ modName
               m -> m
           newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
           newState = oldState { _parsed = L l newModule }
+
       put newState
       -- TODO: if no exports were removed, turn it into Nothing again
       traverse_ removeUnusedExport oldExports

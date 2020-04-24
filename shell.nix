@@ -27,7 +27,7 @@ let
         containers 
         directory 
         extra 
-        filepath
+        path
         ghc 
         ghc-boot-th
         ghc-paths 

@@ -1,3 +1,6 @@
+* Refactoring
+** error handling für das Parsing
+** error handling in GHC Monad
 * Interessante Tickets
 ** 18018
 ** 17722

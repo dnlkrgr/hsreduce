@@ -1,7 +1,7 @@
 module Glue where
 
+import Path
 import System.Environment (getArgs)
-import System.FilePath.Posix
 import System.IO
 import Merge.HsAllInOne
 import Reduce.HsReduce
@@ -14,12 +14,15 @@ glue = do
   if length myArgs /= 3
     then printUsage
     else do
-      let [isProject, test, filePath] = myArgs
-      if takeExtension test == ".sh" && takeExtension filePath == ".hs" then
+      let [isProject, t, f] = myArgs
+      test <- parseAbsFile t
+      filePath <- parseAbsFile f
+      if fileExtension test == ".sh" && fileExtension filePath == ".hs" then
         case isProject of
           "--cabal"    -> do
+            fileName <- parseRelFile "AllInOne.hs"
             hsAllInOne filePath
-            hsreduce test (fst (splitFileName filePath) ++ "AllInOne.hs")
+            hsreduce test (parent filePath </> fileName)
           "--no-cabal" -> hsreduce test filePath
           _ -> printUsage
       else printUsage
