@@ -1,5 +1,6 @@
 module Util.Util (try, fastTry, banner, getGhcOutput, showGhc, isQual, trace', debugPrint, reduceListOfSubelements, tryNewValue, oshow, lshow, changeDecls, changeExports, changeImports, testAndUpdateState, testAndUpdateStateFlex, runTest) where
 
+import qualified Control.Exception as CE
 import qualified Data.Text.Encoding as TE
 import "ghc" GHC hiding (GhcMode, ghcMode)
 import "ghc" DynFlags hiding (GhcMode, ghcMode)
@@ -66,18 +67,23 @@ testAndUpdateState = testAndUpdateStateFlex () ()
 testAndUpdateStateFlex :: a -> a -> RState -> R a
 testAndUpdateStateFlex a b newState = do
   sourceFile <- asks _sourceFile
-  liftIO $ TIO.writeFile (fromAbsFile sourceFile) . showState $ newState
-  runTest defaultDuration
-    >>= \case
-      Uninteresting -> return a
-      Interesting -> do
-        -- TODO: add information to change operation for better debugging messages
-        liftIO $ putChar '.'
+  (liftIO . CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
+    Left (_ :: CE.SomeException) -> return a
+    Right _ -> do
+      runTest defaultDuration >>= \case
+        Uninteresting -> return a
+        Interesting -> do
+          -- TODO: add information to change operation for better debugging messages
 
-        oldState <- get
-        put $ newState { _isAlive = showState newState /= showState oldState }
+          modify $
+            \s -> newState {
+              _isAlive = if _isAlive s
+                         then True
+                         else let e = showState newState /= showState s
+                              in if e then traceShow (show '.') e else e
+              }
 
-        return b
+          return b
 
 
 -- TODO: before running test: check if parseable, renaming and typchecking succeed

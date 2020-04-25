@@ -110,6 +110,7 @@ largestFixpoint f =
     go = do
       liftIO $ putStrLn "\n***NEW ITERATION***"
 
+      modify $ \s -> s { _isAlive = False }
       f
       isAlive <- gets _isAlive
 

@@ -35,6 +35,12 @@ myFun Nothing = 42
 instance Show Dumb where
   show Dumb = "Dumb"
 
+-- constructing and updating records
+
+rec1 = DumbRec 3 "arst"
+rec2 = DumbRec { a = 3, b = "arst"}
+rec3 = DumbRec { a = 3, b = undefined }
+rec4 = rec1 { a = 4, b = undefined }
 
 -- functions with undefined RHS / guards
 brst :: a -> a
