@@ -20,6 +20,7 @@ let
         MonadRandom
         QuickCheck
         aeson
+        async
         base 
         bytestring
         Cabal

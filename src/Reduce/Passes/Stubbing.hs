@@ -1,5 +1,7 @@
 module Reduce.Passes.Stubbing (reduce) where
 
+import Data.Ratio
+import qualified Data.ByteString as BS
 import Data.Maybe
 import Debug.Trace
 import qualified Data.Text as T
@@ -25,18 +27,21 @@ reduce = do
 stubbings :: RState -> R ParsedSource
 stubbings =
   (
-         traceShow ("filterRecordFields" :: String )     . transformBiM filterRecordFields
-     >=> traceShow ("simplifyExpr" :: String)            . transformBiM (try simplifyExpr)
-     >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (try deleteGADTforall)
-     >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (try deleteGADTctxt)
+     --     traceShow ("filterRecordFields" :: String )     . transformBiM filterRecordFields
+     traceShow ("simplifyExpr" :: String)            . transformBiM (fastTry simplifyExpr)
+     >=> traceShow ("expr2Undefined" :: String)          . transformBiM (fastTry expr2Undefined)
+     >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (fastTry deleteGADTforall)
+     >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (fastTry deleteGADTctxt)
      >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
      >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
      >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
-     >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (try simplifyLGRHS)
+     >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (fastTry simplifyLGRHS)
      >=> traceShow ("filterLocalBinds" :: String)        . transformBiM filterLocalBinds
-     >=> traceShow ("simplifyType" :: String)            . transformBiM (try simplifyType)
-     >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (try deleteWhereClause)
-     >=> traceShow ("inlineFunctions" :: String)         . transformBiM inlineFunctions)
+     >=> traceShow ("simplifyType" :: String)            . transformBiM (fastTry simplifyType)
+     >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (fastTry deleteWhereClause)
+     >=> traceShow ("inlineFunctions" :: String)         . transformBiM inlineFunctions
+     >=> traceShow ("simplifyLit" :: String)            . transformBiM (try simplifyLit)
+     >=> traceShow ("simplifyPat" :: String)            . transformBiM (try simplifyPat))
   . _parsed
 
 
@@ -45,11 +50,11 @@ stubbings =
 --   reduceListOfSubelements (map getLoc . rec_flds) undefined
 
 
-filterRecordFields :: Located [LConDeclField GhcPs] -> R (Located [LConDeclField GhcPs])
-filterRecordFields =
-  reduceListOfSubelements (map getLoc . id) g
-  where
-    g loc decls = filter ((/= loc) . getLoc) $ traceShow ("decls " ++ showGhc decls) decls
+-- filterRecordFields :: Located [LConDeclField GhcPs] -> R (Located [LConDeclField GhcPs])
+-- filterRecordFields =
+--   reduceListOfSubelements (map getLoc . id) g
+--   where
+--     g loc decls = filter ((/= loc) . getLoc) $ traceShow ("decls " ++ showGhc decls) decls
 
 type LLocalBind = Located (HsLocalBindsLR GhcPs GhcPs)
 
@@ -88,26 +93,26 @@ simplifyMatch =
               _  -> m { m_grhss = GRHSs NoExt newGRHSs lb }
         m -> m
 
-simplifyType :: HsType GhcPs -> HsType GhcPs
-simplifyType t@UnitTypeP        = t
-simplifyType t@(HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP)) = t
-simplifyType (ForallTypeP body) = body
-simplifyType (QualTypeP body)   = body
-simplifyType _                  = UnitTypeP
+simplifyType :: HsType GhcPs -> Maybe (HsType GhcPs)
+simplifyType UnitTypeP        = Nothing
+simplifyType (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP)) = Nothing
+simplifyType (ForallTypeP body) = Just body
+simplifyType (QualTypeP body)   = Just body
+simplifyType _                  = Just UnitTypeP
 
-deleteGADTforall :: ConDecl GhcPs -> ConDecl GhcPs
+deleteGADTforall :: ConDecl GhcPs -> Maybe (ConDecl GhcPs)
 deleteGADTforall gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) =
-  gadtDecl{ con_forall = L forallLoc False} -- delete forall
-deleteGADTforall d = d
+  Just $ gadtDecl{ con_forall = L forallLoc False} -- delete forall
+deleteGADTforall _ = Nothing
 
-deleteGADTctxt :: ConDecl GhcPs -> ConDecl GhcPs
+deleteGADTctxt :: ConDecl GhcPs -> Maybe (ConDecl GhcPs)
 deleteGADTctxt gadtDecl@ConDeclGADT{} =
-  gadtDecl{ con_mb_cxt = Nothing}
-deleteGADTctxt d = d
+  Just $ gadtDecl{ con_mb_cxt = Nothing}
+deleteGADTctxt _ = Nothing
 
-deleteWhereClause :: HsLocalBinds GhcPs -> HsLocalBinds GhcPs
-deleteWhereClause e@(EmptyLocalBinds _) = e
-deleteWhereClause _ = EmptyLocalBinds NoExt
+deleteWhereClause :: HsLocalBinds GhcPs -> Maybe (HsLocalBinds GhcPs)
+deleteWhereClause (EmptyLocalBinds _) = Nothing
+deleteWhereClause _ = Just $ EmptyLocalBinds NoExt
 
 -- TODO: this doesn't fit, this deletes the WHOLE match if only one grhs is undefined
 matchDelRhsUndef :: [LMatch GhcPs (LHsExpr GhcPs)]
@@ -132,10 +137,9 @@ matchDelIfUndefAnywhere mtchs =
                grhs))
              mtchs
 
-simplifyLGRHS :: GRHS GhcPs (LHsExpr GhcPs) -> GRHS GhcPs (LHsExpr GhcPs)
-simplifyLGRHS grhs@((GRHS _ [] _)) = grhs
-simplifyLGRHS (GRHS _ _ body)      = GRHS NoExt [] body
-simplifyLGRHS grhs = grhs
+simplifyLGRHS :: GRHS GhcPs (LHsExpr GhcPs) -> Maybe (GRHS GhcPs (LHsExpr GhcPs))
+simplifyLGRHS (GRHS _ _ body)      = Just $ GRHS NoExt [] body
+simplifyLGRHS _ = Nothing
 
 
 -- function inlining
@@ -163,14 +167,22 @@ inlineFunctions old@(L _ (HsApp _ (L l1 (HsVar _ (L _ n))) expr)) = do
     then return old
     else do
 
-      let (MG _ (L l2 matches) _ : _) = funMatches
-      liftIO $ putStrLn $ "\n\nlength matches: " ++ show (length matches)
+      let (MG _ (L l2 lmatches) _ : _) = funMatches
+      let nPats = length . m_pats . unLoc . head $ lmatches
+      let nMatches = length lmatches
+      liftIO $ putStrLn $ "\n\nlength lmatches: " ++ show nMatches
 
-      let (con, ctxt) = if length matches == 1
-                        then (HsLam, LambdaExpr)
-                        else (HsLamCase,CaseAlt)
-          newMG = MG NoExt (L l2 $ map (changeMatchContext ctxt) matches) FromSource
-          new   = HsApp NoExt (L l1 (HsPar NoExt (noLoc (con NoExt newMG)))) expr
+      -- this is obviously not the best we can do
+      -- but I don't know how to handle n matches with m patterns yet
+      let app = \con ctxt f -> HsApp NoExt (L l1 (HsPar NoExt (noLoc (con NoExt $ MG NoExt (L l2 $ map (changeMatchContext ctxt) (f lmatches)) FromSource)))) expr
+      let new = case (nMatches, nPats) of
+                           (1, 0) -> unLoc old -- eta reduced function, how to handle multiple guards?
+                           (1, _) -> app HsLam LambdaExpr (take 1)
+                           (_, 1) -> app HsLamCase CaseAlt id
+                           _      -> unLoc old
+
+          -- if the user created overlapping patterns we only take the first match
+          -- or should we do nothing when encountering overlapping patterns?
 
       liftIO . putStrLn $ "new: " ++ showGhc new
       tryNewValue old new
@@ -194,15 +206,72 @@ getNameAndMatchGroup _ = Nothing
 -- expr -> undefined
 -- delete if-then-else branches
 -- case expr with one case -> body
-simplifyExpr :: HsExpr GhcPs -> HsExpr GhcPs
-simplifyExpr (HsPar _ (L _ expr)) = expr
-simplifyExpr (SingleCase body) = body
+simplifyExpr :: HsExpr GhcPs -> Maybe (HsExpr GhcPs)
+simplifyExpr (SingleCase body)     = Just body
 simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
-  | oshow ls == "undefined" = rs
-  | oshow rs == "undefined" = ls
-simplifyExpr expr
-  | oshow expr == "undefined" = expr
-  | otherwise = HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined"
+  | oshow ls == "undefined"        = Just $ rs
+  | oshow rs == "undefined"        = Just $ ls
+simplifyExpr (HsApp _ _ e)         = Just $ unLoc e
+simplifyExpr (HsAppType _ e)       = Just $ unLoc e
+simplifyExpr (OpApp _ _ _ e)       = Just $ unLoc e
+simplifyExpr (NegApp _ e _)        = Just $ unLoc e
+simplifyExpr (HsPar _ (L _ e))     = Just $ e
+simplifyExpr (ExplicitTuple _ _ b) = Just $ ExplicitTuple NoExt [] b
+simplifyExpr (ExplicitSum _ _ _ e) = Just $ unLoc e
+simplifyExpr (HsMultiIf _ _)       = Just $ HsMultiIf NoExt []
+simplifyExpr (HsDo _ ctxt (L l _)) = Just $ HsDo NoExt ctxt (L l [])      -- do reduceSubElements
+simplifyExpr (ExplicitList _ _ _)  = Just $ ExplicitList NoExt Nothing [] -- do reduceSubElements
+simplifyExpr (RecordUpd _ e _)     = Just $ unLoc e
+simplifyExpr (ExprWithTySig _ e)   = Just $ unLoc e
+simplifyExpr (HsSCC _ _ _ e)       = Just $ unLoc e
+simplifyExpr (HsCoreAnn _ _ _ e)   = Just $ unLoc e -- this will probably never work, what else could be done here?
+simplifyExpr (HsStatic _ e)        = Just $ unLoc e
+simplifyExpr (HsArrApp _ _ e _ _)  = Just $ unLoc e
+simplifyExpr (HsArrForm _ e _ _)   = Just $ unLoc e
+simplifyExpr (HsTick _ _ e)        = Just $ unLoc e
+simplifyExpr (HsBinTick _ _ _ e)   = Just $ unLoc e
+simplifyExpr (EAsPat _ _ e)        = Just $ unLoc e
+simplifyExpr (EViewPat _ _ e)      = Just $ unLoc e -- choosing right expression, is this correct?
+simplifyExpr (ELazyPat _ e)        = Just $ unLoc e
+simplifyExpr (HsWrap _ _ e)        = Just $ e
+simplifyExpr _ = Nothing
+
+expr2Undefined :: HsExpr GhcPs -> Maybe (HsExpr GhcPs)
+expr2Undefined expr
+  | oshow expr == "undefined" = Nothing
+  | otherwise = Just $ HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined"
+
+simplifyPat :: Pat GhcPs -> Pat GhcPs
+simplifyPat (ParPat _ p)     = unLoc p
+simplifyPat (LazyPat _ p)    = unLoc p
+simplifyPat (BangPat _ p)    = unLoc p
+simplifyPat (AsPat _ _ p)    = unLoc p
+simplifyPat (SigPat _ p)     = unLoc p
+simplifyPat (ViewPat _ _ p)  = unLoc p
+simplifyPat (ListPat _ _)    = ListPat NoExt []
+simplifyPat (TuplePat _ _ b) = TuplePat NoExt [] b
+simplifyPat (CoPat _ _ p _)  = p
+simplifyPat _ = WildPat NoExt
+
+
+-- are there more interesting things we can do here?
+srcText :: SourceText
+srcText = SourceText ""
+simplifyLit :: HsLit GhcPs -> HsLit GhcPs
+simplifyLit (HsChar _ _)       = HsChar srcText 'a'
+simplifyLit (HsCharPrim _ _)   = HsCharPrim srcText 'a'
+simplifyLit (HsString _ _)     = HsString srcText ""
+simplifyLit (HsStringPrim _ _) = HsStringPrim srcText BS.empty
+simplifyLit (HsInt _ _)        = HsInt NoExt $ IL srcText False 0
+simplifyLit (HsIntPrim _ _)    = HsIntPrim srcText 0
+simplifyLit (HsWordPrim _ _)   = HsWordPrim srcText 0
+simplifyLit (HsInt64Prim _ _)  = HsInt64Prim srcText 0
+simplifyLit (HsWord64Prim _ _) = HsWord64Prim srcText 0
+simplifyLit (HsInteger _ _ t)  = HsInteger srcText 0 t
+simplifyLit (HsRat _ _ t)      = HsRat NoExt (FL srcText False (0 % 1)) t
+simplifyLit (HsFloatPrim _ _ ) = HsFloatPrim NoExt (FL srcText False (0 % 1))
+simplifyLit (HsDoublePrim _ _) = HsDoublePrim NoExt (FL srcText False (0 % 1))
+simplifyLit l = l
 
 
 pattern MatchP ::  [LGRHS GhcPs (LHsExpr GhcPs)]

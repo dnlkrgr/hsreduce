@@ -17,6 +17,7 @@ common dry
                      , Cabal
                      , MonadRandom
                      , QuickCheck
+                     , async
                      , aeson
                      , bytestring
                      , directory
@@ -53,7 +54,6 @@ common dry
                        GeneralizedNewtypeDeriving 
                        OverloadedStrings 
                        ScopedTypeVariables
-                       TemplateHaskell
 
 library hsreduce-internal
   import:              dry

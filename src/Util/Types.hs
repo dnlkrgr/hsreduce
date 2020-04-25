@@ -29,10 +29,11 @@ data RState
       , _parsed :: ParsedSource
       , _renamed :: Maybe RenamedSource
       , _typechecked :: Maybe TypecheckedSource
+      , _isAlive :: Bool
       }
 
 showState :: RState -> T.Text
-showState (RState prags ps _ _)  =
+showState (RState prags ps _ _ _)  =
   T.unlines
   $ map (T.pack . show) prags
   ++ [T.pack . showSDocUnsafe . ppr . unLoc $ ps]

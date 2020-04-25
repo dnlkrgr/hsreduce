@@ -82,7 +82,7 @@ parse includeDirs srcDirs fileName = do
 
   prags <- getPragmas fileName
 
-  return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t)
+  return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]

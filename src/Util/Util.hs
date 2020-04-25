@@ -1,4 +1,4 @@
-module Util.Util where
+module Util.Util (try, fastTry, banner, getGhcOutput, showGhc, isQual, trace', debugPrint, reduceListOfSubelements, tryNewValue, oshow, lshow, changeDecls, changeExports, changeImports, testAndUpdateState, testAndUpdateStateFlex, runTest) where
 
 import qualified Data.Text.Encoding as TE
 import "ghc" GHC hiding (GhcMode, ghcMode)
@@ -25,6 +25,8 @@ import Util.Types as UT
 import Parser.Parser
 import Data.Generics.Uniplate.Data
 
+fastTry :: Data a => (a -> Maybe a) -> Located a -> R (Located a)
+fastTry f e = maybe (return e) (tryNewValue e) . f . unLoc $ e
 
 try :: Data a => (a -> a) -> Located a -> R (Located a)
 try g (L l v) = tryNewValue (L l v) (g v)
@@ -62,17 +64,21 @@ testAndUpdateState :: RState -> R ()
 testAndUpdateState = testAndUpdateStateFlex () ()
 
 testAndUpdateStateFlex :: a -> a -> RState -> R a
-testAndUpdateStateFlex a b s = do
+testAndUpdateStateFlex a b newState = do
   sourceFile <- asks _sourceFile
-  liftIO $ TIO.writeFile (fromAbsFile sourceFile) . showState $ s
+  liftIO $ TIO.writeFile (fromAbsFile sourceFile) . showState $ newState
   runTest defaultDuration
     >>= \case
       Uninteresting -> return a
       Interesting -> do
         -- TODO: add information to change operation for better debugging messages
         liftIO $ putChar '.'
-        put s
+
+        oldState <- get
+        put $ newState { _isAlive = showState newState /= showState oldState }
+
         return b
+
 
 -- TODO: before running test: check if parseable, renaming and typchecking succeed
 -- | run the interestingness test on a timeout of 30 seconds

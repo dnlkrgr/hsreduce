@@ -36,6 +36,7 @@ instance Show Dumb where
   show Dumb = "Dumb"
 
 
+-- functions with undefined RHS / guards
 brst :: a -> a
 brst = undefined
 
@@ -48,15 +49,43 @@ drst
   | 2 < 3 = 4
   | otherwise = undefined
 
-
+-- reduction of single case-of expressions
 erst a b c d = case a of
   Nothing ->
     if b
       then c
       else d
 
-
+-- function inlining
 frst = grst Nothing
 
 grst Nothing = 2 * n + 3 / 5
   where n = 5
+
+hrst = irst 5 7
+
+-- this is dumb; if the user does this, it's their fault
+-- we take the first match
+irst x y = 2 * x + 3 / y
+irst x y = 5 * x + 3 / y
+
+jrst = krst 3
+
+krst n
+  | n > 0 = "great"
+  | True  = "not great"
+
+lrst = mrst 3
+
+mrst = (*2)
+
+nrst = orst (Just 5) 2
+
+orst Nothing  n = 2 * n + 3
+orst (Just x) n = 2 * n + x
+
+prst
+  | False = (*2)
+  | True  = (*5)
+
+qrst = prst 3

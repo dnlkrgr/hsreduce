@@ -124,7 +124,7 @@ renameModule :: [Path Abs Dir]
 renameModule includeDirs srcDirs fileName = do
   banner $ "Renaming: " ++ fromAbsFile fileName
 
-  RState prags ast (Just r) _  <- parse includeDirs srcDirs fileName
+  RState prags ast (Just r) _ _  <- parse includeDirs srcDirs fileName
 
   banner "Finished parsing"
 

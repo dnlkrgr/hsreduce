@@ -10,9 +10,7 @@ import System.Directory
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import qualified Data.ByteString as BS
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import "temporary" System.IO.Temp (withTempDirectory)
 import Data.Time
@@ -28,14 +26,17 @@ import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 
 root = "/home/daniel/workspace/hsreduce/test-cases/trying-out/"
+--root = "/home/daniel/workspace/hsreduce/test-cases/ticket14779/"
 arst = do
   source <- parseAbsFile $ root ++ "Trying-out.hs"
+  --source <- parseAbsFile $ root ++ "Ticket14779.hs"
   test <- parseAbsFile $ root ++ "interesting.sh"
   hsreduce test source
 
 hsreduce :: Path Abs File -> Path Abs File -> IO ()
 hsreduce test filePath = do
   putStrLn "*******************************************************"
+
   startTime   <- utctDayTime <$> getCurrentTime
   fileContent <- TIO.readFile $ fromAbsFile filePath
   beginState  <- parse [] [] filePath
@@ -43,6 +44,7 @@ hsreduce test filePath = do
       sourceDir = parent filePath
   files <- listDirectory (fromAbsDir sourceDir)
   currentDir <- getCurrentDirectory
+
   newState <-
     withTempDirectory
       currentDir
@@ -51,25 +53,32 @@ hsreduce test filePath = do
          tempDir <- parseAbsDir t
          let tempTest     = tempDir </> filename test
              tempFilePath = tempDir </> filename filePath
+
          forM_ files $ \f -> do
            iterFile <- parseRelFile f
            let oldPath = fromAbsFile $ sourceDir </> iterFile
            status <- getFileStatus oldPath
+
            if isDirectory status
               then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
               else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+
          snd <$> runR (RConf tempTest tempFilePath)
                                 beginState
                                 allActions
       )
+
   let fileName = takeWhile (/= '.') . fromAbsFile $ filePath
       newSize = T.length . T.pack $ showGhc . _parsed $ newState
       ratio =
         round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
+
   debugPrint $ "Old size: " ++ show oldSize
   debugPrint $ "Reduced file size: " ++ show newSize
   putStrLn   $ "Reduced file by " ++ show ratio ++ "%"
+
   TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
+
   endTime <- utctDayTime <$> getCurrentTime
   print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
@@ -96,20 +105,12 @@ allPassesOnce = do
 -- smaller than the old one
 largestFixpoint :: R () -> R ()
 largestFixpoint f =
-  iterateFrom
+  go
   where
-    iterateFrom = do
+    go = do
       liftIO $ putStrLn "\n***NEW ITERATION***"
-      oldLength <- BS.length . TE.encodeUtf8 . T.pack . showGhc . _parsed <$> get
+
       f
-      newLength <- BS.length . TE.encodeUtf8 . T.pack . showGhc . _parsed <$> get
-      liftIO $ debugPrint $ "old length: " ++ show oldLength
-      liftIO $ debugPrint $ "new length: " ++ show newLength
-      liftIO $ debugPrint $ "new state is this many chars shorter than the old one: " ++ show (oldLength - newLength)
-      if newLength < oldLength
-        then do
-          liftIO $ debugPrint "taking new state"
-          iterateFrom
-        else do
-          liftIO $ debugPrint "taking old state"
-          return ()
+      isAlive <- gets _isAlive
+
+      when isAlive go
