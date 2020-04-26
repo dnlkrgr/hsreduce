@@ -25,11 +25,11 @@ import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 
-root = "/home/daniel/workspace/hsreduce/test-cases/trying-out/"
---root = "/home/daniel/workspace/hsreduce/test-cases/ticket14779/"
+-- root = "/home/daniel/workspace/hsreduce/test-cases/trying-out/"
+root = "/home/daniel/workspace/hsreduce/test-cases/ticket14779/"
 arst = do
-  source <- parseAbsFile $ root ++ "Trying-out.hs"
-  --source <- parseAbsFile $ root ++ "Ticket14779.hs"
+  -- source <- parseAbsFile $ root ++ "Trying-out.hs"
+  source <- parseAbsFile $ root ++ "Ticket14779.hs"
   test <- parseAbsFile $ root ++ "interesting.sh"
   hsreduce test source
 

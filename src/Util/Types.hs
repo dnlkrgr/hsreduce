@@ -19,17 +19,17 @@ newtype R a
 
 data RConf
   = RConf
-      { _test :: Path Abs File,
+      { _test       :: Path Abs File,
         _sourceFile :: Path Abs File
       }
 
 data RState
   = RState
-      { _pragmas   :: [Pragma]
-      , _parsed :: ParsedSource
-      , _renamed :: Maybe RenamedSource
+      { _pragmas     :: ![Pragma]
+      , _parsed      :: !ParsedSource
+      , _renamed     :: Maybe RenamedSource
       , _typechecked :: Maybe TypecheckedSource
-      , _isAlive :: Bool
+      , _isAlive     :: !Bool
       }
 
 showState :: RState -> T.Text
@@ -41,11 +41,11 @@ showState (RState prags ps _ _ _)  =
 
 data Span
   = Span
-      { file :: !T.Text
+      { file      :: !T.Text
       , startLine :: !Int
-      , startCol :: !Int
-      , endLine :: !Int
-      , endCol :: !Int
+      , startCol  :: !Int
+      , endLine   :: !Int
+      , endCol    :: !Int
       }
   deriving (Eq, Generic, Show)
 instance FromJSON Span
@@ -53,8 +53,8 @@ instance FromJSON Span
 
 data GhcOutput
   = GhcOutput
-      { span :: !(Maybe Span),
-        doc :: !T.Text,
+      { span   :: !(Maybe Span),
+        doc    :: !T.Text,
         reason :: !(Maybe T.Text)
       }
   deriving (Eq, Generic, Show)
@@ -70,11 +70,11 @@ data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
   deriving Eq
 
 showExtension :: Pragma -> T.Text
-showExtension (Language e)  = e
+showExtension (Language e)   = e
 showExtension (OptionsGhc _) = ""
-showExtension (Include _)   = ""
+showExtension (Include _)    = ""
 
 instance Show Pragma where
-  show (Language e)  = "{-# LANGUAGE "    ++ T.unpack e ++ " #-}"
+  show (Language e)   = "{-# LANGUAGE "    ++ T.unpack e ++ " #-}"
   show (OptionsGhc o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
-  show (Include i)   = "{-# INCLUDE "     ++ T.unpack i ++ " #-}"
+  show (Include i)    = "{-# INCLUDE "     ++ T.unpack i ++ " #-}"

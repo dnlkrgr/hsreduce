@@ -27,9 +27,9 @@ reduce = do
 stubbings :: RState -> R ParsedSource
 stubbings =
   (
-     --     traceShow ("filterRecordFields" :: String )     . transformBiM filterRecordFields
-     traceShow ("simplifyExpr" :: String)            . transformBiM (fastTry simplifyExpr)
+         traceShow ("recordCon" :: String)               . transformBiM recordCon
      >=> traceShow ("exprWithList" :: String)            . transformBiM exprWithList
+     >=> traceShow ("simplifyExpr" :: String)            . transformBiM (fastTry simplifyExpr)
      >=> traceShow ("expr2Undefined" :: String)          . transformBiM (fastTry expr2Undefined)
      >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (fastTry deleteGADTforall)
      >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (fastTry deleteGADTctxt)
@@ -37,7 +37,7 @@ stubbings =
      >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
      >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
      >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (fastTry simplifyLGRHS)
-     >=> traceShow ("localBinds" :: String)        . transformBiM localBinds
+     >=> traceShow ("localBinds" :: String)              . transformBiM localBinds
      >=> traceShow ("simplifyType" :: String)            . transformBiM (fastTry simplifyType)
      >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (fastTry deleteWhereClause)
      -- >=> traceShow ("inlineFunctions" :: String)         . transformBiM inlineFunctions
@@ -46,16 +46,20 @@ stubbings =
   . _parsed
 
 
--- arst :: HsRecFields GhcPs a -> R (HsRecFields GhcPs a)
--- arst =
---   reduceListOfSubelements (map getLoc . rec_flds) undefined
-
-
--- filterRecordFields :: Located [LConDeclField GhcPs] -> R (Located [LConDeclField GhcPs])
--- filterRecordFields =
---   reduceListOfSubelements (map getLoc . id) g
---   where
---     g loc decls = filter ((/= loc) . getLoc) $ traceShow ("decls " ++ showGhc decls) decls
+recordCon :: LConDecl GhcPs -> R (LConDecl GhcPs)
+recordCon =
+  reduceListOfSubelements f g
+  where
+    f = \case
+      XConDecl _ -> []
+      c -> (\case
+              RecCon (L _ flds) -> map getLoc flds
+              _ -> []) . con_args $ c
+    g loc = \case
+      XConDecl _ -> XConDecl NoExt
+      c -> c { con_args = case con_args c of
+                 RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
+                 c -> c }
 
 -- simplifyin any expression with a list in it
 exprWithList :: LHsExpr GhcPs -> R (LHsExpr GhcPs)

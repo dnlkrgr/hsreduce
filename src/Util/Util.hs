@@ -80,7 +80,7 @@ testAndUpdateStateFlex a b newState = do
               _isAlive = if _isAlive s
                          then True
                          else let e = showState newState /= showState s
-                              in if e then traceShow (show '.') e else e
+                              in if e then traceShow ("." :: String) e else e
               }
 
           return b
