@@ -25,21 +25,13 @@ import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 
--- root = "/home/daniel/workspace/hsreduce/test-cases/trying-out/"
-root = "/home/daniel/workspace/hsreduce/test-cases/ticket14779/"
-arst = do
-  -- source <- parseAbsFile $ root ++ "Trying-out.hs"
-  source <- parseAbsFile $ root ++ "Ticket14779.hs"
-  test <- parseAbsFile $ root ++ "interesting.sh"
-  hsreduce test source
-
 hsreduce :: Path Abs File -> Path Abs File -> IO ()
 hsreduce test filePath = do
   putStrLn "*******************************************************"
 
   startTime   <- utctDayTime <$> getCurrentTime
   fileContent <- TIO.readFile $ fromAbsFile filePath
-  beginState  <- parse [] [] filePath
+  beginState  <- parse True [] [] filePath
   let oldSize = T.length fileContent
       sourceDir = parent filePath
   files <- listDirectory (fromAbsDir sourceDir)
@@ -69,7 +61,7 @@ hsreduce test filePath = do
       )
 
   let fileName = takeWhile (/= '.') . fromAbsFile $ filePath
-      newSize = T.length . T.pack $ showGhc . _parsed $ newState
+      newSize = T.length . showState $ newState
       ratio =
         round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
 
@@ -84,21 +76,26 @@ hsreduce test filePath = do
 
 allActions :: R ()
 allActions = do
-  runTest (120 * 1000 * 1000) >>=
-    \case
+  runTest (120 * 1000 * 1000) >>= \case
       Uninteresting -> error "*** test is uninteresting at the start! ***"
       Interesting -> do
         liftIO $ putStrLn ":-) Test is interesting at the start"
-        largestFixpoint allPassesOnce
+        largestFixpoint fast
+        liftIO $ putStrLn "*** Increasing granularity ***"
+        largestFixpoint slow
 
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
-allPassesOnce :: R ()
-allPassesOnce = do
+fast :: R ()
+fast = do
   Imports.reduce
   Pragmas.reduce
   Exports.reduce
   Decls.reduce
+
+slow :: R ()
+slow = do
+  fast
   Stubbing.reduce
 
 -- | calculate the fixpoint, by always checking if the new module is

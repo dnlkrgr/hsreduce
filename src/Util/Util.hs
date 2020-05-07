@@ -1,4 +1,4 @@
-module Util.Util (try, fastTry, banner, getGhcOutput, showGhc, isQual, trace', debugPrint, reduceListOfSubelements, tryNewValue, oshow, lshow, changeDecls, changeExports, changeImports, testAndUpdateState, testAndUpdateStateFlex, runTest) where
+module Util.Util where
 
 import qualified Control.Exception as CE
 import qualified Data.Text.Encoding as TE
@@ -26,6 +26,10 @@ import Util.Types as UT
 import Parser.Parser
 import Data.Generics.Uniplate.Data
 
+
+fastTryR :: Data a => (Located a -> Maybe (R (Located a))) -> Located a -> R (Located a)
+fastTryR f e = fromMaybe (return e) . f $ e
+
 fastTry :: Data a => (a -> Maybe a) -> Located a -> R (Located a)
 fastTry f e = maybe (return e) (tryNewValue e) . f . unLoc $ e
 
@@ -46,7 +50,7 @@ reduceListOfSubelements getCmpElements f la =
 tryNewValue :: Data a => Located a -> a -> R (Located a)
 tryNewValue oldValue@(L loc _) newValue = do
   oldState <- get
-  let newSource = transformBi (overwriteAtLoc loc newValue) (_parsed oldState)
+  let newSource = descendBi (overwriteAtLoc loc newValue) (_parsed oldState)
   testAndUpdateStateFlex oldValue (L loc newValue) (oldState { _parsed = newSource })
 
 overwriteAtLoc ::
@@ -78,9 +82,9 @@ testAndUpdateStateFlex a b newState = do
           modify $
             \s -> newState {
               _isAlive = if _isAlive s
-                         then True
+                         then traceShow ("+" :: String) $ True
                          else let e = showState newState /= showState s
-                              in if e then traceShow ("." :: String) e else e
+                              in if e then traceShow ("+" :: String) e else e
               }
 
           return b
@@ -94,9 +98,7 @@ runTest duration = do
   let dirName = parent test
   let testName = filename test
   -- TODO: make timout duration configurable
-  liftIO $
-    timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) "")
-      >>= \case
+  liftIO $ timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) "") >>= \case
         Nothing -> do
           errorPrint "runTest: timed out"
           return Uninteresting
@@ -104,13 +106,6 @@ runTest duration = do
           case exitCode of
             ExitFailure _ -> return Uninteresting
             ExitSuccess -> return Interesting
-
-changeDecls :: ([LHsDecl GhcPs] -> [LHsDecl GhcPs]) -> RState -> RState
-changeDecls f oldState =
-  let L moduleLoc oldModule = _parsed oldState
-      allDecls = hsmodDecls oldModule
-      newDecls = f allDecls
-   in oldState {_parsed = L moduleLoc oldModule {hsmodDecls = newDecls}}
 
 changeExports :: ([LIE GhcPs] -> [LIE GhcPs]) -> RState -> RState
 changeExports f oldState =
@@ -215,6 +210,8 @@ defaultDuration = 30 * 1000 * 1000
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
+
+infixr 8 <&&>
 
 
 showGhc :: (Outputable a) => a -> String

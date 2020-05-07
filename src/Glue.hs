@@ -19,9 +19,13 @@ glue = do
       filePath <- parseAbsFile f
       if fileExtension test == ".sh" && fileExtension filePath == ".hs" then
         case isProject of
-          "--cabal"    -> do
+          "--cabal-exe"    -> do
             fileName <- parseRelFile "AllInOne.hs"
-            hsAllInOne filePath
+            hsAllInOne True filePath
+            hsreduce test (parent filePath </> fileName)
+          "--cabal-lib"    -> do
+            fileName <- parseRelFile "AllInOne.hs"
+            hsAllInOne False filePath
             hsreduce test (parent filePath </> fileName)
           "--no-cabal" -> hsreduce test filePath
           _ -> printUsage

@@ -50,8 +50,8 @@ mod2DepNames includeDirs srcDirs fileName = do
     $ mg
 
 -- TODO: collect and return all pragmas
-parse :: [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
-parse includeDirs srcDirs fileName = do
+parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
+parse justParse includeDirs srcDirs fileName = do
   banner $ "Parsing: " ++ (fromAbsFile fileName)
 
   modName <-
@@ -63,7 +63,7 @@ parse includeDirs srcDirs fileName = do
 
   print modName
 
-  (p,t) <- runGhc (Just libdir) $ do
+  (p, et) <- runGhc (Just libdir) $ do
     dflags          <- getSessionDynFlags
     (dflags', _, _) <- parseDynamicFlags dflags []
     let includeDirStrings = map fromAbsDir includeDirs
@@ -77,12 +77,15 @@ parse includeDirs srcDirs fileName = do
 
     p <- parseModule modSum
     -- TODO: catch and handle exceptions that could be thrown by typechecking
-    t <- typecheckModule p
+    t <- if justParse then return $ Left () else Right <$> typecheckModule p
     return (p, t)
 
   prags <- getPragmas fileName
 
-  return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
+  case et of
+    Left _ -> return $ RState prags (parsedSource p) Nothing Nothing False
+    Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
+
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]

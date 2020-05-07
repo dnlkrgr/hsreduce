@@ -1,9 +1,27 @@
 {-# language LambdaCase #-}
 {-# language OverloadedStrings #-}
 {-# language Rank2Types, RankNTypes #-}
-module TryingOut where 
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
 
+-- shifting things into turbo
+{-# LANGUAGE TypeFamilies          #-}
+{-# language PolyKinds #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE GADTs  #-}
+{-# LANGUAGE TypeApplications  #-}
+module Main where 
+
+import Data.Kind
+import qualified Data.ByteString.Char8 as BS
+import           Data.ByteString (ByteString)
+import           Data.Monoid ((<>))
+import qualified Data.Text as T
+import           Data.Text (Text)
 import Data.Data (gmapT)
+
+data Empty
 
 data T = T {-# UNPACK #-} !Float
 
@@ -15,6 +33,14 @@ data DumbRec = DumbRec {
   a :: Int
   , b :: String
   }
+
+data Expr a where
+    I   :: Int  -> Expr Int
+    B   :: Bool -> Expr Bool
+    Add :: Expr Int -> Expr Int -> Expr Int
+    Mul :: Expr Int -> Expr Int -> Expr Int
+    Eq  :: Eq a => Expr a -> Expr a -> Expr Bool
+
 
 main :: IO ()
 main = do
@@ -95,3 +121,99 @@ prst
   | True  = (*5)
 
 qrst = prst 3
+
+-- data families
+
+data family A -- == data family A :: Type
+data instance A = Arst
+
+data family B e
+data instance B e = Brst | Crst
+
+data family C d e
+data instance C Int Char = Drst | Erst
+data instance C Char String = Frst | Grst
+
+data family D :: Type -> Type
+-- == data family D a :: Type
+data instance D Char = Hrst
+
+data family MyMaybe a
+data instance MyMaybe a = MyNothing | MyJust a
+
+f :: Int -> MyMaybe String
+f 0 = MyNothing
+f _ = MyJust "great!"
+
+data family E (m :: Type) :: Type
+data instance E Int = Irst
+
+data family F (m :: Type -> Type) :: Type
+-- == data family F :: (Type -> Type) -> Type
+data instance F Maybe = Jrst
+
+-- newtype is also allowed:
+data family G (e :: k)
+newtype instance G e = N Int 
+
+data family DExpr a
+data instance DExpr a where
+  DI :: Int -> DExpr Int
+  DB :: Bool -> DExpr Bool
+
+-- open type family
+type family TA
+type instance TA = Int
+
+type family TB a
+type instance TB Int = Char
+-- type instance TB a = String
+
+-- closed type family
+type family TD a b where
+  TD Int Bool = String
+  TD Char (Maybe String) = String
+
+-- associated type family
+class CA a where
+  type TC a :: Type
+
+instance CA Int where
+  type TC Int = String
+
+class CB a b where
+  type TCD a (b :: k)
+
+instance CB Int Maybe where
+  type TCD Int Maybe = Char
+
+-- misc type families
+
+type family F1 a where
+  F1 Int = Bool
+
+sillyId :: F1 Char -> F1 Char
+sillyId x = x
+
+data SillyGadt a where
+  MkSillyGadt1 :: Int   -> SillyGadt (F1 Char)
+  MkSillyGadt2 :: Float -> SillyGadt (F1 Double)
+
+instance Show (SillyGadt a) where
+  show (MkSillyGadt1 i) = "MkSillyGadt1 " ++ show i
+  show (MkSillyGadt2 f) = "MkSillyGadt2 " ++ show f
+
+-- type applications
+isEven = (== 0) . (`mod` 2)
+
+arst = map @Int @Bool isEven
+
+answer_read = show (read @Int "3") -- "3" :: String
+answer_show = show @Integer (read "5") -- "5" :: String
+answer_showread = show @Int (read @Int "7") -- "7" :: String
+
+-- weird stuff
+data FunArrow = (:->) | (:~>)
+
+(<&&>) = (&&)
+infixr 8 <&&>

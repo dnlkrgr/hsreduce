@@ -41,6 +41,7 @@ common dry
                      , unix
                      , monad-par
                      , regex
+                     , word8
   hs-source-dirs:      src
                      , test
   ghc-options:         -Wall
@@ -54,6 +55,7 @@ common dry
                        GeneralizedNewtypeDeriving 
                        OverloadedStrings 
                        ScopedTypeVariables
+                       StrictData
 
 library hsreduce-internal
   import:              dry

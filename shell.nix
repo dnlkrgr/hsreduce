@@ -17,6 +17,7 @@ let
       version = "0.1.0.0";
       src = ./.;
       buildDepends = [
+        word8
         MonadRandom
         QuickCheck
         aeson

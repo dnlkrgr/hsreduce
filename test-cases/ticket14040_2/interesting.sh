@@ -12,5 +12,3 @@ nix-shell $GHC_VERSION.nix --run "${COMMAND}" 2> $ERROR
 grep "error:ghc: panic! (the 'impossible' happened)" error.txt &&
 grep "No skolem info:" error.txt &&
 grep "pprPanic, called at compiler/typecheck/TcErrors.hs" error.txt
-
-#rm $ERROR $GHC_VERSION.nix

@@ -1,4 +1,4 @@
-module Merge.HsAllInOne (hsAllInOne) where
+module Merge.HsAllInOne (hsAllInOne, fastCleanUp) where
 
 import Data.Maybe
 import System.Directory
@@ -25,11 +25,12 @@ import Text.RE.TDFA.Text
 import Util.Types
 import Parser.Parser
 import Data.Generics.Uniplate.Data
+import qualified Data.Word8 as W8
 
 
 -- get data from cabal file
-hsAllInOne :: Path Abs File -> IO ()
-hsAllInOne filePath = do
+hsAllInOne :: Bool -> Path Abs File -> IO ()
+hsAllInOne isExecutable filePath = do
   banner "Running hsAllInOne"
 
   let rootPath = parent filePath
@@ -37,10 +38,15 @@ hsAllInOne filePath = do
   sections    <- fromRight [] . DPP.readFields <$> BS.readFile (fromAbsFile filePath)
   let includeDirs = fromMaybe [] $ getDirs ["include-dirs"] rootPath sections
       srcDirs     = fromMaybe [] $ getDirs ["hs-source-dirs"] rootPath sections
-  mainFile    <- cabal2Main srcDirs sections
-  files       <- mod2DepNames includeDirs srcDirs mainFile
 
+  files <- if isExecutable
+    then do
+      mainFile    <- cabal2Main srcDirs sections
+      mod2DepNames includeDirs srcDirs mainFile
+    else do
+      getFiles srcDirs sections
 
+  -- TODO: concatenate all modules in exposed-modules and other-modules to the dirs in hs-source-dirs
 
 
   fileContent <-
@@ -65,6 +71,7 @@ hsAllInOne filePath = do
 
   mkNewCabal filePath
 
+fastCleanUp sourcePath = TIO.readFile (fromAbsFile sourcePath) >>= cleanUp sourcePath
 
 cleanUp :: Path Abs File -> T.Text -> IO ()
 cleanUp sourcePath fileContent =
@@ -124,7 +131,7 @@ renameModule :: [Path Abs Dir]
 renameModule includeDirs srcDirs fileName = do
   banner $ "Renaming: " ++ fromAbsFile fileName
 
-  RState prags ast (Just r) _ _  <- parse includeDirs srcDirs fileName
+  RState prags ast (Just r) _ _  <- parse False includeDirs srcDirs fileName
 
   banner "Finished parsing"
 
@@ -183,6 +190,10 @@ name2UniqueName n
     ns = occNameSpace on
     blacklist = ["$main$", "$ghc-prim$", "$base$"]
 
+-- ***************************************************************************
+-- MERGING MODULES UTILITIES
+-- ***************************************************************************
+
 mkIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 mkIndent (_, (startLoc, _)) fileContent =
   T.unlines $ prevLines ++ [newLineContent] ++ succLines
@@ -193,8 +204,7 @@ mkIndent (_, (startLoc, _)) fileContent =
         prevLines      = take currentIndex contentLines
         succLines      = drop lineStart contentLines
         lineContent    = contentLines !! currentIndex
-        newLineContent = "  " `T.append` lineContent
-
+        newLineContent = "  " <> lineContent
 
 replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
@@ -213,8 +223,8 @@ replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
         isInfix        = (==2) . T.length . T.filter (=='`') . T.drop (colStart-1) . T.take (colEnd-1) $ lineContent
         newLineContent =
           if isInfix
-          then prefix `T.append` "`" `T.append`  newName `T.append` "`" `T.append` suffix
-          else prefix `T.append` newName `T.append` suffix
+          then prefix <> "`" <> newName <> "`" <> suffix
+          else prefix <> newName <> suffix
 
 span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
@@ -312,6 +322,10 @@ randomOpString = do
     operatorSymbols = "!#$%&*+<>?@^~"
 
 
+-- ***************************************************************************
+-- CABAL FILE UTILITIES
+-- ***************************************************************************
+
 fieldLineBS :: DPF.FieldLine a -> B8.ByteString
 fieldLineBS (DPF.FieldLine _ bs) = bs
 
@@ -324,6 +338,15 @@ cabal2Main srcDirs =
   . traverse (file2Paths modName2FileName ["main-is"])
   . keepFields ["executable", "library"]
 
+-- getFiles :: [Path Abs Dir] -> [DPF.Field a] -> IO (Path Abs File)
+getFiles srcDirs =
+    filterM (doesFileExist . fromAbsFile)
+  . fromJust
+  . fmap (concatMap (\n -> map (\d -> d </> n) srcDirs) . concat)
+  . traverse (file2Paths modName2FileName ["exposed-modules", "other-modules"])
+  . keepFields ["library"]
+
+
 file2Paths :: (FilePath -> Maybe (Path Rel a))
                 -> [BS.ByteString]
                 -> DPF.Field b
@@ -331,7 +354,7 @@ file2Paths :: (FilePath -> Maybe (Path Rel a))
 file2Paths g names (DPF.Section _ _ f) =
   concat <$> traverse (file2Paths g names) f
 file2Paths g names (DPF.Field n f)
-  | DPF.getName n `elem` names
+  | BS.map W8.toLower (DPF.getName n) `elem` names
   = sequence . filter isJust . map g $ map (B8.unpack . fieldLineBS) f
   | otherwise = return []
 
@@ -361,4 +384,4 @@ mkNewCabal f =
 
 keepFields :: [String] -> [DPF.Field a] -> [DPF.Field a]
 keepFields names =
-  filter ((`elem` map B8.pack names) . DPF.getName . DPF.fieldName)
+  filter ((`elem` map B8.pack names) . BS.map W8.toLower . DPF.getName . DPF.fieldName)

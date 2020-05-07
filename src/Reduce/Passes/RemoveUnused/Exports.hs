@@ -1,5 +1,6 @@
 module Reduce.Passes.RemoveUnused.Exports (reduce) where
 
+import Debug.Trace
 import Data.Foldable
 import Control.Monad.State.Strict
 import Data.Maybe
@@ -14,7 +15,7 @@ reduce :: R ()
 reduce = do
   oldState <- get
   liftIO $ putStrLn "\n***Removing Exports***"
-  liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . showGhc . _parsed $ oldState)
+  liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . showState $ oldState)
 
   let L l oldModule = _parsed oldState
       maybeModName  = hsmodName oldModule
@@ -44,9 +45,9 @@ removeUnusedExport (L _ export) =
   >>= testAndUpdateState
 
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)
-decl2Export (ValD _ (FunBind _ fId _ _ _))                     = Just . L noSrcSpan . IEVar NoExt      . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
-decl2Export (TyClD _ (DataDecl _ dId _ _ _))                   = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ dId
-decl2Export (TyClD _ (ClassDecl _ _ cId _ _ _ _ _ _ _ _))      = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ cId
-decl2Export (TyClD _ (SynDecl _ sId _ _ _))                    = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ sId
-decl2Export (TyClD _ (FamDecl _ (FamilyDecl _ _ fId _ _ _ _))) = Just . L noSrcSpan . IEThingAll NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
+decl2Export (ValD _ (FunBind _ fId _ _ _))                     =
+  Just . L noSrcSpan . IEVar NoExt      . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
+decl2Export (TyClD _ t)
+  | isSynDecl t = Just . noLoc $ IEThingWith NoExt (noLoc . IEType . noLoc . tcdName $ t) NoIEWildcard [] []
+  | otherwise   = Just . noLoc . IEThingAll NoExt . noLoc . IEName . noLoc . tcdName $ t
 decl2Export _ = Nothing

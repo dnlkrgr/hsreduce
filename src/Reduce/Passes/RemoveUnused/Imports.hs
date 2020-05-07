@@ -1,3 +1,4 @@
+
 module Reduce.Passes.RemoveUnused.Imports (reduce) where
 
 import Data.Foldable
@@ -14,7 +15,7 @@ reduce = do
   oldState <- get
   sourceFile <- asks _sourceFile
   liftIO $ putStrLn "\n***Removing Imports***"
-  -- debugPrint $ "Size of old state: " ++ (show . T.length $ showGhc oldState)
+  debugPrint $ "Size of old state: " ++ (show . T.length . showState $ oldState)
   let oldImports = hsmodImports . unLoc . _parsed $ oldState
   liftIO (getGhcOutput sourceFile Imports)
     >>= \case

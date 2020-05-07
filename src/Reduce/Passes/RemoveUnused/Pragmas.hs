@@ -11,7 +11,7 @@ reduce :: R ()
 reduce = do
     liftIO $ putStrLn "\n***Performing RemovePragmas***"
     oldState <- get
-    liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . T.pack . showGhc $ _parsed oldState)
+    liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . showState $ oldState)
     traverse_ tryToRemovePragma (_pragmas oldState)
 
 tryToRemovePragma :: Pragma -> R ()
