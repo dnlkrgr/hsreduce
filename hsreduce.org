@@ -25,6 +25,8 @@
 ** DONE Prelude aus imports raus
    CLOSED: [2020-04-15 Wed 11:40]
 * Refactoring
+** Stubbing
+*** RecordCon wieder hinzufügen
 ** error handling für das Parsing
 ** error handling in GHC Monad
 * Interessante Tickets

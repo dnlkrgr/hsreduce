@@ -1,16 +1,24 @@
 { nixpkgs ? import <nixpkgs> {} }:
 
+# let
+#   pkgs = import (builtins.fetchGit {
+#     name ="nixos-20.03-small";
+#     url  = https://github.com/nixos/nixpkgs-channels/;
+#     ref  = "nixos-20.03-small";
+#     rev  = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
+#   }) {};
+
 let
   pkgs = import (builtins.fetchGit {
-    name ="nixos-20.03-small";
-    url  = https://github.com/nixos/nixpkgs-channels/;
-    ref  = "nixos-20.03-small";
-    rev  = "afeaca75cf7bd6510699821202c25cbaf778b1ef";
+    name = "nixos-unstable";
+    url = "https://github.com/nixos/nixpkgs-channels/";
+    ref = "refs/heads/nixos-unstable";
+    rev = "fce7562cf46727fdaf801b232116bc9ce0512049";
   }) {};
 
-  haskellPackages = pkgs.haskell.packages.ghc865;
+  haskellPackages = pkgs.haskell.packages.ghc8101;
 
-  drv = 
+  drv =
     with haskellPackages;
     mkDerivation {
       pname = "hsreduce";
@@ -22,28 +30,24 @@ let
         QuickCheck
         aeson
         async
-        base 
+        base
         bytestring
         Cabal
-        cabal-install
-        containers 
-        directory 
-        extra 
+        # cabal-install
+        containers
+        directory
+        extra
         path
-        ghc 
         ghc-boot-th
-        ghc-paths 
+        ghc-paths
         pkgs.ghcid
         hashable
-        haskell-names
-        haskell-src-exts
         megaparsec
         mtl
         random
         syb
-        syb 
         temporary
-        text 
+        text
         time
         transformers
         uniplate
@@ -57,5 +61,5 @@ let
       description = "Minimizing Haskell programs for easier debugging of GHC crashes";
       license     = stdenv.lib.licenses.bsd3;
     };
-in 
+in
   drv.env

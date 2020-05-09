@@ -8,28 +8,29 @@ import Reduce.HsReduce
 
 glue :: IO ()
 glue = do
-  hSetBuffering stdout NoBuffering
-  putStrLn "this might take 1 - 2 hours"
-  myArgs <- getArgs
-  if length myArgs /= 3
-    then printUsage
-    else do
-      let [isProject, t, f] = myArgs
-      test <- parseAbsFile t
-      filePath <- parseAbsFile f
-      if fileExtension test == ".sh" && fileExtension filePath == ".hs" then
-        case isProject of
-          "--cabal-exe"    -> do
-            fileName <- parseRelFile "AllInOne.hs"
-            hsAllInOne True filePath
-            hsreduce test (parent filePath </> fileName)
-          "--cabal-lib"    -> do
-            fileName <- parseRelFile "AllInOne.hs"
-            hsAllInOne False filePath
-            hsreduce test (parent filePath </> fileName)
-          "--no-cabal" -> hsreduce test filePath
-          _ -> printUsage
-      else printUsage
+  return ()
+--   hSetBuffering stdout NoBuffering
+--   putStrLn "this might take 1 - 2 hours"
+--   myArgs <- getArgs
+--   if length myArgs /= 3
+--     then printUsage
+--     else do
+--       let [isProject, t, f] = myArgs
+--       test <- parseAbsFile t
+--       filePath <- parseAbsFile f
+--       if fileExtension test == ".sh" && fileExtension filePath == ".hs" then
+--         case isProject of
+--           "--cabal-exe"    -> do
+--             fileName <- parseRelFile "AllInOne.hs"
+--             hsAllInOne True filePath
+--             hsreduce test (parent filePath </> fileName)
+--           "--cabal-lib"    -> do
+--             fileName <- parseRelFile "AllInOne.hs"
+--             hsAllInOne False filePath
+--             hsreduce test (parent filePath </> fileName)
+--           "--no-cabal" -> hsreduce test filePath
+--           _ -> printUsage
+--       else printUsage
 
 printUsage :: IO ()
 printUsage =

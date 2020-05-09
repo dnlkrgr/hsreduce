@@ -2,16 +2,16 @@ module Util.Util where
 
 import qualified Control.Exception as CE
 import qualified Data.Text.Encoding as TE
-import "ghc" GHC hiding (GhcMode, ghcMode)
-import "ghc" DynFlags hiding (GhcMode, ghcMode)
 import Path
 import Control.Applicative
 import Text.RE.TDFA.Text
 import qualified Data.Text.IO as TIO
 import qualified Data.Text as T
-import "ghc" SrcLoc as SL
-import "ghc" Outputable
-import "ghc" FastString
+import SrcLoc as SL
+import Outputable
+import FastString
+import GHC hiding (GhcMode, ghcMode)
+import DynFlags hiding (GhcMode, ghcMode)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson (decode)

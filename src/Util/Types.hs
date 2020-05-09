@@ -7,8 +7,8 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson
 import GHC.Generics (Generic)
-import "ghc" GHC
-import "ghc" Outputable
+import GHC
+import Outputable
 
 runR :: RConf -> RState -> R a -> IO (a, RState)
 runR c st (R a) = runStateT (runReaderT a c) st

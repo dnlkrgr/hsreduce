@@ -1,6 +1,5 @@
 module Reduce.HsReduce
-  ( hsreduce,
-    arst
+  ( hsreduce
   )
 where
 

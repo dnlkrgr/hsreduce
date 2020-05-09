@@ -4,9 +4,9 @@ import Data.Maybe
 import System.Directory
 import Data.Either
 import Debug.Trace
-import "ghc" SrcLoc
-import "ghc" Name
-import "ghc" RdrName hiding (isQual, mkUnqual, mkQual)
+import SrcLoc
+import Name
+import RdrName hiding (isQual, mkUnqual, mkQual)
 import Control.Monad.Extra
 import Control.Monad.Random
 import Data.Char
@@ -18,8 +18,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Distribution.Parsec.Parser as DPP (readFields)
-import qualified Distribution.Parsec.Field as DPF
+import qualified Distribution.Fields.Parser as DPP (readFields)
+import qualified Distribution.Fields.Field as DPF
 import Util.Util
 import Text.RE.TDFA.Text
 import Util.Types
@@ -39,15 +39,17 @@ hsAllInOne isExecutable filePath = do
   let includeDirs = fromMaybe [] $ getDirs ["include-dirs"] rootPath sections
       srcDirs     = fromMaybe [] $ getDirs ["hs-source-dirs"] rootPath sections
 
+
   files <- if isExecutable
     then do
       mainFile    <- cabal2Main srcDirs sections
+
+
       mod2DepNames includeDirs srcDirs mainFile
     else do
       getFiles srcDirs sections
 
   -- TODO: concatenate all modules in exposed-modules and other-modules to the dirs in hs-source-dirs
-
 
   fileContent <-
     T.unlines
@@ -69,8 +71,9 @@ hsAllInOne isExecutable filePath = do
 
       cleanUp sourcePath newFileContent
 
-  mkNewCabal filePath
+  -- mkNewCabal filePath
 
+fastCleanUp :: Path Abs File -> IO ()
 fastCleanUp sourcePath = TIO.readFile (fromAbsFile sourcePath) >>= cleanUp sourcePath
 
 cleanUp :: Path Abs File -> T.Text -> IO ()
@@ -269,7 +272,7 @@ qualField c@(FieldOcc n (L l (Unqual on)))
   | Just mn <- moduleName <$> nameModule_maybe n
   , "$main$" `isPrefixOf `nameStableString n =
       FieldOcc n (L l $ Unqual (mkOccName ns $ os ++ "_" ++ filter (/= '.') (moduleNameString mn)))
-  | otherwise = traceShow ("otherwise :-(" :: String) c
+  | otherwise = traceShow ("HsAllInOne:qualField :-(" :: String) c
   where ns = occNameSpace on
         os = occNameString on
 qualField c = c
@@ -282,7 +285,7 @@ mkUnqual =
 mkImportsQual :: [LImportDecl GhcRn] -> [LImportDecl GhcRn]
 mkImportsQual = map (\(L l i) ->
                        L l
-                       $ i { ideclQualified = True
+                       $ i { ideclQualified = QualifiedPre
                            , ideclHiding    = Nothing
                            , ideclAs        = Nothing
                            , ideclSafe      = False})
@@ -332,13 +335,13 @@ fieldLineBS (DPF.FieldLine _ bs) = bs
 cabal2Main :: [Path Abs Dir] -> [DPF.Field a] -> IO (Path Abs File)
 cabal2Main srcDirs =
   fmap head
-  . filterM (doesFileExist . trace' . fromAbsFile)
+  . filterM (doesFileExist . fromAbsFile)
   . fromJust
   . fmap (concatMap (\n -> map (\d -> d </> n) srcDirs) . concat)
   . traverse (file2Paths modName2FileName ["main-is"])
   . keepFields ["executable", "library"]
 
--- getFiles :: [Path Abs Dir] -> [DPF.Field a] -> IO (Path Abs File)
+getFiles :: [Path Abs Dir] -> [DPF.Field a] -> IO [Path Abs File]
 getFiles srcDirs =
     filterM (doesFileExist . fromAbsFile)
   . fromJust
@@ -358,6 +361,26 @@ file2Paths g names (DPF.Field n f)
   = sequence . filter isJust . map g $ map (B8.unpack . fieldLineBS) f
   | otherwise = return []
 
+getDirs :: [BS.ByteString]
+        -> Path Abs Dir
+        -> [DPF.Field a]
+        -> Maybe [Path Abs Dir]
+getDirs dirNames rootPath sections = do
+  relPaths <- concat <$> traverse (file2Paths parseRelDir dirNames) sections
+
+  relPathsFixed <-
+    sequence
+    . filter isJust
+    . concatMap (map parseRelDir
+                 . words
+                 . map (\c -> if c == ',' then ' ' else c)
+                 . fromRelDir)
+    $ relPaths
+
+
+  fmap (map (rootPath </>)) .
+    traverse (parseRelDir . filter (/= ',') . fromRelDir) $ relPathsFixed
+
 modName2FileName :: String -> Maybe (Path Rel File)
 modName2FileName f
    | f == "Main.hs" = parseRelFile f
@@ -365,15 +388,6 @@ modName2FileName f
      let fileName = take (length f - 3) f
      in parseRelFile $ map (\case '.' -> '/'; c -> c) fileName ++ ".hs"
    | otherwise = parseRelFile $ map (\case '.' -> '/'; c -> c) f ++ ".hs"
-
-getDirs :: [BS.ByteString]
-        -> Path Abs Dir
-        -> [DPF.Field a]
-        -> Maybe [Path Abs Dir]
-getDirs dirNames rootPath sections = do
-  r <- concat <$> traverse (file2Paths parseRelDir dirNames) sections
-  map (rootPath </>)
-    <$> traverse (parseRelDir . filter (/= ',') . fromRelDir) r
 
 mkNewCabal :: Path Abs File -> IO ()
 mkNewCabal f =

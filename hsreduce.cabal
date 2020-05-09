@@ -24,10 +24,9 @@ common dry
                      , extra
                      , path
                      , ghc
+                     , ghc-boot-th
                      , ghc-paths
                      , hashable
-                     , haskell-names
-                     , haskell-src-exts
                      , megaparsec
                      , mtl
                      , process

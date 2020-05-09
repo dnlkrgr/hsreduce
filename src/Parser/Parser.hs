@@ -6,13 +6,17 @@ import Data.Functor
 import Control.Applicative
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import "ghc" GHC
-import "ghc" DynFlags
+import GHC
+import DynFlags
 import GHC.Paths
 import Util.Types
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Char
 import Data.Void
+
+import Control.Monad
+import System.Directory
+import Data.Maybe
 
 type Parser = M.Parsec Void T.Text
 
@@ -23,13 +27,11 @@ mod2DepNames :: [Path Abs Dir]
 mod2DepNames includeDirs srcDirs fileName = do
 
   mg <- runGhc (Just libdir) $ do
-    dflags          <- getSessionDynFlags
-    (dflags', _, _) <- parseDynamicFlags dflags []
+    (dflags', _, _) <- getSessionDynFlags >>= flip parseDynamicFlags []
 
     let includeDirStrings = map fromAbsDir includeDirs
         srcDirStrings     = map fromAbsDir srcDirs
-    _ <-
-      setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
+    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
 
     target <- guessTarget (fromAbsFile fileName) Nothing
     setTargets [target]
@@ -37,22 +39,21 @@ mod2DepNames includeDirs srcDirs fileName = do
 
     getModuleGraph
 
-  let rootPath = parent fileName
+  -- preprocess mod names
+  let relModPaths =
+         map (fromJust . (addExtension "hs" <=< parseRelFile)
+                 . map (\c -> if c == '.' then '/' else c)
+                 . moduleNameString
+                 . ms_mod_name)
+       . mgModSummaries
+       $ mg
 
-
-  traverse (\f -> parseRelFile f
-             >>= addFileExtension "hs"
-             >>= return . (rootPath </>))
-    . map (map (\c -> if c == '.' then '/' else c)
-           . moduleNameString
-           . ms_mod_name)
-    . mgModSummaries
-    $ mg
+  filterM (doesFileExist  . fromAbsFile) . concatMap (\d -> map (d </>) relModPaths) $ srcDirs
 
 -- TODO: collect and return all pragmas
 parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
 parse justParse includeDirs srcDirs fileName = do
-  banner $ "Parsing: " ++ (fromAbsFile fileName)
+  banner ("Parsing: " <> fromAbsFile fileName)
 
   modName <-
     (\case
@@ -68,17 +69,24 @@ parse justParse includeDirs srcDirs fileName = do
     (dflags', _, _) <- parseDynamicFlags dflags []
     let includeDirStrings = map fromAbsDir includeDirs
         srcDirStrings     = map fromAbsDir srcDirs
-    _ <- setSessionDynFlags dflags' { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
+    _ <- setSessionDynFlags dflags' { verbosity = 3, includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
+    -- _ <- setSessionDynFlags dflags' { verbosity = 1, includePaths = IncludeSpecs [] includeDirStrings, importPaths = "/home/daniel/workspace/hsreduce-test-cases/protocol-buffers" : srcDirStrings }
 
     target <- guessTarget (fromAbsFile fileName) Nothing
     setTargets [target]
-    _ <- load LoadAllTargets
-    modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
 
-    p <- parseModule modSum
-    -- TODO: catch and handle exceptions that could be thrown by typechecking
-    t <- if justParse then return $ Left () else Right <$> typecheckModule p
-    return (p, t)
+    load LoadAllTargets >>= \case
+      Succeeded -> do
+
+        modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
+
+        p <- parseModule modSum
+        -- TODO: catch and handle exceptions that could be thrown by typechecking
+        t <- if justParse then return $ Left () else Right <$> typecheckModule p
+
+
+        return (p, t)
+      _ -> error "load didn't succeed"
 
   prags <- getPragmas fileName
 
@@ -131,7 +139,7 @@ getModName' = do
   return n
 
 name :: Parser T.Text
-name = do
+name =
     T.cons <$> char '.' <*> name'
   <|> name'
 
