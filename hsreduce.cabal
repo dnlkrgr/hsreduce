@@ -23,7 +23,7 @@ common dry
                      , directory
                      , extra
                      , path
-                     , ghc
+                     , ghc-lib
                      , ghc-boot-th
                      , ghc-paths
                      , hashable
@@ -56,7 +56,7 @@ common dry
                        ScopedTypeVariables
                        StrictData
 
-library hsreduce-internal
+Library
   import:              dry
   exposed-modules:     
                        Glue
@@ -70,13 +70,3 @@ library hsreduce-internal
                        Reduce.Passes.RemoveUnused.Imports
                        Reduce.Passes.RemoveUnused.Pragmas
                        Reduce.Passes.Stubbing
-
-executable hsreduce
-  import:              dry
-  main-is:             Main.hs
-
-test-suite test-hsreduce
-  import:              dry
-  type:                exitcode-stdio-1.0
-  main-is:             Test.hs
-  build-depends:       hsreduce-internal

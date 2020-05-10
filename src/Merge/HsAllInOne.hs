@@ -1,4 +1,4 @@
-module Merge.HsAllInOne (hsAllInOne, fastCleanUp) where
+module Merge.HsAllInOne (renamePlugin, hsAllInOne, fastCleanUp) where
 
 import Data.Maybe
 import System.Directory
@@ -26,52 +26,17 @@ import Util.Types
 import Parser.Parser
 import Data.Generics.Uniplate.Data
 import qualified Data.Word8 as W8
+import Plugins
 
+hsAllInOne = error "hsAllInOne: currently not working"
 
--- get data from cabal file
-hsAllInOne :: Bool -> Path Abs File -> IO ()
-hsAllInOne isExecutable filePath = do
-  banner "Running hsAllInOne"
+renamePlugin :: Plugin
+renamePlugin = defaultPlugin {
+    renamedResultAction = \_ t r -> do
+        liftIO $ writeFile "Arst.hs" (oshow $ renameModule r)
+        return (t, r)
+  }
 
-  let rootPath = parent filePath
-  sourcePath  <- (rootPath </>) <$> parseRelFile "AllInOne.hs"
-  sections    <- fromRight [] . DPP.readFields <$> BS.readFile (fromAbsFile filePath)
-  let includeDirs = fromMaybe [] $ getDirs ["include-dirs"] rootPath sections
-      srcDirs     = fromMaybe [] $ getDirs ["hs-source-dirs"] rootPath sections
-
-
-  files <- if isExecutable
-    then do
-      mainFile    <- cabal2Main srcDirs sections
-
-
-      mod2DepNames includeDirs srcDirs mainFile
-    else do
-      getFiles srcDirs sections
-
-  -- TODO: concatenate all modules in exposed-modules and other-modules to the dirs in hs-source-dirs
-
-  fileContent <-
-    T.unlines
-    . T.lines
-    <$> mergeModules includeDirs srcDirs files
-  TIO.writeFile (fromAbsFile sourcePath) fileContent
-
-
-  banner "Cleaning up"
-
-  getGhcOutput sourcePath ParseIndent >>= \case
-    Nothing -> do
-      cleanUp sourcePath fileContent
-    Just [] -> do
-      cleanUp sourcePath fileContent
-    Just mySpans -> do
-      let newFileContent = foldr mkIndent fileContent . map (fmap span2Locs) $ mySpans
-      TIO.writeFile (fromAbsFile sourcePath) newFileContent
-
-      cleanUp sourcePath newFileContent
-
-  -- mkNewCabal filePath
 
 fastCleanUp :: Path Abs File -> IO ()
 fastCleanUp sourcePath = TIO.readFile (fromAbsFile sourcePath) >>= cleanUp sourcePath
@@ -86,61 +51,10 @@ cleanUp sourcePath fileContent =
       TIO.writeFile (fromAbsFile sourcePath) newFileContent
       cleanUp sourcePath newFileContent
 
-
-mergeModules :: [Path Abs Dir] -> [Path Abs Dir] -> [Path Abs File] -> IO T.Text
-mergeModules includeDirs srcDirs filenames = do
-  modules <- mapM (renameModule includeDirs srcDirs) filenames
-
-  banner "Finished merging"
-
-  let ours =
-          concatMap
-          ( \(_, ast, _, _) ->
-              maybe [mkModuleName "Main"] ((: []) . unLoc)
-                . hsmodName
-                . unLoc
-                $ ast
-          )
-          modules
-
-      prags = T.unlines
-              . nub
-              . concatMap (\(p, _, _, _) -> map (T.pack . show) $ p)
-              $ modules
-
-      modName = "module Main (main) where"
-
-      imps  = T.unlines
-              . nub
-              . map (\(_, _, i, _) -> T.unlines
-                      . map (T.pack . showGhc)
-                      . mkImportsQual
-                      . removeImports ours $ i)
-              $ modules
-
-      decls = T.pack
-              . showGhc
-              . transformBi (unqualOurNames ours)
-              . foldr (appendGroups . (\(_, _, _, d) -> d)) emptyRnGroup
-              $ modules
-
-
-  return $ T.unlines [prags, modName, imps , decls]
-
-renameModule :: [Path Abs Dir]
-             -> [Path Abs Dir]
-             -> Path Abs File
-             -> IO ([Pragma], ParsedSource, [LImportDecl GhcRn], HsGroup GhcRn)
-renameModule includeDirs srcDirs fileName = do
-  banner $ "Renaming: " ++ fromAbsFile fileName
-
-  RState prags ast (Just r) _ _  <- parse False includeDirs srcDirs fileName
-
-  banner "Finished parsing"
-
-  return
-    . (\(d, i, _, _) -> (prags, ast, tail i, d))
-    . transformBi unqualBinds
+renameModule :: HsGroup GhcRn
+             -> HsGroup GhcRn
+renameModule r = do
+      transformBi unqualBinds
     . transformBi qualAmbiguousField
     . transformBi qualField
     . transformBi name2UniqueName
@@ -399,3 +313,93 @@ mkNewCabal f =
 keepFields :: [String] -> [DPF.Field a] -> [DPF.Field a]
 keepFields names =
   filter ((`elem` map B8.pack names) . BS.map W8.toLower . DPF.getName . DPF.fieldName)
+
+
+
+-- -- get data from cabal file
+-- hsAllInOne :: Bool -> Path Abs File -> IO ()
+-- hsAllInOne isExecutable filePath = do
+--   banner "Running hsAllInOne"
+-- 
+--   let rootPath = parent filePath
+--   sourcePath  <- (rootPath </>) <$> parseRelFile "AllInOne.hs"
+--   sections    <- fromRight [] . DPP.readFields <$> BS.readFile (fromAbsFile filePath)
+--   let includeDirs = fromMaybe [] $ getDirs ["include-dirs"] rootPath sections
+--       srcDirs     = fromMaybe [] $ getDirs ["hs-source-dirs"] rootPath sections
+-- 
+-- 
+--   files <- if isExecutable
+--     then do
+--       mainFile    <- cabal2Main srcDirs sections
+-- 
+-- 
+--       mod2DepNames includeDirs srcDirs mainFile
+--     else do
+--       getFiles srcDirs sections
+-- 
+--   -- TODO: concatenate all modules in exposed-modules and other-modules to the dirs in hs-source-dirs
+-- 
+--   fileContent <-
+--     T.unlines
+--     . T.lines
+--     <$> mergeModules includeDirs srcDirs files
+--   TIO.writeFile (fromAbsFile sourcePath) fileContent
+-- 
+-- 
+--   banner "Cleaning up"
+-- 
+--   getGhcOutput sourcePath ParseIndent >>= \case
+--     Nothing -> do
+--       cleanUp sourcePath fileContent
+--     Just [] -> do
+--       cleanUp sourcePath fileContent
+--     Just mySpans -> do
+--       let newFileContent = foldr mkIndent fileContent . map (fmap span2Locs) $ mySpans
+--       TIO.writeFile (fromAbsFile sourcePath) newFileContent
+-- 
+--       cleanUp sourcePath newFileContent
+-- 
+--   -- mkNewCabal filePath
+
+
+
+--mergeModules :: [Path Abs Dir] -> [Path Abs Dir] -> [Path Abs File] -> IO T.Text
+--mergeModules includeDirs srcDirs filenames = do
+--  modules <- mapM (undefined includeDirs srcDirs) filenames
+--
+--  banner "Finished merging"
+--
+--  let ours =
+--          concatMap
+--          ( \(_, ast, _, _) ->
+--              maybe [mkModuleName "Main"] ((: []) . unLoc)
+--                . hsmodName
+--                . unLoc
+--                $ ast
+--          )
+--          modules
+--
+--      prags = T.unlines
+--              . nub
+--              . concatMap (\(p, _, _, _) -> map (T.pack . show) $ p)
+--              $ modules
+--
+--      modName = "module Main (main) where"
+--
+--      imps  = T.unlines
+--              . nub
+--              . map (\(_, _, i, _) -> T.unlines
+--                      . map (T.pack . showGhc)
+--                      . mkImportsQual
+--                      . removeImports ours $ i)
+--              $ modules
+--
+--      decls = T.pack
+--              . showGhc
+--              . transformBi (unqualOurNames ours)
+--              . foldr (appendGroups . (\(_, _, _, d) -> d)) emptyRnGroup
+--              $ modules
+--
+--
+--  return $ T.unlines [prags, modName, imps , decls]
+
