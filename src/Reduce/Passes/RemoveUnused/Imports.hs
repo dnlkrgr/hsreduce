@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import Util.Types
 import Util.Util
 import Control.Monad.Reader
-import "ghc" GHC
+import GHC
 
 -- | run ghc with -Wunused-binds -ddump-json and delete imports that are mentioned there
 reduce :: R ()

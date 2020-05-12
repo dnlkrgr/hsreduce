@@ -6,11 +6,11 @@ import qualified Data.Text as T
 import Util.Types
 import Util.Util
 import Control.Monad.Reader
-import "ghc" GHC hiding (getName)
-import "ghc" Outputable
-import "ghc" BasicTypes
-import "ghc" TcEvidence
-import "ghc" CoreSyn
+import GHC hiding (getName)
+import Outputable
+import BasicTypes
+import TcEvidence
+import CoreSyn
 import Data.Generics.Uniplate.Data
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
@@ -118,7 +118,7 @@ rmvCons t@(L _ (TyClD _ (DataDecl {}))) =
     delCons loc = \case
       (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) ->
         let newCons = dd_cons oldDataDefn
-        in TyClD NoExtField oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
+        in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
       d -> d
 rmvCons _ = Nothing
 
@@ -148,10 +148,10 @@ pattern SimplFunP lFunId <- ValD _ (FunBind _ lFunId _ _ _)
 
 pattern FunDeclP :: Located (IdP GhcPs) -> SrcSpan -> [LMatch GhcPs (LHsExpr GhcPs)] -> Origin -> HsWrapper -> [Tickish Id] -> HsDecl GhcPs
 pattern FunDeclP lFunId matchesLoc funMatches mgOrigin funWrapper funTick =
-  ValD NoExtField (FunBind NoExtField lFunId (MG NoExtField (L matchesLoc funMatches) mgOrigin) funWrapper funTick)
+  ValD NoExt (FunBind NoExt lFunId (MG NoExt (L matchesLoc funMatches) mgOrigin) funWrapper funTick)
 
 pattern TypeSigDeclP :: [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> HsDecl GhcPs
 pattern TypeSigDeclP funIds sigWctype <- (SigD _ (TypeSig _ funIds sigWctype))
 
 pattern TypeSigDeclX :: [Located (IdP GhcPs)] -> LHsSigWcType GhcPs -> HsDecl GhcPs
-pattern TypeSigDeclX funIds sigWctype = SigD NoExtField (TypeSig NoExtField funIds sigWctype)
+pattern TypeSigDeclX funIds sigWctype = SigD NoExt (TypeSig NoExt funIds sigWctype)

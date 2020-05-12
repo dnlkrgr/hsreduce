@@ -41,7 +41,7 @@ mod2DepNames includeDirs srcDirs fileName = do
 
   -- preprocess mod names
   let relModPaths =
-         map (fromJust . (addExtension "hs" <=< parseRelFile)
+         map (fromJust . (addFileExtension "hs" <=< parseRelFile)
                  . map (\c -> if c == '.' then '/' else c)
                  . moduleNameString
                  . ms_mod_name)

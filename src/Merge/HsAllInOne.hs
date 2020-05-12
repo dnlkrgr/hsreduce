@@ -1,4 +1,4 @@
-module Merge.HsAllInOne (renamePlugin, hsAllInOne, fastCleanUp) where
+module Merge.HsAllInOne (plugin) where
 
 import Data.Maybe
 import System.Directory
@@ -18,38 +18,37 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Distribution.Fields.Parser as DPP (readFields)
-import qualified Distribution.Fields.Field as DPF
+import qualified Distribution.Parsec.Parser as DPP (readFields)
+import qualified Distribution.Parsec.Field as DPF
 import Util.Util
 import Text.RE.TDFA.Text
-import Util.Types
 import Parser.Parser
 import Data.Generics.Uniplate.Data
 import qualified Data.Word8 as W8
-import Plugins
+import GhcPlugins (Plugin(..), defaultPlugin, renamedResultAction)
 
 hsAllInOne = error "hsAllInOne: currently not working"
 
-renamePlugin :: Plugin
-renamePlugin = defaultPlugin {
+plugin :: Plugin
+plugin = defaultPlugin {
     renamedResultAction = \_ t r -> do
         liftIO $ writeFile "Arst.hs" (oshow $ renameModule r)
         return (t, r)
   }
 
 
-fastCleanUp :: Path Abs File -> IO ()
-fastCleanUp sourcePath = TIO.readFile (fromAbsFile sourcePath) >>= cleanUp sourcePath
+-- fastCleanUp :: Path Abs File -> IO ()
+-- fastCleanUp sourcePath = TIO.readFile (fromAbsFile sourcePath) >>= cleanUp sourcePath
 
-cleanUp :: Path Abs File -> T.Text -> IO ()
-cleanUp sourcePath fileContent =
-  getGhcOutput sourcePath Other >>= \case
-    Nothing -> return ()
-    Just [] -> return ()
-    Just mySpans -> do
-      let newFileContent = foldr replaceWithGhcOutput fileContent . map (fmap span2Locs) $ mySpans
-      TIO.writeFile (fromAbsFile sourcePath) newFileContent
-      cleanUp sourcePath newFileContent
+-- cleanUp :: Path Abs File -> T.Text -> IO ()
+-- cleanUp sourcePath fileContent =
+--   getGhcOutput sourcePath Other >>= \case
+--     Nothing -> return ()
+--     Just [] -> return ()
+--     Just mySpans -> do
+--       let newFileContent = foldr replaceWithGhcOutput fileContent . map (fmap span2Locs) $ mySpans
+--       TIO.writeFile (fromAbsFile sourcePath) newFileContent
+--       cleanUp sourcePath newFileContent
 
 renameModule :: HsGroup GhcRn
              -> HsGroup GhcRn
@@ -199,7 +198,7 @@ mkUnqual =
 mkImportsQual :: [LImportDecl GhcRn] -> [LImportDecl GhcRn]
 mkImportsQual = map (\(L l i) ->
                        L l
-                       $ i { ideclQualified = QualifiedPre
+                       $ i { ideclQualified = True
                            , ideclHiding    = Nothing
                            , ideclAs        = Nothing
                            , ideclSafe      = False})

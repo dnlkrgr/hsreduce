@@ -9,7 +9,7 @@ import Util.Types
 import Util.Util
 import Control.Monad.Reader
 import qualified Data.Text as T
-import "ghc" GHC
+import GHC
 
 reduce :: R ()
 reduce = do
@@ -46,8 +46,8 @@ removeUnusedExport (L _ export) =
 
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)
 decl2Export (ValD _ (FunBind _ fId _ _ _))                     =
-  Just . L noSrcSpan . IEVar NoExtField      . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
+  Just . L noSrcSpan . IEVar NoExt      . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
 decl2Export (TyClD _ t)
-  | isSynDecl t = Just . noLoc $ IEThingWith NoExtField (noLoc . IEType . noLoc . tcdName $ t) NoIEWildcard [] []
-  | otherwise   = Just . noLoc . IEThingAll NoExtField . noLoc . IEName . noLoc . tcdName $ t
+  | isSynDecl t = Just . noLoc $ IEThingWith NoExt (noLoc . IEType . noLoc . tcdName $ t) NoIEWildcard [] []
+  | otherwise   = Just . noLoc . IEThingAll NoExt . noLoc . IEName . noLoc . tcdName $ t
 decl2Export _ = Nothing
