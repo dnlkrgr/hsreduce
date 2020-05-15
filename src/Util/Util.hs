@@ -8,7 +8,7 @@ import Text.RE.TDFA.Text
 import qualified Data.Text.IO as TIO
 import qualified Data.Text as T
 import SrcLoc as SL
-import Outputable
+import Outputable hiding ((<>))
 import FastString
 import GHC hiding (GhcMode, ghcMode)
 import DynFlags hiding (GhcMode, ghcMode)
@@ -25,6 +25,10 @@ import System.Timeout
 import Util.Types as UT
 import Parser.Parser
 import Data.Generics.Uniplate.Data
+import qualified Text.Megaparsec as M
+import Text.Megaparsec.Debug
+import qualified Text.Megaparsec.Char as MC
+import Data.Either
 
 
 fastTryR :: Data a => (Located a -> Maybe (R (Located a))) -> Located a -> R (Located a)
@@ -111,7 +115,7 @@ changeExports :: ([LIE GhcPs] -> [LIE GhcPs]) -> RState -> RState
 changeExports f oldState =
   let L moduleLoc oldModule = _parsed oldState
       L exportsLoc oldExports = fromJust $ hsmodExports oldModule
-      newExports = f (traceShow (concatMap ((++ " ") . lshow) oldExports) oldExports)
+      newExports = f (traceShow (concatMap ((++ " ") . oshow . unLoc) oldExports) oldExports)
    in oldState {_parsed = L moduleLoc oldModule {hsmodExports = Just (L exportsLoc newExports)}}
 
 changeImports :: ([LImportDecl GhcPs] -> [LImportDecl GhcPs]) -> RState -> RState
@@ -121,35 +125,38 @@ changeImports f oldState =
       newImports = f allImports
    in oldState {_parsed = L moduleLoc oldModule {hsmodImports = newImports}}
 
+
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-getGhcOutput :: Path Abs File -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
-getGhcOutput sourcePath ghcMode = do
+getGhcOutput :: Path Abs File -> Tool -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
+getGhcOutput sourcePath tool ghcMode = do
   pragmas <- getPragmas sourcePath
 
   let dirName  = parent sourcePath
       fileName = filename sourcePath
-      command             = "ghc "
-                            ++ ghcModeString
-                            ++ " -ddump-json "
-                            ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas)
-                            ++ " " ++ fromRelFile fileName
-  (_, stdout, _) <- fromMaybe (error "getGhcOutput") 
-                 <$> timeout (fromIntegral defaultDuration)
-                             (readCreateProcessWithExitCode 
+      command = case tool of
+        Ghc -> "ghc "
+               ++ ghcModeString
+               ++ " -ddump-json "
+               ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas)
+               ++ " " ++ fromRelFile fileName
+        Cabal -> "cabal new-build"
+  (_, stdout, _) <- fromMaybe (error "getGhcOutput timeout!")
+                 <$> timeout (fromIntegral $ 30 * defaultDuration)
+                             (readCreateProcessWithExitCode
                              ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
 
-  return $ case stdout of 
+  return $ case stdout of
     "" -> Nothing
-    -- dropping first line because it doesn't fit into our JSON schema
     _  ->   mapFunc
           . filterFunc
-          <$> mapM (decode . LBS.fromStrict . TE.encodeUtf8) (T.lines $ T.pack stdout) 
+          <$> (sequence . filter isJust . map (decode . LBS.fromStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
+
   where
     ghcModeString = case ghcMode of
-      Binds   -> "-Wunused-binds"
-      Imports -> "-Wunused-imports"
-      Other   -> ""
-      ParseIndent   -> ""
+      Binds       -> "-Wunused-binds"
+      Imports     -> "-Wunused-imports"
+      ParseIndent -> ""
+      Other       -> ""
 
     filterFunc = case ghcMode of
       Other -> filter ((T.isInfixOf "Perhaps you meant" <&&> T.isInfixOf "ot in scope:") . doc)
@@ -169,16 +176,35 @@ isQual :: T.Text -> Bool
 isQual =
   matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
+testText :: T.Text
+testText = "Not in scope:\n  type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextMsg’\nPerhaps you meant one of these:\n  ‘Text.ProtocolBuffers.Header.TextMsg’ (imported from Text.ProtocolBuffers.Header),\n  ‘Text.ProtocolBuffers.Header.TextMsg’ (imported from Text.ProtocolBuffers.Header),\n  ‘Text.ProtocolBuffers.Header.TextMsg’ (imported from Text.ProtocolBuffers.Header)\nNo module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
 
-getQualText :: T.Text -> T.Text
-getQualText =
-    ((not . null) ?: (f . head) $ (const ""))
-  . allMatches
-  . (*=~ [re|‘([A-Za-z]+\.)+[A-Za-z0-9#_']+’|])
-  . T.unlines
-  . drop 1
-  . T.lines
-  where f = T.init . T.tail . fromMaybe "" . matchedText
+
+-- testText :: T.Text
+-- testText = "Not in scope: \u2018Data.Set.Internal.fromDistinctAscList\u2019\nNo module named \u2018Data.Set.Internal\u2019 is imported."
+
+getQualText = fromRight "" . M.parse perhapsYouMeant ""
+
+perhapsYouMeant :: Parser T.Text
+perhapsYouMeant = do
+  M.some $ M.satisfy (/= '\n')
+  MC.space
+  M.some $ M.satisfy (/= '\n')
+  MC.space
+  M.some $ M.satisfy (/= '\n')
+  MC.space
+  MC.string "‘"
+  T.pack <$> M.some (M.satisfy (/= '’'))
+
+-- getQualText :: T.Text -> T.Text
+-- getQualText =
+--     ((not . null) ?: (f . head) $ (const ""))
+--   . allMatches
+--   . (*=~ [re|‘([A-Za-z]+\.)+[A-Za-z0-9#_']+’|])
+--   . T.unlines
+--   . drop 1
+--   . T.lines
+--   where f = T.init . T.tail . fromMaybe "" . matchedText
 
 (?:) :: (a -> Bool) -> (a -> b) -> (a -> b) -> a -> b
 (?:) p t f x
@@ -206,7 +232,7 @@ isInProduction :: Bool
 isInProduction = False
 
 defaultDuration :: Word
-defaultDuration = 30 * 1000 * 1000
+defaultDuration = 60 * 1000 * 1000
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)

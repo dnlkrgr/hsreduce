@@ -1,4 +1,4 @@
-module Parser.Parser (parse, getPragmas, mod2DepNames) where
+module Parser.Parser where
 
 import Path
 import Data.Either
@@ -137,6 +137,15 @@ getModName' = do
   n <- T.concat <$> some name
   void space
   return n
+
+getModName'' :: Parser T.Text
+getModName'' = do
+  void space
+  n <- T.concat <$> some name
+  void space
+  return n
+
+
 
 name :: Parser T.Text
 name =

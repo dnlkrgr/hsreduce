@@ -49,7 +49,7 @@ rmvSigs (Just unusedBinds) = reduceListOfSubelements f' rmvOneDecl
 -- | filter out unused IDs in a signature
 filterUnusedSigLists :: Maybe [T.Text] -> HsDecl GhcPs -> Maybe (HsDecl GhcPs)
 filterUnusedSigLists (Just bns) (TypeSigDeclP ids swt) =
-  let newFunIds = filter ((`notElem` bns) . T.pack . lshow) ids
+  let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
   in Just $ (TypeSigDeclX newFunIds swt)
 filterUnusedSigLists _ _ = Nothing
 

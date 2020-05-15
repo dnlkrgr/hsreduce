@@ -60,6 +60,7 @@ data GhcOutput
   deriving (Eq, Generic, Show)
 instance FromJSON GhcOutput
 
+data Tool = Ghc | Cabal deriving Show
 data GhcMode = Binds | Imports | ParseIndent | Other
 
 data Interesting = Interesting | Uninteresting

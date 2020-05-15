@@ -7,8 +7,10 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Plugin
-                       Merge.HsAllInOne
+  exposed-modules:   Merge.HsAllInOne
+  other-modules:     Util.Util
+                     Util.Types
+                     Parser.Parser
   build-depends:       base >=4.11 && < 5
                      , ghc
                      , Cabal
