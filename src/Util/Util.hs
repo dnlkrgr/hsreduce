@@ -239,6 +239,8 @@ defaultDuration = 60 * 1000 * 1000
 
 infixr 8 <&&>
 
+oshow :: Outputable a => a -> String
+oshow = showSDocUnsafe . ppr
 
 showGhc :: (Outputable a) => a -> String
 showGhc = showPpr unsafeGlobalDynFlags
@@ -252,8 +254,6 @@ banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
     n = 80 - length s
     s' = replicate (div n 2) '='
 
-oshow :: Outputable a => a -> String
-oshow = showSDocUnsafe . ppr
 
 lshow :: Outputable a => Located a -> String
 lshow = showSDocUnsafe . ppr . unLoc

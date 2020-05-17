@@ -1,3 +1,10 @@
+* Top
+** try hs-all-in-one on projects with cpp dependencies
+** hs-all-in-one 
+*** make list of all src files, best would be just the dependencies of main file
+*** merge them with hs-all-in-one 
+*** find and clean up main function
+*** clean up cabal file, comment out other src files
 * Mergen / hsAllInOne.hs
 ** Modulnamen ohne Aufruf von GHC rausfinden
 ** Util.hs/getQual

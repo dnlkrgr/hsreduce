@@ -42,18 +42,19 @@ plugin :: Plugin
 plugin = defaultPlugin {
       pluginRecompile = impurePlugin
     , renamedResultAction = \_ t r -> do
-      let tempDirName = ".hsallinone"
-      b <- liftIO $ doesDirectoryExist tempDirName
-      unless b . liftIO $ createDirectory tempDirName
+        let tempDirName = ".hsallinone"
+        b <- liftIO $ doesDirectoryExist tempDirName
+        unless b . liftIO $ createDirectory tempDirName
 
-      ours <- liftIO . fmap (map mkModuleName) . listDirectory $ tempDirName
-      let newImports  = T.unlines . map (T.pack . oshow) . mkImportsQual . removeImports ours . tcg_rn_imports $ t
-          modName     = moduleName . tcg_mod $ t
-          renamedMod  = T.pack . oshow . renameModule modName ours $ r
+        ours <- liftIO . fmap (map mkModuleName) . listDirectory $ tempDirName
+        let newImports  = T.unlines . map (T.pack . oshow) . mkImportsQual . removeImports ours . tcg_rn_imports $ t
+        let importNames = map (unLoc . ideclName . unLoc) . mkImportsQual . removeImports ours . tcg_rn_imports $ t
+            modName     = moduleName . tcg_mod $ t
+            renamedMod  = T.pack . oshow . renameModule modName ours importNames $ r
 
-      liftIO . TIO.appendFile (tempDirName <> "/" <> "Imports") $ newImports
-      liftIO . TIO.writeFile  (tempDirName <> "/" <> moduleNameString modName)   $ renamedMod
-      return (t, r)
+        liftIO . TIO.appendFile (tempDirName <> "/" <> "Imports") $ newImports
+        liftIO . TIO.writeFile  (tempDirName <> "/" <> moduleNameString modName)   $ renamedMod
+        return (t, r)
 }
 
 --   banner "Cleaning up"
@@ -143,18 +144,19 @@ span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 -- ***************************************************************************
 renameModule :: ModuleName
              -> [ModuleName]
+             -> [ModuleName]
              -> HsGroup GhcRn
              -> HsGroup GhcRn
-renameModule modName ours r = do
+renameModule modName ours importNames r = do
       transformBi (unqualOurNames ours)
     . transformBi unqualBinds
     . transformBi (qualAmbiguousField modName)
     . transformBi (qualField modName)
-    . transformBi name2UniqueName
+    . transformBi (name2UniqueName importNames)
     $ r
 
-name2UniqueName :: Name -> Name
-name2UniqueName n
+name2UniqueName :: [ModuleName] -> Name -> Name
+name2UniqueName importNames n
   -- don't rename things from the Main module to avoid making the test case print uninteresting output
   -- example: data cons renamed from T2 to T2_Main
   --   doesn't match in interestingness test matching on `fromList [T2, T2]`
@@ -168,12 +170,12 @@ name2UniqueName n
   , isOperator $ tail os = n
 
   -- not our operator, do not touch
-  | isOperator . showGhc $ getRdrName n,
+  | isOperator . oshow $ getRdrName n,
     not $ "$main$" `isPrefixOf` nameStableString n = n
 
   -- our operator
   | Just m <- nameModule_maybe n
-  , isOperator . showGhc $ getRdrName n
+  , isOperator . oshow $ getRdrName n
   , "$main$" `isPrefixOf` nameStableString n =
                                                tidyNameOcc n
                                              . mkOccName ns
@@ -191,7 +193,7 @@ name2UniqueName n
 
   -- something external
   | all (not . (`isPrefixOf` nameStableString n)) blacklist, Just m <- nameModule_maybe n
-  = mkNameQual (moduleName m) on ns n
+  = mkNameQual importNames (moduleName m) on ns n
 
   | otherwise = n
   where
@@ -213,7 +215,7 @@ unqualOurNames ours n
 
 unqualBinds :: HsBindLR GhcRn GhcRn -> HsBindLR GhcRn GhcRn
 unqualBinds fb@(FunBind _ (L l n) fm  _ _)
-  | isQual (T.pack $ showGhc n) = newFB
+  | isQual (T.pack $ oshow n) = newFB
   | otherwise = fb
   where newFM = transformBi unqualMatchCtxt fm
         newFB = fb { fun_id = L l $ unqualName n, fun_matches = newFM }
@@ -223,7 +225,7 @@ unqualMatchCtxt :: HsMatchContext Name -> HsMatchContext Name
 unqualMatchCtxt = fmap unqualName
 
 unqualName :: Name -> Name
-unqualName n = tidyNameOcc n $ mkOccName ns $ T.unpack $ mkUnqual (T.pack $ showGhc n)
+unqualName n = tidyNameOcc n $ mkOccName ns $ T.unpack $ mkUnqual (T.pack $ oshow n)
    where
      on = occName n
      ns = occNameSpace on
@@ -270,8 +272,14 @@ removeImports ours = filter go
                  in modName `notElem` ours && ("Prelude" /= (moduleNameString modName))
 
 -- | qualify an occ name
-mkNameQual :: ModuleName -> OccName -> NameSpace -> Name -> Name
-mkNameQual mn on ns n = tidyNameOcc n $ mkOccName ns $ moduleNameString mn ++ "." ++ showGhc on
+mkNameQual :: [ModuleName] -> ModuleName -> OccName -> NameSpace -> Name -> Name
+mkNameQual importNames mn on ns n
+  | mn `elem` importNames           = tidyNameOcc n $ mkOccName ns $ moduleNameString mn ++ "." ++ oshow on
+  | (==1) . length $ fittingImports = tidyNameOcc n $ mkOccName ns $ moduleNameString (head fittingImports) ++ "." ++ oshow on
+  | otherwise                       = tidyNameOcc n $ mkOccName ns $ moduleNameString mn ++ "." ++ oshow on
+  where fittingImports = filter ((== getLeafModule (moduleNameString mn)) . getLeafModule . moduleNameString) $ importNames
+
+getLeafModule = last . words . map (\c -> if c == '.' then ' ' else c)
 
 -- | too naive check if something is an operator
 -- TODO: use syntax from Haskell2010 report

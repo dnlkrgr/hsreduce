@@ -8,6 +8,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:   Merge.HsAllInOne
+                     Merge.Merge
   other-modules:     Util.Util
                      Util.Types
                      Parser.Parser
@@ -24,6 +25,10 @@ library
                      , path
                      , ghc-boot-th
                      , ghc-paths
+                     , filepath
+                     , haskell-names
+                     , haskell-src-exts
+                     , hse-cpp
                      , hashable
                      , megaparsec
                      , mtl
