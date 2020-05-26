@@ -1,5 +1,7 @@
-module Util.Util where
+module Util.Util (safeHead, gshow, recListDirectory, banner, oshow, getGhcOutput, lshow, fastTryR, fastTry, try, reduceListOfSubelements, trace'', isQual) where
 
+import Data.Generics.Aliases (extQ)
+import Parser.Parser
 import qualified Control.Exception as CE
 import qualified Data.Text.Encoding as TE
 import Path
@@ -10,8 +12,6 @@ import qualified Data.Text as T
 import SrcLoc as SL
 import Outputable hiding ((<>))
 import FastString
-import GHC hiding (GhcMode, ghcMode)
-import DynFlags hiding (GhcMode, ghcMode)
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson (decode)
@@ -23,13 +23,59 @@ import System.Exit
 import System.Process
 import System.Timeout
 import Util.Types as UT
-import Parser.Parser
 import Data.Generics.Uniplate.Data
 import qualified Text.Megaparsec as M
-import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char as MC
 import Data.Either
+import System.Directory
+import System.Posix.Files
 
+safeHead :: [a] -> Maybe a
+safeHead []    = Nothing
+safeHead (x:_) = Just x
+
+gshow :: Data a => a -> String
+gshow x = gshows x ""
+
+gshows :: Data a => a -> ShowS
+gshows = render `extQ` (shows :: String -> ShowS) where
+  render t
+    -- | isTuple = showChar '('
+    --           . drop 1
+    --           . commaSlots
+    --           . showChar ')'
+    -- | isNull = showString "[]"
+    | isList = showChar '['
+             . drop 1
+             . listSlots
+             . showChar ']'
+    | otherwise = showChar '('
+                . constructor
+                . slots
+                . showChar ')'
+
+    where constructor = showString . showConstr . toConstr $ t
+          slots       = foldr (.) id . gmapQ ((showChar ' ' .) . gshows) $ t
+          -- commaSlots  = foldr (.) id . gmapQ ((showChar ',' .) . gshows) $ t
+          listSlots   = foldr (.) id . init . gmapQ ((showChar ',' .) . gshows) $ t
+          -- isTuple     = all (==',') (filter (not . flip elem "()") (constructor ""))
+          -- isNull      = null (filter (not . flip elem "[]") (constructor ""))
+          isList      = constructor "" == "(:)"
+
+
+recListDirectory :: FilePath -> IO [FilePath]
+recListDirectory dir =
+  listDirectory dir >>=
+    fmap concat . mapM
+      (\f ->
+        let f' = dir <> "/" <> f
+        in (isDirectory <$> getFileStatus f') >>=
+           \case
+             False -> return [f']
+             True  -> recListDirectory f')
+
+trace'' :: String -> (a -> String) -> a -> a
+trace'' s f a = traceShow (s <> ": " <> f a) a
 
 fastTryR :: Data a => (Located a -> Maybe (R (Located a))) -> Located a -> R (Located a)
 fastTryR f e = fromMaybe (return e) . f $ e
@@ -68,9 +114,6 @@ overwriteAtLoc ::
 overwriteAtLoc loc newValue oldValue@(L oldLoc _)
   | loc == oldLoc = L loc newValue
   | otherwise = oldValue
-
-testAndUpdateState :: RState -> R ()
-testAndUpdateState = testAndUpdateStateFlex () ()
 
 testAndUpdateStateFlex :: a -> a -> RState -> R a
 testAndUpdateStateFlex a b newState = do
@@ -111,21 +154,6 @@ runTest duration = do
             ExitFailure _ -> return Uninteresting
             ExitSuccess -> return Interesting
 
-changeExports :: ([LIE GhcPs] -> [LIE GhcPs]) -> RState -> RState
-changeExports f oldState =
-  let L moduleLoc oldModule = _parsed oldState
-      L exportsLoc oldExports = fromJust $ hsmodExports oldModule
-      newExports = f (traceShow (concatMap ((++ " ") . oshow . unLoc) oldExports) oldExports)
-   in oldState {_parsed = L moduleLoc oldModule {hsmodExports = Just (L exportsLoc newExports)}}
-
-changeImports :: ([LImportDecl GhcPs] -> [LImportDecl GhcPs]) -> RState -> RState
-changeImports f oldState =
-  let L moduleLoc oldModule = _parsed oldState
-      allImports = hsmodImports oldModule
-      newImports = f allImports
-   in oldState {_parsed = L moduleLoc oldModule {hsmodImports = newImports}}
-
-
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 getGhcOutput :: Path Abs File -> Tool -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
 getGhcOutput sourcePath tool ghcMode = do
@@ -159,7 +187,7 @@ getGhcOutput sourcePath tool ghcMode = do
       Other       -> ""
 
     filterFunc = case ghcMode of
-      Other -> filter ((T.isInfixOf "Perhaps you meant" <&&> T.isInfixOf "ot in scope:") . doc)
+      Other -> filter (T.isPrefixOf "Not in scope:" . doc)
       ParseIndent -> filter (T.isInfixOf "parse error (possibly incorrect indentation" . doc)
       _     -> filter ((isJust . UT.span)
                        <&&> (isJust . reason)
@@ -176,42 +204,56 @@ isQual :: T.Text -> Bool
 isQual =
   matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
-testText :: T.Text
-testText = "Not in scope:\n  type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextMsg’\nPerhaps you meant one of these:\n  ‘Text.ProtocolBuffers.Header.TextMsg’ (imported from Text.ProtocolBuffers.Header),\n  ‘Text.ProtocolBuffers.Header.TextMsg’ (imported from Text.ProtocolBuffers.Header),\n  ‘Text.ProtocolBuffers.Header.TextMsg’ (imported from Text.ProtocolBuffers.Header)\nNo module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
+-- noSuchModule :: T.Text
+-- noSuchModule = "Not in scope: ‘Data.Binary.Put.runPutM’\nNo module named ‘Data.Binary.Put’ is imported."
+-- 
+-- simple :: T.Text
+-- simple = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.Extensions.GPB’\n Perhaps you meant ‘Text.ProtocolBuffers.Header.GPB’ (imported from Text.ProtocolBuffers.Header)\n No module named ‘Text.ProtocolBuffers.Extensions’ is imported."
+-- 
+-- noModuleNamed :: T.Text
+-- noModuleNamed = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextType’\n Perhaps you meant one of these:\n ‘Text.ProtocolBuffers.Header.TextType’ (imported from Text.ProtocolBuffers.Header),\n ‘Text.ProtocolBuffers.WireMessage.Get’ (imported from Text.ProtocolBuffers.WireMessage)\n No module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
+-- 
+-- importedFrom :: T.Text
+-- importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
 
+getQualText :: T.Text -> T.Text
+getQualText = fromRight "" . M.parse notInScopeP "" . trace'' "getQualText" show
 
--- testText :: T.Text
--- testText = "Not in scope: \u2018Data.Set.Internal.fromDistinctAscList\u2019\nNo module named \u2018Data.Set.Internal\u2019 is imported."
+-- getModuleName :: T.Text -> T.Text
+-- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
 
-getQualText = fromRight "" . M.parse perhapsYouMeant ""
+-- this isn't exactly like the init from Prelude
+-- safeInit :: [a] -> Maybe [a]
+-- safeInit [] = Nothing
+-- safeInit xs = Just $ init xs
 
-perhapsYouMeant :: Parser T.Text
-perhapsYouMeant = do
-  M.some $ M.satisfy (/= '\n')
+notInScopeP :: Parser T.Text
+notInScopeP = M.try noModuleNamedP <|> importedFromP
+
+noModuleNamedP :: Parser T.Text
+noModuleNamedP = do
+  void $ M.chunk "Not in scope:"
   MC.space
-  M.some $ M.satisfy (/= '\n')
-  MC.space
-  M.some $ M.satisfy (/= '\n')
-  MC.space
-  MC.string "‘"
+  go
+  void $ MC.char '‘'
   T.pack <$> M.some (M.satisfy (/= '’'))
+  where 
+    go = do
+      M.try (M.chunk "No module named" >> MC.space) 
+        <|> do
+              void $ M.some (M.satisfy (/= '\n')) 
+              MC.space 
+              go
 
--- getQualText :: T.Text -> T.Text
--- getQualText =
---     ((not . null) ?: (f . head) $ (const ""))
---   . allMatches
---   . (*=~ [re|‘([A-Za-z]+\.)+[A-Za-z0-9#_']+’|])
---   . T.unlines
---   . drop 1
---   . T.lines
---   where f = T.init . T.tail . fromMaybe "" . matchedText
-
-(?:) :: (a -> Bool) -> (a -> b) -> (a -> b) -> a -> b
-(?:) p t f x
-  | p x  = t x
-  | True = f x
-
-infixl 8 ?:
+importedFromP :: Parser T.Text
+importedFromP = do
+  void $ M.some $ M.satisfy (/= '(')
+  void $ MC.char '('
+  void $ M.chunk "imported"
+  MC.space
+  void $ M.chunk "from"
+  MC.space
+  fmap T.pack . M.some $ M.satisfy (/= ')')
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
@@ -221,9 +263,6 @@ debug :: MonadIO m => (a -> m ()) -> a -> m ()
 debug f s
   | isInProduction = return ()
   | otherwise = f s
-
-debugPrint :: MonadIO m => String -> m ()
-debugPrint = debug (liftIO . putStrLn . ("[debug] " ++))
 
 errorPrint :: MonadIO m => String -> m ()
 errorPrint = debug (liftIO . putStrLn . ("[error] " ++))
@@ -242,18 +281,11 @@ infixr 8 <&&>
 oshow :: Outputable a => a -> String
 oshow = showSDocUnsafe . ppr
 
-showGhc :: (Outputable a) => a -> String
-showGhc = showPpr unsafeGlobalDynFlags
-
-trace' :: Show a => a -> a
-trace' a = traceShow a a
-
 banner :: MonadIO m => String -> m ()
 banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
   where
     n = 80 - length s
     s' = replicate (div n 2) '='
-
 
 lshow :: Outputable a => Located a -> String
 lshow = showSDocUnsafe . ppr . unLoc

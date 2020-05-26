@@ -1,5 +1,7 @@
 module Util.Types where
 
+import Data.Void
+import qualified Text.Megaparsec as M
 import Path
 import qualified Data.Text as T
 import Control.Applicative
@@ -79,3 +81,5 @@ instance Show Pragma where
   show (Language e)   = "{-# LANGUAGE "    ++ T.unpack e ++ " #-}"
   show (OptionsGhc o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
   show (Include i)    = "{-# INCLUDE "     ++ T.unpack i ++ " #-}"
+
+type Parser = M.Parsec Void T.Text

@@ -8,11 +8,10 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:   Merge.HsAllInOne
-                     Merge.Merge
   other-modules:     Util.Util
                      Util.Types
                      Parser.Parser
-  build-depends:       base >=4.11 && < 5
+  build-depends:       base
                      , ghc
                      , Cabal
                      , MonadRandom
@@ -26,9 +25,6 @@ library
                      , ghc-boot-th
                      , ghc-paths
                      , filepath
-                     , haskell-names
-                     , haskell-src-exts
-                     , hse-cpp
                      , hashable
                      , megaparsec
                      , mtl
@@ -44,6 +40,7 @@ library
                      , monad-par
                      , regex
                      , word8
+                     , generic-deriving
   hs-source-dirs:      src
   default-language:    Haskell2010
   default-extensions:  DeriveGeneric
@@ -57,3 +54,5 @@ library
                        OverloadedStrings 
                        ScopedTypeVariables
                        StrictData
+                       ViewPatterns
+  ghc-options:       -Wall
