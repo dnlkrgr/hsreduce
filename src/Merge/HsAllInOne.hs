@@ -1,5 +1,6 @@
 module Merge.HsAllInOne (plugin, merge, fastCleanUp) where
 
+import System.Posix.Files
 import System.Directory
 import Debug.Trace
 import SrcLoc
@@ -10,13 +11,13 @@ import Control.Monad.Random
 import Data.Char
 import Data.Hashable
 import Data.List
-import GHC
+import GHC hiding (GhcMode)
 import Path
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Text.RE.TDFA.Text hiding (Match)
 import Data.Generics.Uniplate.Data
-import GhcPlugins hiding ((<>), isQual, mkUnqual, qualName)
+import GhcPlugins hiding ((<>), isQual, mkUnqual, qualName, GhcMode)
 import TcRnTypes
 import qualified Distribution.Parsec.Field as DPF
 import qualified Distribution.Parsec.Parser as DPP
@@ -26,7 +27,7 @@ import qualified Data.Word8 as W8
 import Data.Maybe
 import Data.Either
 import Util.Util
-import Util.Types (Tool(..), Pragma, GhcMode(Other))
+import Util.Types
 import Parser.Parser (getPragmas)
 
 
@@ -34,20 +35,32 @@ import Parser.Parser (getPragmas)
 merge :: ProjectType -> FilePath -> IO ()
 merge projectType cabal = do
   sections <- fromRight [] . DPP.readFields <$> BS.readFile cabal
-  let root = parent . fromJust . parseAbsFile $ cabal
-      srcDirs = fromMaybe [] . getDirs ["hs-source-dirs"] root $ sections
+  let root    = trace'' "root dir" show . parent . fromJust . parseAbsFile $ cabal
+      srcDirs = trace'' "srcDirs" show . fromMaybe [] . getDirs projectType ["hs-source-dirs"] root $ sections
 
   pragmas <- fmap nub . getAllPragmas =<< map fromAbsFile <$> getFiles projectType srcDirs sections
   print pragmas
 
   -- get file contents of merged files
   let renamedFilesLocation = fromAbsDir root <> ".hsallinone/"
-  fileContents <- mapM TIO.readFile =<< map (renamedFilesLocation <>) . filter (/= "Imports") <$> listDirectory renamedFilesLocation
-  imports      <- fmap (T.unlines . nub . T.lines) . TIO.readFile . fromAbsFile $ root </> (fromJust $ parseRelFile ".hsallinone/Imports")
 
-  let newFileContents = 
+  fileContents <- 
+    mapM TIO.readFile 
+    =<< map (renamedFilesLocation <>) 
+    . filter (/= "Imports") 
+    <$> listDirectory renamedFilesLocation
+
+  imports      <- 
+    fmap (T.unlines . nub . T.lines) 
+    . TIO.readFile 
+    . fromAbsFile 
+    $ root </> (fromJust $ parseRelFile ".hsallinone/Imports")
+
+  let allInOne = 
         T.unlines (map (T.pack . show) pragmas) : "module AllInOne () where" : imports : fileContents
-  TIO.writeFile (fromAbsDir root <> "AllInOne.hs") $ foldr ((<>) . (<> "\n")) T.empty newFileContents
+
+  TIO.writeFile (fromAbsDir root <> "AllInOne.hs") $ foldr ((<>) . (<> "\n")) T.empty allInOne
+
 
 -- | rename modules and create one imports module
 plugin :: Plugin
@@ -55,155 +68,199 @@ plugin = defaultPlugin {
     pluginRecompile = impurePlugin
   , renamedResultAction = \_ t r -> do
       let tempDirName = ".hsallinone"
-      b <- liftIO $ doesDirectoryExist tempDirName
-      unless b . liftIO $ createDirectory tempDirName
+          importsPath = ".hsallinone/Imports"
+
+      liftIO $ flip unless (createDirectory tempDirName) =<< doesDirectoryExist tempDirName
+
+      importPathExists <- liftIO $ fileExist importsPath
+
+      allImports <- 
+        if importPathExists
+        then 
+          (map (mkModuleName . T.unpack . last . T.words)) 
+          . T.lines 
+          <$> (liftIO $ TIO.readFile importsPath)
+        else return []
 
       ours <- liftIO . fmap (map mkModuleName) . listDirectory $ tempDirName
-      -- let imports     = map unLoc . tcg_rn_imports $ t
       let imports  = T.unlines . map (T.pack . oshow) . qualImports . removeImports ours . tcg_rn_imports $ t
 
-      -- let newOurs = 
-      --       map unLoc 
-      --       . concatMap (\i -> 
-      --                     case ideclAs i of
-      --                       Nothing -> [ideclName i]
-      --                       Just iMn -> if ideclQualified i 
-      --                         then [iMn]
-      --                         else [ideclName i, iMn]) 
-      --       . filter ((`elem` ours) . unLoc . ideclName) 
-      --       $ imports
-
-      -- liftIO $ mapM (putStrLn . oshow) newOurs
-
       let modName     = moduleName . tcg_mod $ t
-          renamedMod  = T.pack . oshow . renameModule modName ours $ r
+          renamedMod  = T.pack . oshow . renameModule ours allImports $ r
 
-      liftIO . TIO.appendFile (tempDirName <> "/" <> "Imports") $ imports
-      liftIO . TIO.writeFile  (tempDirName <> "/" <> moduleNameString modName)   $ renamedMod
+      liftIO $ TIO.appendFile importsPath imports
+      liftIO $ TIO.writeFile (tempDirName <> "/" <> moduleNameString modName) renamedMod
       return (t, r)
 }
+
 
 -- ***************************************************************************
 -- CLEANING UP
 -- ***************************************************************************
 arst :: IO ()
 arst = do
-  f <- parseAbsFile "/home/daniel/workspace/hsreduce-test-cases/protocol-buffers/descriptor/AllInOne.hs"
+  f <- parseAbsFile "/home/daniel/workspace/hsreduce-test-cases/head.hackage/packages/pandoc-2.9.2.1/AllInOne.hs"
   fastCleanUp Cabal f
 
-callCabal :: IO ()
-callCabal = do
-  f <- parseAbsFile "/home/daniel/workspace/hsreduce-test-cases/protocol-buffers/descriptor/AllInOne.hs"
-  srcSpans <- getGhcOutput f Cabal Other
+callCabal mode = do
+  f <- parseAbsFile "/home/daniel/workspace/hsreduce-test-cases/head.hackage/packages/pandoc-2.9.2.1/AllInOne.hs"
+  srcSpans <- getErrorOutput Cabal mode [] f
   print srcSpans
-  return ()
+  return srcSpans
 
 
 fastCleanUp :: Tool -> Path Abs File -> IO ()
 fastCleanUp tool sourcePath = do
-  fileContent <- TIO.readFile (fromAbsFile sourcePath)
-  cleanUp tool sourcePath fileContent
+  cleanUp tool Indent sourcePath
+  cleanUp tool MissingImport sourcePath -- add imports
+  cleanUp tool HiddenImport sourcePath  -- clean up imports
+  cleanUp tool NotInScope sourcePath  -- clean up uses of hidden modules
+  -- cleanUp tool PerhapsYouMeant sourcePath
 
-cleanUp :: Tool -> Path Abs File -> T.Text -> IO ()
-cleanUp tool sourcePath fileContent =
-  getGhcOutput sourcePath tool Other >>= \case
+allowedToLoop = [Indent]
+
+cleanUp :: Tool -> GhcMode -> Path Abs File -> IO ()
+cleanUp tool mode sourcePath = do
+  fileContent <- TIO.readFile (fromAbsFile sourcePath)
+  imports <- map (last . T.words) . T.lines <$> TIO.readFile ((fromAbsDir $ parent sourcePath) <> ".hsallinone/Imports")
+
+  getErrorOutput tool mode imports sourcePath >>= \case
     Nothing -> return ()
     Just [] -> return ()
     Just mySpans -> do
-      banner "new clean up iteration" 
-      -- let newFileContent = foldr replaceWithGhcOutput fileContent . map (fmap span2Locs) $ mySpans
-      let newFileContent = (T.unlines . map ("import qualified " <>) . map (trace'' "cleanUp" show) . nub . filter (/= "") . map fst $ mySpans) <> fileContent
+      banner (show mode)
+
+      let 
+          rightSpans = 
+            (if mode == Indent then id else filter ((/="") . fst))
+            . map (\(Right t, s) -> (t, s)) 
+            . filter (isRight . fst) 
+            $ mySpans
+
+          newFileContent = case mode of
+
+            Indent -> 
+              foldr insertIndent fileContent 
+              . map (fmap span2Locs) 
+              $ rightSpans
+
+            MissingImport -> 
+              let contentLines = T.lines fileContent
+                  prefix = T.unlines $ takeWhile (not . ("import qualified" `T.isPrefixOf`)) contentLines
+                  suffix = T.unlines $ dropWhile (not . ("import qualified" `T.isPrefixOf`)) contentLines
+              in
+                prefix 
+                <> (T.unlines 
+                   . map ("import qualified " <>) 
+                   . map (trace'' "cleanUp" show) 
+                   . nub 
+                   . map fst 
+                   $ rightSpans) 
+                <> suffix
+
+            HiddenImport ->
+              T.unlines 
+              . map (\(i, l) -> 
+                      let myLines = (map (\(m, s) -> (m, srcLocLine . fst . span2Locs $ s)) rightSpans) 
+                      in 
+                        if  i `elem` map snd myLines
+                            && "import qualified" `T.isPrefixOf` l 
+                        then 
+                          let wl      = T.words l 
+                              modName = fst . head $ filter ((==i) . snd) myLines
+                          in traceShow ("Changing " 
+                                        <> last wl 
+                                        <> " to " 
+                                        <> modName 
+                                        <> " at line " 
+                                        <> (T.pack $ show i)) 
+                             . T.unwords 
+                             $ init wl <> [modName] 
+                        else l) 
+              . zip [1..]
+              . T.lines 
+              $ fileContent
+              
+            PerhapsYouMeant -> 
+              foldr replaceWithGhcOutput fileContent 
+              . map (fmap span2Locs) 
+              $ rightSpans
+
+            NotInScope -> 
+              foldr replaceWithGhcOutput fileContent 
+              . map (fmap span2Locs) 
+              $ rightSpans
+
       TIO.writeFile (fromAbsFile sourcePath) newFileContent
-      -- cleanUp tool sourcePath newFileContent
+      when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
 
--- mkIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
--- mkIndent (_, (startLoc, _)) fileContent =
---   T.unlines $ prevLines ++ [newLineContent] ++ succLines
---   where
---         contentLines   = T.lines fileContent
---         lineStart      = srcLocLine startLoc
---         currentIndex   = lineStart-1
---         prevLines      = take currentIndex contentLines
---         succLines      = drop lineStart contentLines
---         lineContent    = contentLines !! currentIndex
---         newLineContent = "  " <> lineContent
+replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
+  = T.unlines $ prevLines ++ [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] ++ succLines
+  where
+        contentLines   = T.lines fileContent
+        lineStart      = srcLocLine startLoc
+        colStart       = srcLocCol  startLoc
+        colEnd         = srcLocCol  endLoc
+        currentIndex   = lineStart-1
+        prevLines      = take currentIndex contentLines
+        succLines      = drop lineStart contentLines
+        currentLine    = contentLines !! currentIndex
+        -- currentLine    = traceShow ("length contentLines: " <> (show $ length contentLines)) $ traceShow ("currentIndex: " <> show currentIndex) $ contentLines !! currentIndex
+        oldName        = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
+        prefix         = T.take (colStart-1) currentLine
+        suffix         = T.drop (colEnd-1) currentLine
+        isInfix        = (==2) . T.length . T.filter (=='`') . T.drop (colStart-1) . T.take (colEnd-1) $ currentLine
+        realNewName    = 
+          if "Internal" `elem` T.words oldName
+          then removeInternal id oldName
+          else newName
+        newLineContent =
+          if isInfix
+          then prefix <> "`" <> realNewName <> "`" <> suffix
+          else prefix <> realNewName <> suffix
 
--- replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
--- replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
---   = trace'' "replaceWithGhcOutput" (const (show $ "replacing `" <> oldName <> "` with `" <> newName <> "`")) $ T.unlines $ prevLines ++ [newLineContent] ++ succLines
---   where
---         contentLines   = T.lines fileContent
---         lineStart      = srcLocLine startLoc
---         colStart       = srcLocCol  startLoc
---         colEnd         = srcLocCol  endLoc
---         currentIndex   = lineStart-1
---         prevLines      = take currentIndex contentLines
---         succLines      = drop lineStart contentLines
---         lineContent    = contentLines !! currentIndex
---         -- lineContent    = traceShow ("length contentLines: " <> (show $ length contentLines)) $ traceShow ("currentIndex: " <> show currentIndex) $ contentLines !! currentIndex
---         prefix         = T.take (colStart-1) lineContent
---         suffix         = T.drop (colEnd-1) lineContent
---         oldName        = T.take (colEnd - colStart) $ T.drop (colStart-1) lineContent
---         isInfix        = 
---           (==2) 
---           . T.length 
---           . T.filter (=='`') 
---           . T.drop (colStart-1) 
---           . T.take (colEnd-1) 
---           $ lineContent
---         newLineContent =
---           if isInfix
---           then prefix <> "`" <> newName <> "`" <> suffix
---           else prefix <> newName <> suffix
+insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+insertIndent (_, (startLoc, _)) fileContent =
+  T.unlines $ prevLines ++ [traceShow ("inserting indent at line " <> show (currentIndex + 1)) $ newLineContent] ++ succLines
+  where
+        contentLines   = T.lines fileContent
+        lineStart      = srcLocLine startLoc
+        currentIndex   = lineStart-1
+        prevLines      = take currentIndex contentLines
+        succLines      = drop lineStart contentLines
+        currentLine    = contentLines !! currentIndex
+        newLineContent = "  " <> currentLine
 
--- span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
--- span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
+span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
+span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 
 -- ***************************************************************************
 -- MERGING MODULES
 -- ***************************************************************************
-renameModule :: ModuleName
+renameModule :: [ModuleName]
              -> [ModuleName]
              -> HsGroup GhcRn
              -> HsGroup GhcRn
-renameModule modName ours r = do
-    -- descendBi (unqualOurRdrNames ours)
-    -- . descendBi (renameRdrName ours env)
+renameModule ours imports r = do
       descendBi unqualSig
     . descendBi (unqualOurNames ours)
     . descendBi unqualBinds
-    . descendBi (renameAbiguousField ours modName)
+    . descendBi (renameAbiguousField ours)
     . descendBi (renameField ours)
-    . descendBi (renameName ours)
-    -- . descendBi arstbrst
+    . descendBi (renameName ours imports)
     $ r
 
--- arstbrst :: Name -> Name
--- arstbrst n
---   = traceShow ("" :: String)  $ traceShow (showSDocUnsafe $ pprNameSpace ns) $ traceShow os $ traceShow (oshow . nameModule_maybe $ n) $ traceShow (nameStableString n) $ n
---   where on = occName n
---         ns = occNameSpace on
---         os = occNameString on
-
-
---unqualOurRdrNames :: [ModuleName] -> RdrName -> RdrName
---unqualOurRdrNames ours rn@(Qual mn on)
---  | traceShow ("mn: " ++ oshow mn) mn `elem` map (trace'' "ours" oshow) ours = Unqual $ traceShow "qual->unqual: " $ traceShow (oshow on) $ traceShow (gshow on) $ mkOccName ns $ T.unpack $ mkUnqual (T.pack $ oshow on)
---  | otherwise = rn
---  where
---    ns = occNameSpace on
---unqualOurRdrNames _ n = n
-
-renameName :: [ModuleName] -> Name -> Name
-renameName ours n
+renameName :: [ModuleName] -> [ModuleName] -> Name -> Name
+renameName ours imports n
   -- don't rename things from the Main module to avoid making the test case print uninteresting output
   -- example: data cons renamed from T2 to T2_Main
   --   doesn't match in interestingness test matching on `fromList [T2, T2]`
   | showSDocUnsafe (pprNameUnqualified n) == "main" = n
 
   -- built-in things
-  | isSystemName    n    = traceShow ("renameName - SYSTEM NAME: " ++ nameStableString n) n
+  | isSystemName    n    = n
   | isWiredInName   n    = n
   | isBuiltInSyntax n    = n
   | isDataConName   n
@@ -227,7 +284,7 @@ renameName ours n
 
   -- something external
   | Just mn <- getModuleName n
-  = tidyNameOcc n $ qualName ours mn on
+  = tidyNameOcc n $ qualName imports mn on
 
   | otherwise = n
   where
@@ -236,20 +293,10 @@ renameName ours n
     os = occNameString on
 
 
--- -- TODO: also include current module name and mangle names with that if it's not an external name
--- renameRdrName :: [ModuleName] -> RdrName -> RdrName
--- renameRdrName ours rn@(Qual mn on)
---   | mn `elem` ours 
---   = Unqual $ mangle mn on
--- 
---   | otherwise = rn
--- renameRdrName _ rn = rn
-
 renameAbiguousField :: [ModuleName ] 
-                    -> ModuleName 
                     -> AmbiguousFieldOcc GhcRn 
                     -> AmbiguousFieldOcc GhcRn
-renameAbiguousField ours we (Unambiguous n (L l rn))
+renameAbiguousField ours (Unambiguous n (L l rn))
   | Just mn <- moduleName <$> nameModule_maybe n
   , mn `elem` ours
   = Unambiguous n $ L l $ Unqual $ mangle mn on
@@ -257,46 +304,30 @@ renameAbiguousField ours we (Unambiguous n (L l rn))
   | Just mn <- moduleName <$> nameModule_maybe n
   = Unambiguous n $ L l $ Qual mn on
 
-  | otherwise = traceShow "renameAbiguousField" $ traceShow "Unambiguous" $ Unambiguous n $ L l $ Unqual $ traceShow (oshow $ nameModule_maybe n) $ traceShow (nameStableString n) $ undefined
+  | otherwise = Unambiguous n $ L l $ Unqual $ traceShow (oshow $ nameModule_maybe n) $ traceShow (nameStableString n) $ undefined
   where on = rdrNameOcc rn
 
-renameAbiguousField ours we (Ambiguous x (L l (Qual mn on)))
+renameAbiguousField ours (Ambiguous x (L l (Qual mn on)))
   | mn `elem` ours
   = Ambiguous x $ L l $ Unqual $ mangle mn on
   -- don't know what to do otherwise yet, let it crash for now
-renameAbiguousField _ _ a = a
-
--- renameAbiguousField we (Unambiguous n (L l (Unqual on)))
---   | Just mn <- moduleName <$> nameModule_maybe n
---   , "$main$" `isPrefixOf `nameStableString n 
---   = Unambiguous n $ L l $ Unqual $ mangle mn on
--- 
---   | otherwise = Unambiguous n $ L l $ Unqual $ mangle we on
+renameAbiguousField _ a = a
 
 
 renameField :: [ModuleName] -> FieldOcc GhcRn -> FieldOcc GhcRn
-renameField ours f@(FieldOcc n (L l rn))
+renameField ours (FieldOcc n (L l rn))
   | Just mn <- moduleName <$> nameModule_maybe n
   , mn `elem` ours
   = FieldOcc n (L l $ Unqual $ mangle mn on)
+  -- = traceShow ("renameField") $ traceShow (nameStableString n) $ FieldOcc n (L l $ Unqual $ mangle mn on)
+
 
   | Just mn <- moduleName <$> nameModule_maybe n
   = FieldOcc n (L l $ Qual mn on)
+  -- = traceShow ("renameField") $ traceShow (nameStableString n) $ FieldOcc n (L l $ Qual mn on)
   -- | otherwise = traceShow "renameField" $ traceShow (nameStableString n) $ traceShow (oshow $ nameModule_maybe n) FieldOcc n (L l $ Unqual $ mangle we on)
   where on = rdrNameOcc rn
 renameField _ a = a
-
--- renameField we f@(FieldOcc n (L l (Qual mn on)))
---   | mn `elem` ours
---   = FieldOcc n (L l $ Unqual $ mangle mn on)
-
--- renameField we (FieldOcc n (L l (Unqual on)))
---   | Just mn <- moduleName <$> nameModule_maybe n
---   , "$main$" `isPrefixOf `nameStableString n 
---   = FieldOcc n (L l $ Unqual $ mangle mn on)
---       
---   | otherwise = FieldOcc n (L l $ Unqual $ mangle we on)
--- renameField _ c = c
 
 
 mangle :: ModuleName -> OccName -> OccName
@@ -363,33 +394,30 @@ removeImports ours = filter go
 
 -- | qualify an occ name
 qualName :: [ModuleName] -> ModuleName -> OccName -> OccName
-qualName _ mn on
-  = mkOccName ns $ moduleNameString mn ++ "." ++ oshow on
+qualName imports mn on
+  = mkOccName ns $ modulenameSansInternal ++ "." ++ oshow on
   where ns = occNameSpace on
+        modulenameSansInternal = moduleNameString mn 
+          -- trace'' "module name after" id 
+          -- . moduleNameString
+          -- . handleHiddenModules imports 
+          -- . traceShow ("module name before: " <> oshow mn)
+          -- $ mn 
 
-  -- | mn `elem` ours
-  -- = tidyNameOcc n $ mkOccName ns $ moduleNameString mn ++ "." ++ oshow on
- 
-  -- | Just i <- fst <$> bestMatchingImport
-  -- = tidyNameOcc n $ mkOccName ns $ moduleNameString (snd $ (zip [0..] ours) !! i) ++ "." ++ oshow on
- 
-  -- where moduleComponents = getNameComponents mn
-  --       matchingImports =
-  --           reverse
-  --         . sortOn snd
-  --         . map (fmap (matchingComponents moduleComponents) . fmap getNameComponents)
-  --         . zip [0..]
-  --         $ ours
-  --       bestMatchingImport = if length matchingImports >=1 && fst (head matchingImports) > 2 && length moduleComponents - snd (head matchingImports) == 1
-  --         then Just $ head matchingImports
-  --         else Nothing
+handleHiddenModules :: [ModuleName] -> ModuleName -> ModuleName
+handleHiddenModules imports mn
+  | all (not . (`isPrefixOf` moduleNameString mn) . moduleNameString) imports = mn
+  | mn `elem` imports = mn
+  | length components >= 2 = let newMN = mkModuleName . intercalate "." . map T.unpack . init $ components
+           in handleHiddenModules imports newMN
+  | otherwise = mn
+  where components = modname2components . T.pack $ moduleNameString mn
 
--- matchingComponents :: Eq a => [a] -> [a] -> Int
--- matchingComponents l = length . filter (`elem` l)
--- 
--- getNameComponents :: ModuleName -> [String]
--- getNameComponents = words . map (\c -> if c == '.' then ' ' else c) . moduleNameString
-
+brst input = do
+  allImports <- (map (mkModuleName . T.unpack . last . T.words)) . T.lines <$> (TIO.readFile "/home/daniel/workspace/hsreduce-test-cases/head.hackage/packages/pandoc-2.9.2.1/.hsallinone/Imports")
+  print $ filter (`isPrefixOf` input) $ map moduleNameString allImports
+  putStrLn . oshow $ handleHiddenModules allImports $ mkModuleName input
+  return ()
 
 -- | too naive check if something is an operator
 -- TODO: use syntax from Haskell2010 report
@@ -423,7 +451,6 @@ randomOpString = do
 -- CABAL FILE UTILITIES
 -- ***************************************************************************
 
-data ProjectType = Executable | Library
 
 getFiles :: ProjectType -> [Path Abs Dir] -> [DPF.Field a] -> IO [Path Abs File]
 getFiles projectType srcDirs =
@@ -431,9 +458,7 @@ getFiles projectType srcDirs =
   . fromJust
   . fmap (concatMap (\n -> map (\d -> d </> n) srcDirs) . concat)
   . traverse (file2Paths modName2FileName ["exposed-modules", "other-modules", "main-is"])
-  . keepFields [case projectType of
-                  Executable -> "executable"
-                  Library    -> "library"]
+  . keepFields [show projectType]
 
 file2Paths :: (FilePath -> Maybe (Path Rel a))
                 -> [BS.ByteString]
@@ -446,12 +471,17 @@ file2Paths g names (DPF.Field n f)
   = sequence . filter isJust . map g $ map (B8.unpack . fieldLineBS) f
   | otherwise = return []
 
-getDirs :: [BS.ByteString]
+getDirs :: ProjectType 
+        -> [BS.ByteString]
         -> Path Abs Dir
         -> [DPF.Field a]
         -> Maybe [Path Abs Dir]
-getDirs dirNames rootPath sections = do
-  relPaths <- concat <$> traverse (file2Paths parseRelDir dirNames) sections
+getDirs projectType dirNames rootPath sections = do
+  relPaths <- 
+    fmap concat 
+    . traverse (file2Paths parseRelDir dirNames) 
+    . keepFields [show projectType] 
+    $ sections
 
   relPathsFixed <-
     sequence
@@ -471,7 +501,7 @@ modName2FileName f
    | ".hs" `isSubsequenceOf` f =
      let fileName = take (length f - 3) f
      in parseRelFile $ map (\case '.' -> '/'; c -> c) fileName ++ ".hs"
-   | otherwise = parseRelFile $ map (\case '.' -> '/'; c -> c) f ++ ".hs"
+   | otherwise = parseRelFile $ (map (\case '.' -> '/'; c -> c) $ filter ((/= ' ') <&&> (/= ',')) f) ++ ".hs"
 
 keepFields :: [String] -> [DPF.Field a] -> [DPF.Field a]
 keepFields names =

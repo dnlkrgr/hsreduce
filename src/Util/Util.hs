@@ -1,5 +1,6 @@
-module Util.Util (safeHead, gshow, recListDirectory, banner, oshow, getGhcOutput, lshow, fastTryR, fastTry, try, reduceListOfSubelements, trace'', isQual) where
+module Util.Util (modname2components, removeInternal, safeHead, gshow, recListDirectory, banner, oshow, getErrorOutput, lshow, fastTryR, fastTry, try, reduceListOfSubelements, trace'', isQual) where
 
+import Data.Void
 import Data.Generics.Aliases (extQ)
 import Parser.Parser
 import qualified Control.Exception as CE
@@ -26,9 +27,11 @@ import Util.Types as UT
 import Data.Generics.Uniplate.Data
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
-import Data.Either
 import System.Directory
 import System.Posix.Files
+
+modname2components :: T.Text -> [T.Text]
+modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)
 
 safeHead :: [a] -> Maybe a
 safeHead []    = Nothing
@@ -155,8 +158,12 @@ runTest duration = do
             ExitSuccess -> return Interesting
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-getGhcOutput :: Path Abs File -> Tool -> GhcMode -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
-getGhcOutput sourcePath tool ghcMode = do
+getErrorOutput :: Tool 
+             -> GhcMode 
+             -> [T.Text] 
+             -> Path Abs File 
+             -> IO (Maybe [(Either (M.ParseErrorBundle T.Text Void) T.Text, SL.RealSrcSpan)])
+getErrorOutput tool ghcMode _ sourcePath = do
   pragmas <- getPragmas sourcePath
 
   let dirName  = parent sourcePath
@@ -167,68 +174,114 @@ getGhcOutput sourcePath tool ghcMode = do
                ++ " -ddump-json "
                ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas)
                ++ " " ++ fromRelFile fileName
-        Cabal -> "cabal new-build"
-  (_, stdout, _) <- fromMaybe (error "getGhcOutput timeout!")
-                 <$> timeout (fromIntegral $ 30 * defaultDuration)
+        Cabal -> "nix-shell --run 'cabal new-build'"
+  (_, stdout, _) <- fromMaybe (error "getErrorOutput timeout!")
+                 <$> timeout (fromIntegral $ defaultDuration * 1000 * 1000)
                              (readCreateProcessWithExitCode
                              ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
 
   return $ case stdout of
     "" -> Nothing
-    _  ->   mapFunc
+    _  ->   concat 
+          . mapFunc
           . filterFunc
-          <$> (sequence . filter isJust . map (decode . LBS.fromStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
+          <$> (sequence 
+              . filter isJust 
+              . map (decode . LBS.fromStrict . TE.encodeUtf8) 
+              . T.lines 
+              . T.pack $ stdout)
 
   where
     ghcModeString = case ghcMode of
-      Binds       -> "-Wunused-binds"
-      Imports     -> "-Wunused-imports"
-      ParseIndent -> ""
-      Other       -> ""
+      Binds   -> "-Wunused-binds"
+      Imports -> "-Wunused-imports"
+      _       -> ""
 
     filterFunc = case ghcMode of
-      Other -> filter (T.isPrefixOf "Not in scope:" . doc)
-      ParseIndent -> filter (T.isInfixOf "parse error (possibly incorrect indentation" . doc)
-      _     -> filter ((isJust . UT.span)
-                       <&&> (isJust . reason)
-                       <&&> (T.isPrefixOf "Opt_WarnUnused" . fromJust . reason))
+      MissingImport -> 
+        filter ((T.isPrefixOf "Not in scope:" 
+                <&&> (T.isInfixOf "imported from" 
+                     <||> T.isInfixOf "No module named")) 
+               . doc)
+      NotInScope -> 
+        filter (T.isPrefixOf "Not in scope:" 
+               . doc)
+      PerhapsYouMeant -> 
+        filter ((T.isPrefixOf "Not in scope:" 
+                <&&> (T.isInfixOf "Perhaps you meant"))
+               . doc)
+      HiddenImport -> filter (T.isInfixOf "is a hidden module in the package" . doc)
+      Indent -> filter (T.isInfixOf "parse error (possibly incorrect indentation" . doc)
+      _      -> filter ((isJust . UT.span)
+                        <&&> (isJust . reason)
+                        <&&> (T.isPrefixOf "Opt_WarnUnused" . fromJust . reason))
 
     mapFunc = case ghcMode of
-      Other -> map (\o -> (getQualText $ doc o, span2SrcSpan . fromJust . UT.span $ o))
-      ParseIndent -> map (\o -> ("", span2SrcSpan . fromJust . UT.span $ o))
-      _     -> map ((,)
-                    <$> (T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') . doc)
-                    <*> (span2SrcSpan . fromJust . UT.span))
+      MissingImport   -> 
+        map (\o -> 
+              let importSuggestion = fmap (removeInternal id) . useP importedFromP  $ doc o
+                  noModuleNamed    = fmap (removeInternal id) . useP noModuleNamedP $ doc o
+                  pos = span2SrcSpan . fromJust . UT.span $ o
+               in [(importSuggestion, pos), (noModuleNamed, pos)])
+      NotInScope ->
+        map (\o -> 
+              [(fmap removeUseOfHidden . useP notInScopeP $ doc o
+              , span2SrcSpan . fromJust . UT.span $ o)])
+      PerhapsYouMeant ->
+        map (\o -> 
+              [(useP perhapsYouMeantP $ doc o
+              , span2SrcSpan . fromJust . UT.span $ o)])
+      HiddenImport -> 
+        map ((:[]) . ((,)  
+            <$> (fmap (removeInternal init) . useP hiddenImportP . doc)
+            <*> (span2SrcSpan . fromJust . UT.span)))
+      Indent -> map (\o -> [(Right "", span2SrcSpan . fromJust . UT.span $ o)])
+      _      -> map ((:[]) . ((,)
+                     <$> (Right . T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') . doc)
+                     <*> (span2SrcSpan . fromJust . UT.span)))
 
-isQual :: T.Text -> Bool
-isQual =
-  matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
-
--- noSuchModule :: T.Text
--- noSuchModule = "Not in scope: ‘Data.Binary.Put.runPutM’\nNo module named ‘Data.Binary.Put’ is imported."
--- 
--- simple :: T.Text
--- simple = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.Extensions.GPB’\n Perhaps you meant ‘Text.ProtocolBuffers.Header.GPB’ (imported from Text.ProtocolBuffers.Header)\n No module named ‘Text.ProtocolBuffers.Extensions’ is imported."
--- 
--- noModuleNamed :: T.Text
--- noModuleNamed = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextType’\n Perhaps you meant one of these:\n ‘Text.ProtocolBuffers.Header.TextType’ (imported from Text.ProtocolBuffers.Header),\n ‘Text.ProtocolBuffers.WireMessage.Get’ (imported from Text.ProtocolBuffers.WireMessage)\n No module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
--- 
--- importedFrom :: T.Text
--- importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
-
-getQualText :: T.Text -> T.Text
-getQualText = fromRight "" . M.parse notInScopeP "" . trace'' "getQualText" show
-
--- getModuleName :: T.Text -> T.Text
--- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
-
--- this isn't exactly like the init from Prelude
--- safeInit :: [a] -> Maybe [a]
--- safeInit [] = Nothing
--- safeInit xs = Just $ init xs
+useP :: M.Parsec e s a -> s -> Either (M.ParseErrorBundle s e) a
+useP = flip M.parse ""
 
 notInScopeP :: Parser T.Text
-notInScopeP = M.try noModuleNamedP <|> importedFromP
+notInScopeP = do
+  void $ M.chunk "Not in scope:"
+  void $ M.some (M.satisfy (/= '‘'))
+  void $ MC.char '‘'
+  T.pack <$> M.some (M.satisfy (/= '’'))
+
+perhapsYouMeantP :: Parser T.Text
+perhapsYouMeantP = do
+  void $ M.chunk "Not in scope:"
+  void $ M.some (M.satisfy (/= '‘'))
+  void $ MC.char '‘'
+  void $ M.some (M.satisfy (/= '’'))
+  void $ MC.char '’'
+  MC.space
+  void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
+  void $ M.some (M.satisfy (/= '‘'))
+  void $ MC.char '‘'
+  T.pack <$> M.some (M.satisfy (/= '’'))
+   
+removeUseOfHidden :: T.Text -> T.Text
+removeUseOfHidden s 
+  | length components > 2 
+  = removeInternal init (T.intercalate "." $ init components) <> "." <> (last components)
+  | otherwise = s
+  where components = modname2components s 
+
+removeInternal :: ([T.Text] -> [T.Text]) -> T.Text -> T.Text
+removeInternal f s
+  | length components > 2 = T.intercalate "." . (\wrds -> if "Internal" `elem` wrds then takeWhile (/= "Internal") wrds else f wrds) $ components
+  | otherwise = s
+  where components = modname2components s 
+
+hiddenImportP :: Parser T.Text
+hiddenImportP = do
+  void $ M.chunk "Could not load module"
+  MC.space
+  void $ MC.char '‘'
+  T.pack <$> M.some (M.satisfy (/= '’'))
 
 noModuleNamedP :: Parser T.Text
 noModuleNamedP = do
@@ -259,6 +312,10 @@ span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
   where n = mkFastString $ T.unpack f
 
+isQual :: T.Text -> Bool
+isQual =
+  matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
+
 debug :: MonadIO m => (a -> m ()) -> a -> m ()
 debug f s
   | isInProduction = return ()
@@ -270,11 +327,16 @@ errorPrint = debug (liftIO . putStrLn . ("[error] " ++))
 isInProduction :: Bool
 isInProduction = False
 
+-- default duration: 30 seconds
+-- currently so high, because in big files we have up to 8000 errors
 defaultDuration :: Word
-defaultDuration = 60 * 1000 * 1000
+defaultDuration = 30 * 60
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
+
+(<||>) :: Applicative f => f Bool -> f Bool -> f Bool
+(<||>) = liftA2 (||)
 
 infixr 8 <&&>
 
@@ -289,3 +351,45 @@ banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
 
 lshow :: Outputable a => Located a -> String
 lshow = showSDocUnsafe . ppr . unLoc
+
+trace' :: Show a => a -> a
+trace' a = traceShow a a
+
+
+
+
+
+
+
+--realFloor :: T.Text
+--realFloor = "Not in scope: ‘GHC.Real.floor’\nNo module named ‘GHC.Real’ is imported."
+--
+--hiddenModule :: T.Text
+--hiddenModule = "Could not load module ‘Data.HashMap.Base’\nit is a hidden module in the package ‘unordered-containers-0.2.10.0’\nit is a hidden module in the package ‘unordered-containers-0.2.10.0’\nUse -v to see a list of the files searched for."
+--
+---- "Not in scope:\n  type constructor or class \u2018Data.Aeson.Types.ToJSON.ToJSON\u2019\nPerhaps you meant one of these:\n  \u2018Data.Aeson.Types.GToJSON\u2019 (imported from Data.Aeson.Types),\n  \u2018Data.Aeson.Types.GToJSON\u2019 (imported from Data.Aeson.Types),\n  \u2018Data.Aeson.Types.ToJSON\u2019 (imported from Data.Aeson.Types)\nNo module named \u2018Data.Aeson.Types.ToJSON\u2019 is imported."
+--
+---- noSuchModule :: T.Text
+---- noSuchModule = "Not in scope: ‘Data.Binary.Put.runPutM’\nNo module named ‘Data.Binary.Put’ is imported."
+---- 
+--
+--  
+--
+--simple :: T.Text
+--simple = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.Extensions.GPB’\n Perhaps you meant ‘Text.ProtocolBuffers.Header.GPB’ (imported from Text.ProtocolBuffers.Header)\n No module named ‘Text.ProtocolBuffers.Extensions’ is imported."
+--
+--noModuleNamed :: T.Text
+--noModuleNamed = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextType’\n Perhaps you meant one of these:\n ‘Text.ProtocolBuffers.Header.TextType’ (imported from Text.ProtocolBuffers.Header),\n ‘Text.ProtocolBuffers.WireMessage.Get’ (imported from Text.ProtocolBuffers.WireMessage)\n No module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
+--
+--importedFrom :: T.Text
+--importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
+--
+--
+--
+---- getModuleName :: T.Text -> T.Text
+---- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
+--
+---- this isn't exactly like the init from Prelude
+---- safeInit :: [a] -> Maybe [a]
+---- safeInit [] = Nothing
+---- safeInit xs = Just $ init xs
