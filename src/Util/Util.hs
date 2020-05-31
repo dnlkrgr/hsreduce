@@ -1,4 +1,4 @@
-module Util.Util (modname2components, removeInternal, safeHead, gshow, recListDirectory, banner, oshow, getErrorOutput, lshow, fastTryR, fastTry, try, reduceListOfSubelements, trace'', isQual) where
+module Util.Util (trace', modname2components, removeInternal, safeHead, gshow, recListDirectory, banner, oshow, getErrorOutput, lshow, fastTryR, fastTry, try, reduceListOfSubelements, trace'', isQual) where
 
 import Data.Void
 import Data.Generics.Aliases (extQ)

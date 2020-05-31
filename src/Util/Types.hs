@@ -62,8 +62,8 @@ data GhcOutput
   deriving (Eq, Generic, Show)
 instance FromJSON GhcOutput
 
-data Tool = Ghc | Cabal deriving Show
-data GhcMode = Binds | Imports | Indent | MissingImport | HiddenImport | PerhapsYouMeant | NotInScope deriving (Eq, Show)
+data Tool        = Ghc | Cabal deriving Show
+data GhcMode     = Binds | Imports | Indent | MissingImport | HiddenImport | PerhapsYouMeant | NotInScope deriving (Eq, Show)
 data ProjectType = Executable | Library
 
 instance Show ProjectType where
