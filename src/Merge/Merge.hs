@@ -1,38 +1,18 @@
-module Merge.Merge where
+module Merge.Merge (merge) where
 
-import System.Environment
+import Util.Util
 import Data.Traversable
 import Language.Haskell.Exts
 import Language.Haskell.Exts.CPP
 import Language.Haskell.Names
 import Data.Generics
 import Data.List
-import Debug.Trace
 import Data.Char
 import Data.Hashable
-import System.Directory
-import System.Directory
-import System.Posix.Files hiding (rename)
-import System.FilePath.Posix hiding (combine)
-
-arst src = do
-  files <- filter ((== "hs") . last . words . map (\c -> if c == '.' then ' ' else c)) <$> recListDirectory src
-  content <- merge files
-  writeFile (src </> "AllInOne.hs" ) content
-
-recListDirectory :: FilePath -> IO [FilePath]
-recListDirectory dir =
-  listDirectory dir >>=
-    fmap concat . mapM
-      (\f ->
-        let f' = dir </> f
-        in (isDirectory <$> getFileStatus f') >>= \case
-          False -> return [f']
-          True  -> recListDirectory f')
 
 merge :: [FilePath] -> IO String
-merge filenames= do
-    modules <- for filenames $ fmap (fst . fromParseResult) . parseFileWithCommentsAndCPP defaultCpphsOptions defaultParseMode
+merge filenames = do
+    modules <- for filenames $ \fn -> fst . fromParseResult <$> parseFileWithCommentsAndCPP defaultCpphsOptions  (defaultParseMode { fixities = Just [] }) fn
     let ours = map getName modules
 
     -- No need to load base: We will leave anything unresolved alone anyways
@@ -59,7 +39,7 @@ removeImports ours (Module l mh prags imports decls)
     = Module l mh prags (filter go imports) decls
   where go i = getName' (importModule i) `notElem` ours
 
-combine mods = Module () (Just (ModuleHead () (ModuleName () "Main") Nothing Nothing)) prags imps decls
+combine mods = Module () (Just (ModuleHead () (ModuleName () "AllInOne") Nothing Nothing)) prags imps decls
   where
     prags = nub $ concat [ prags | Module _ _ prags _ _ <- mods ]
     imps  = nub $ concat [ imps | Module _ _ _ imps _ <- mods ]
@@ -79,18 +59,11 @@ renameQName _ qn = qn
 
 renameName :: [String] -> String -> Name (Scoped SrcSpanInfo) -> Name (Scoped SrcSpanInfo)
 renameName ours we n
-    | Scoped (GlobalSymbol s _) _ <- ann n
-    , let m = getName' (symbolModule s)
-    , m `elem` ours
-    = mangle m (ann n) (symbolName s)
-    | Scoped (GlobalSymbol s _) _ <- ann n
-    = n
-    | Scoped (ScopeError e) _ <- ann n
-    = n -- not our name, leave unmodified
-    | Scoped None _ <- ann n
-    = n -- not a normal name, leave unmodified
-    | otherwise
-    = mangle we (ann n) n
+    | Scoped (GlobalSymbol s _) _ <- ann n , let m = getName' (symbolModule s) , m `elem` ours = mangle m (ann n) (symbolName s)
+    | Scoped (GlobalSymbol s _) _ <- ann n = trace'' "global symbol" show n
+    | Scoped (ScopeError e) _ <- ann n     = trace'' "scope error" show n  -- not our name, leave unmodified
+    | Scoped None _ <- ann n = n            -- not a normal name, leave unmodified
+    | otherwise = mangle we (ann n) n
 --renameName ours we n = error (prettyPrint n ++" : " ++ show (ann n))
 
 modOf :: String -> Scoped () -> Maybe String

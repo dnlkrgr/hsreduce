@@ -7,10 +7,16 @@ extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:   Merge.HsAllInOne
+  exposed-modules:   Reduce.HsReduce
+                     Merge.HsAllInOne
+                     Merge.Merge
   other-modules:     Util.Util
                      Util.Types
                      Parser.Parser
+                     Reduce.Passes.RemoveUnused.Decls
+                     Reduce.Passes.RemoveUnused.Imports
+                     Reduce.Passes.RemoveUnused.Exports
+                     Reduce.Passes.Stubbing
   build-depends:       base
                      , ghc
                      , Cabal
@@ -24,6 +30,9 @@ library
                      , path
                      , ghc-boot-th
                      , ghc-paths
+                     , haskell-src-exts
+                     , haskell-names
+                     , hse-cpp
                      , filepath
                      , hashable
                      , megaparsec

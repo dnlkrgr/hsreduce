@@ -11,13 +11,14 @@
 {-# LANGUAGE TypeApplications       #-}
 {-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE TypeOperators          #-}
-{-# LANGUAGE UndecidableInstances   #-
+{-# LANGUAGE UndecidableInstances   #-}
 module Bug  where
 
 import Data.Coerce
 import Data.Kind
 import GHC.Generics
 import GHC.TypeLits
+
 data Poly a b
   = PNil
   | PCons a (Poly b a)
@@ -25,8 +26,10 @@ data Poly a b
 d = PCons 0 PNil
 f = x (e @0) d
 x h = h ( . )
+
 class HasParam p  s t a b |  p s b -> t  where
   e :: Applicative g => (a -> g b) -> s -> g t
+
 instance
   ( GenericN s
   , GenericN t
@@ -36,6 +39,7 @@ instance
   ) => HasParam n s t a b where
   e = aa (\f s -> q <$> ab @n f (ac s))
 aa t = \f -> ad . ae . t (u . f)
+
 newtype Yoneda f a = Yoneda { v :: forall b. (a -> b) -> f b }
 instance Functor (Yoneda f)    
 instance Applicative (Yoneda f)

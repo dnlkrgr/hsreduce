@@ -21,7 +21,7 @@ reduce :: R ()
 reduce = do
   oldState  <- get
   liftIO $ putStrLn "\n***Stubbing expressions***"
-  liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . showState $ oldState)
+  liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
   stubbings oldState >> return ()
 
 stubbings :: RState -> R ParsedSource
@@ -92,19 +92,19 @@ simplifyTypeR t
         g loc = \case
           (HsForAllTy _ bndrs body) -> HsForAllTy NoExt (filter ((/= loc) . getLoc) bndrs) body
           (HsQualTy _ ctxt body) -> HsQualTy NoExt (filter ((/= loc) . getLoc) <$> ctxt) body
-          t -> t
+          x -> x
 
 simplifyType :: HsType GhcPs -> Maybe (HsType GhcPs)
 simplifyType (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP)) = Nothing
 -- simplifyType (ForallTypeP body) = Just body
 simplifyType (QualTypeP body)   = Just body
 simplifyType o@(HsOpTy _ (L _ t) _ _) = traceShow ("HsOpTy: " <> oshow o <> " " <> oshow t) $ Just t -- doesn't work so far :-/
-simplifyType (HsAppTy _ (L l (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = Just t1
+simplifyType (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = Just t1
 -- simplifyType (HsAppTy _ (L l t1@(HsTyVar{})) _ ) = traceShow ("TyVar: " <> oshow t1) Nothing
 -- simplifyType (HsAppTy _ (L l t1@(HsSumTy{})) _ ) = traceShow ("HsSumTy: " <> oshow t1) Nothing
 simplifyType (HsAppTy _ (L l _)  u@(L _ (HsTupleTy _ _ []))) = Just $ HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u
 simplifyType (HsKindSig _ (L _ t) _) = Just t
-simplifyType t = Nothing
+simplifyType _ = Nothing
 
 
 
@@ -210,7 +210,7 @@ matchDelRhsUndef mtchs =
 
 -- TODO: filter out matches one by one
 rmvMatches :: Located [LMatch GhcPs (LHsExpr GhcPs)] -> Maybe (R (Located [LMatch GhcPs (LHsExpr GhcPs)]))
-rmvMatches (L l []) = Nothing
+rmvMatches (L _ []) = Nothing
 rmvMatches m  = Just . reduceListOfSubelements f g $ m
   where f     = map getLoc
         g loc = filter ((/= loc) . getLoc)
@@ -277,7 +277,7 @@ inlineFunctions old@(L _ (HsApp _ (L l1 (HsVar _ (L _ n))) expr)) = do
           -- if the user created overlapping patterns we only take the first match
           -- or should we do nothing when encountering overlapping patterns?
 
-      liftIO . putStrLn $ "new: " ++ showGhc new
+      liftIO . putStrLn $ "new: " ++ oshow new
       tryNewValue old new
 inlineFunctions e = return e
 

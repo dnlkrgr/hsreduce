@@ -16,7 +16,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Text.RE.TDFA.Text hiding (Match)
 import Data.Generics.Uniplate.Data
-import GhcPlugins hiding ((<>), isQual, mkUnqual, qualName, GhcMode)
+import GhcPlugins hiding ((<>), isQual, mkUnqual, qualName, GhcMode, count, (<&&>))
 import TcRnTypes
 import qualified Distribution.Parsec.Field as DPF
 import qualified Distribution.Parsec.Parser as DPP
@@ -28,6 +28,7 @@ import Data.Either
 import Util.Util
 import Util.Types
 import Parser.Parser (getPragmas)
+import qualified Merge.Merge as M
 
 
 -- | take all renamed modules and the import module and merge it into one file
@@ -37,16 +38,27 @@ merge projectType cabal = do
     let root    = trace'' "root dir" show . parent . fromJust . parseAbsFile $ cabal
         srcDirs = trace'' "srcDirs" show . fromMaybe [] . getDirs projectType ["hs-source-dirs"] root $ sections
 
-    pragmas <- fmap nub . getAllPragmas =<< map fromAbsFile <$> getFiles projectType srcDirs sections
-    print pragmas
-    
-    -- get file contents of merged files
-    let renamedFilesLocation = fromAbsDir root <> ".hsallinone/"
-    
-    imports      <- fmap (T.unlines . nub . T.lines) . TIO.readFile . fromAbsFile $ root </> (fromJust $ parseRelFile ".hsallinone/Imports")
-    fileContents <- mapM TIO.readFile =<< map (renamedFilesLocation <>) . filter (/= "Imports") <$> listDirectory renamedFilesLocation
-    
-    TIO.writeFile (fromAbsDir root <> "AllInOne.hs") . foldr ((<>) . (<> "\n")) T.empty $ T.unlines (map (T.pack . show) pragmas) : "module AllInOne () where" : imports : fileContents
+    -- pragmas <- fmap nub . getAllPragmas =<< map fromAbsFile <$> getFiles projectType srcDirs sections
+    files <- map fromAbsFile <$> getFiles projectType srcDirs sections
+    print files
+    TIO.writeFile (fromAbsDir root <> "AllInOne.hs") . T.pack =<< M.merge files
+
+-- merge :: ProjectType -> FilePath -> IO ()
+-- merge projectType cabal = do
+--     sections <- fromRight [] . DPP.readFields <$> BS.readFile cabal
+--     let root    = trace'' "root dir" show . parent . fromJust . parseAbsFile $ cabal
+--         srcDirs = trace'' "srcDirs" show . fromMaybe [] . getDirs projectType ["hs-source-dirs"] root $ sections
+-- 
+--     pragmas <- fmap nub . getAllPragmas =<< map fromAbsFile <$> getFiles projectType srcDirs sections
+--     print pragmas
+--     
+--     -- get file contents of merged files
+--     let renamedFilesLocation = fromAbsDir root <> ".hsallinone/"
+--     
+--     imports <- mapM TIO.readFile =<< map (renamedFilesLocation <>) . filter ("Imports" `isPrefixOf`) <$> listDirectory renamedFilesLocation
+--     fileContents <- mapM TIO.readFile =<< map (renamedFilesLocation <>) . filter (not . ("Imports" `isPrefixOf`)) <$> listDirectory renamedFilesLocation
+--     
+--     TIO.writeFile (fromAbsDir root <> "AllInOne.hs") . foldr ((<>) . (<> "\n")) T.empty $ T.unlines (map (T.pack . show) pragmas) : "module AllInOne () where" : imports <> fileContents
 
 
 -- | rename modules and create one imports module
@@ -65,21 +77,60 @@ plugin = defaultPlugin {
     
         let tempDirName = ".hsallinone"
             importsPath = ".hsallinone/Imports"
-            imports     = T.unlines . map (T.pack . oshow) . qualImports . removeImports ours . tcg_rn_imports $ t
-            modName     = moduleName . tcg_mod $ t
+            imports     = T.unlines . map (T.pack . oshow) . qualImports . removeImports ours $ tcg_rn_imports t
+            modName     = moduleName $ tcg_mod t
             renamedMod  = renameModule ours $ r
+            modId = show . hash $ oshow r
 
         flip unless (createDirectory tempDirName) =<< doesDirectoryExist tempDirName
-        TIO.appendFile importsPath imports
-        TIO.writeFile (tempDirName <> "/" <> moduleNameString modName <> (show $ hash $ oshow $ r)) . T.pack . oshow $ renamedMod
-        let arst =
-                "
-                arst
-                "
+        TIO.writeFile (importsPath <> modId) imports
+        TIO.writeFile (tempDirName <> "/" <> moduleNameString modName <> modId) . T.pack $ oshow renamedMod
         
         return (t, r)
 }
+ 
+--crst = cleanUpStringLiterals <$> TIO.readFile "/home/daniel/workspace/hsreduce/test-cases/trying-out/arst.txt"
+erst = do
+    let f = "/home/daniel/workspace/hsreduce-test-cases/head.hackage/packages/pandoc-2.9.2.1/AllInOne.hs"
+    (T.pack . cleanUpStringLiterals . T.unpack . fuckTH <$> TIO.readFile f) >>= TIO.writeFile f
 
+cleanUpStringLiterals :: String -> String
+cleanUpStringLiterals = unlines . crst . lines
+
+crst :: [String] -> [String]
+crst [] = []
+crst (l:ls)
+    | count l == 1 = let (acc, rest) = recurse "" ls
+                     in (l <> acc) : crst rest
+    | otherwise    = l : crst ls
+
+-- could there be lines with several strings in them?
+recurse :: String -> [String] -> (String, [String])
+recurse acc [] = (acc, [])
+recurse acc (l:ls)
+    | count l == 1 = (acc <> l, ls)
+    | otherwise    = recurse (acc <> l) ls
+
+
+count :: String -> Int
+count ""           = 0
+count ('\\':'"':s) = count s
+count ('"':s)      = 1 + count s
+count (_:s)        = count s
+count _            = 0
+
+fuckTH s 
+    | h == '\\' = T.cons '\\' (fuckTH $ skipWhiteSpace t)
+    | otherwise = T.cons h t
+    where h = T.head s
+          t = T.tail s
+
+skipWhiteSpace s
+    | h == ' '  = skipWhiteSpace t
+    | h == '\n' = skipWhiteSpace t
+    | otherwise = T.cons h t
+    where h = T.head s
+          t = T.tail s
 
 -- ***************************************************************************
 -- CLEANING UP
@@ -92,7 +143,7 @@ arst = do
 callCabal :: GhcMode -> IO ()
 callCabal mode = do
     f <- parseAbsFile "/home/daniel/workspace/hsreduce-test-cases/head.hackage/packages/pandoc-2.9.2.1/AllInOne.hs"
-    srcSpans <- getErrorOutput Cabal mode [] f
+    srcSpans <- getGhcOutput Cabal mode f
     print srcSpans
     return ()
 
@@ -100,9 +151,9 @@ callCabal mode = do
 fastCleanUp :: Tool -> Path Abs File -> IO ()
 fastCleanUp tool sourcePath = do
     cleanUp tool Indent sourcePath
-    --cleanUp tool MissingImport sourcePath -- add imports
-    -- cleanUp tool HiddenImport sourcePath  -- clean up imports
-    -- cleanUp tool NotInScope sourcePath  -- clean up uses of hidden modules
+    cleanUp tool MissingImport sourcePath -- add imports
+    cleanUp tool HiddenImport sourcePath  -- clean up imports
+    cleanUp tool NotInScope sourcePath       -- clean up uses of hidden modules
     -- cleanUp tool PerhapsYouMeant sourcePath
 
 allowedToLoop :: [GhcMode]
@@ -111,9 +162,8 @@ allowedToLoop = [Indent]
 cleanUp :: Tool -> GhcMode -> Path Abs File -> IO ()
 cleanUp tool mode sourcePath = do
     fileContent <- TIO.readFile (fromAbsFile sourcePath)
-    imports <- map (last . T.words) . T.lines <$> TIO.readFile ((fromAbsDir $ parent sourcePath) <> ".hsallinone/Imports")
     
-    getErrorOutput tool mode imports sourcePath >>= \case
+    getGhcOutput tool mode sourcePath >>= \case
         Nothing -> return ()
         Just [] -> return ()
         Just mySpans -> do
@@ -216,20 +266,19 @@ renameName ours n
     | showSDocUnsafe (pprNameUnqualified n) == "main" = n
   
     -- built-in things
-    | isSystemName    n    = n
-    | isWiredInName   n    = n
-    | isBuiltInSyntax n    = n
-    | isDataConName   n
-    , isOperator $ tail os = n
+    | isSystemName    n = n
+    | isBuiltInSyntax n = n
+    | isDataConName   n, isOperator $ tail os = n
+    | isWiredInName   n, isOperator . oshow $ getRdrName n = n
   
     -- not our operator, leave unmodified
-    | isOperator . oshow $ getRdrName n , Just mn <- getModuleName n , mn `notElem` ours = n
+    | isOperator . oshow $ getRdrName n, Just mn <- getModuleName n, mn `notElem` ours = n
 
     -- our operator
-    | Just mn <- getModuleName n , isOperator . oshow $ getRdrName n , mn `elem` ours = tidyNameOcc n . mkOccName ns . renameOperator $ (os ++ filter (/= '.') (moduleNameString mn))
+    | Just mn <- getModuleName n, isOperator . oshow $ getRdrName n, mn `elem` ours = tidyNameOcc n . mkOccName ns . renameOperator $ (os ++ filter (/= '.') (moduleNameString mn))
   
     -- our function / variable
-    | Just mn <- getModuleName n , mn `elem` ours = tidyNameOcc n $ mangle mn on
+    | Just mn <- getModuleName n, mn `elem` ours = tidyNameOcc n $ mangle mn on
   
     -- something external
     | Just mn <- getModuleName n = tidyNameOcc n $ qualName mn on

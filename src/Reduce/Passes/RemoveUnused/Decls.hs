@@ -1,5 +1,6 @@
 module Reduce.Passes.RemoveUnused.Decls (reduce) where
 
+import Data.Either
 import Debug.Trace
 import Control.Monad.State.Strict
 import qualified Data.Text as T
@@ -16,19 +17,19 @@ import Data.Generics.Uniplate.Data
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: R ()
 reduce = do
-  oldState <- get
-  sourceFile <- asks _sourceFile
-  liftIO $ putStrLn "\n***Removing unused declarations***"
-  liftIO $ debugPrint $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-  mUnusedBinds <- fmap (map fst) <$> liftIO (getGhcOutput sourceFile Binds)
-  _ <- (    traceShow ("rmvSigs" :: String) descendBiM (rmvSigs mUnusedBinds)
-        >=> traceShow ("filterUnusedSigLists" :: String) descendBiM (fastTry (filterUnusedSigLists mUnusedBinds))
-        >=> traceShow ("filterSigLists" :: String) descendBiM (fastTryR filterSigLists)
-        >=> traceShow ("rmvDecls" :: String) descendBiM (rmvDecls mUnusedBinds)
-        >=> traceShow ("rmvCons" :: String) descendBiM (fastTryR rmvCons)
-        >=> traceShow ("undefFunBind" :: String) descendBiM (fastTry undefFunBind))
-         (_parsed oldState)
-  return ()
+    oldState <- get
+    sourceFile <- asks _sourceFile
+    liftIO $ putStrLn "\n***Removing unused declarations***"
+    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
+    mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (getGhcOutput Ghc Binds sourceFile)
+    _ <- (traceShow ("rmvSigs" :: String) descendBiM (rmvSigs mUnusedBinds)
+            >=> traceShow ("filterUnusedSigLists" :: String) descendBiM (fastTry (filterUnusedSigLists mUnusedBinds))
+            >=> traceShow ("filterSigLists" :: String) descendBiM (fastTryR filterSigLists)
+            >=> traceShow ("rmvDecls" :: String) descendBiM (rmvDecls mUnusedBinds)
+            >=> traceShow ("rmvCons" :: String) descendBiM (fastTryR rmvCons)
+            >=> traceShow ("undefFunBind" :: String) descendBiM (fastTry undefFunBind))
+             (_parsed oldState)
+    return ()
 
 
 
