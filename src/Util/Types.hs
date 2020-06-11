@@ -1,5 +1,6 @@
 module Util.Types where
 
+import GHC.LanguageExtensions.Type
 import Data.Void
 import qualified Text.Megaparsec as M
 import Path
@@ -76,6 +77,21 @@ data Interesting = Interesting | Uninteresting
 -- TODO: maybe use another type than text for OPTION and INCLUDE
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
   deriving Eq
+
+
+pragma2Extension :: Pragma -> Maybe Extension
+pragma2Extension (Language e) = 
+    case e of
+        "AllowAmbiguousTypes"   -> Just AllowAmbiguousTypes
+        "ConstraintKinds"       -> Just ConstraintKinds
+        "RankNTypes"            -> Just RankNTypes
+        "TypeApplications "     -> Just TypeApplications 
+        "TypeFamilies"          -> Just TypeFamilies
+        "TypeInType "           -> Just TypeInType 
+        "TypeOperators"         -> Just TypeOperators
+        _ -> Nothing
+pragma2Extension _ = Nothing 
+
 
 showExtension :: Pragma -> T.Text
 showExtension (Language e)   = e

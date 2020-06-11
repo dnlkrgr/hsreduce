@@ -25,11 +25,13 @@ library
                      , async
                      , aeson
                      , bytestring
+                     , containers
                      , directory
                      , extra
                      , path
                      , ghc-boot-th
                      , ghc-paths
+                     , hie-bios
                      , haskell-src-exts
                      , haskell-names
                      , hse-cpp

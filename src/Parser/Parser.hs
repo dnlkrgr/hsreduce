@@ -1,20 +1,19 @@
-module Parser.Parser (getPragmas, parse) where
+module Parser.Parser (getPragmas, parse)  where
 
 import Data.Void
 import Control.Monad.IO.Class
 import DynFlags
-import BasicTypes
 import Path
 import Data.Either
 import Data.Functor
 import Control.Applicative
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Util.Types
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Char
 import GHC
 import GHC.Paths
+import Util.Types
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]
@@ -46,10 +45,11 @@ pragmaType =
   <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return OptionsGhc)
   <|> ((string "INCLUDE" <|> string "include") >> return Include)
 
+
 -- TODO: collect and return all pragmas
 parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
 parse justParse includeDirs srcDirs fileName = do
-  banner ("Parsing: " <> fromAbsFile fileName)
+  banner $ "Parsing: " ++ (fromAbsFile fileName)
 
   modName <-
     (\case
@@ -69,26 +69,67 @@ parse justParse includeDirs srcDirs fileName = do
 
     target <- guessTarget (fromAbsFile fileName) Nothing
     setTargets [target]
+    _ <- load LoadAllTargets
+    modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
 
-    load LoadAllTargets >>= \case
-      Succeeded -> do
-
-        modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
-
-        p <- parseModule modSum
-        -- TODO: catch and handle exceptions that could be thrown by typechecking
-        t <- if justParse then return $ Left () else Right <$> typecheckModule p
-
-
-        return (p, t)
-
-      _ -> error "Parser.Parser.parse: loading of all targets didn't succeed"
+    p <- parseModule modSum
+    -- TODO: catch and handle exceptions that could be thrown by typechecking
+    t <- if justParse then return $ Left () else Right <$> typecheckModule p
+    return (p, t)
 
   prags <- getPragmas fileName
 
   case et of
     Left _ -> return $ RState prags (parsedSource p) Nothing Nothing False
     Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
+
+-- -- TODO: collect and return all pragmas
+-- parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
+-- parse justParse includeDirs srcDirs fileName = do
+--   banner ("Parsing: " <> fromAbsFile fileName)
+-- 
+--   modName <-
+--     (\case
+--       Left _ -> "Main"
+--       Right t -> t)
+--     . getModName
+--     <$> TIO.readFile (fromAbsFile fileName)
+-- 
+--   print $ "Parser.Parser.parse: modName - " <> modName
+-- 
+--   prags <- getPragmas fileName
+--   let extensions = map fromJust . filter isJust . map pragma2Extension $ prags
+-- 
+--   (p, et) <- runGhc (Just libdir) $ do
+--     dflags          <- getSessionDynFlags
+--     (dflags1, _, _) <- parseDynamicFlags dflags []
+--     let includeDirStrings = map fromAbsDir includeDirs
+--         srcDirStrings     = map fromAbsDir srcDirs
+--     let dflags2 = L.foldl' xopt_set dflags1 extensions
+--     void $ setSessionDynFlags dflags2 { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
+-- 
+-- 
+--     target <- guessTarget (fromAbsFile fileName) Nothing
+--     setTargets [target]
+-- 
+--     load LoadAllTargets >>= \case
+--       Succeeded -> do
+-- 
+--         modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
+-- 
+--         p <- parseModule modSum
+--         -- TODO: catch and handle exceptions that could be thrown by typechecking
+--         t <- if justParse then return $ Left () else Right <$> typecheckModule p
+-- 
+-- 
+--         return (p, t)
+-- 
+--       _ -> error "Parser.Parser.parse: loading of all targets didn't succeed"
+-- 
+-- 
+--   case et of
+--     Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False
+--     Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
 
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum

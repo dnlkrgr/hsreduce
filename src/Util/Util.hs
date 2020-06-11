@@ -169,7 +169,7 @@ getGhcOutput tool ghcMode sourcePath = do
 
     (_, stdout, _) <- 
         fromMaybe (error "getGhcOutput timeout!") 
-        <$> timeout (fromIntegral $ defaultDuration * 1000 * 1000) (readCreateProcessWithExitCode ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
+        <$> timeout (fromIntegral $ defaultDuration) (readCreateProcessWithExitCode ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
 
     return $ case stdout of
         "" -> Nothing
@@ -293,7 +293,7 @@ isInProduction = False
 -- default duration: 30 seconds
 -- currently so high, because in big files we have up to 8000 errors
 defaultDuration :: Word
-defaultDuration = 30 * 60
+defaultDuration = 30 * 1000 * 1000
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
@@ -321,9 +321,6 @@ trace' a = traceShow a a
 
 
 
-
-
-
 -- realFloor :: T.Text
 -- realFloor = "Not in scope: ‘GHC.Real.floor’\nNo module named ‘GHC.Real’ is imported."
 -- 
@@ -334,7 +331,7 @@ trace' a = traceShow a a
 -- 
 -- -- noSuchModule :: T.Text
 -- -- noSuchModule = "Not in scope: ‘Data.Binary.Put.runPutM’\nNo module named ‘Data.Binary.Put’ is imported."
--- -- 
+-- 
 -- 
 --   
 -- 
@@ -346,13 +343,13 @@ trace' a = traceShow a a
 -- 
 -- importedFrom :: T.Text
 -- importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
+--  
+--  
+--  
+-- -- getModuleName :: T.Text -> T.Text
+-- -- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
 -- 
--- 
--- 
--- getModuleName :: T.Text -> T.Text
--- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
-
--- this isn't exactly like the init from Prelude
--- safeInit :: [a] -> Maybe [a]
--- safeInit [] = Nothing
--- safeInit xs = Just $ init xs
+-- -- this isn't exactly like the init from Prelude
+-- -- safeInit :: [a] -> Maybe [a]
+-- -- safeInit [] = Nothing
+-- -- safeInit xs = Just $ init xs
