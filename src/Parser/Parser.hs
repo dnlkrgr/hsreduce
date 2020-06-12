@@ -49,7 +49,7 @@ pragmaType =
 -- TODO: collect and return all pragmas
 parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
 parse justParse includeDirs srcDirs fileName = do
-  banner $ "Parsing: " ++ (fromAbsFile fileName)
+  banner $ "Parsing: " ++ fromAbsFile fileName
 
   modName <-
     (\case

@@ -1,7 +1,7 @@
-module Merge.HsAllInOne where
+module Merge.HsAllInOne (hsmerge) where
 
-import qualified Data.Map as M
 import System.Directory
+import qualified Data.Map as M
 import SrcLoc
 import Name
 import RdrName hiding (isQual, mkUnqual, mkQual)
@@ -13,13 +13,8 @@ import Data.List
 import GHC hiding (GhcMode, extensions)
 import Path
 import qualified Data.Text as T
-import Text.RE.TDFA.Text hiding (Match)
 import Data.Generics.Uniplate.Data
 import GhcPlugins hiding (extensions, (<>), isQual, mkUnqual, qualName, GhcMode, count, (<&&>))
-import qualified Distribution.Parsec.Field as DPF
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as B8
-import qualified Data.Word8 as W8
 import Data.Maybe
 import Data.Either
 import Util.Util
@@ -41,9 +36,7 @@ hsmerge filePath = do
                 void $ load LoadAllTargets
 
                 modSums <- mgModSummaries <$> getModuleGraph 
-                let 
-                    ours      = map (moduleName . ms_mod) modSums
-                    locations = map (ml_hs_file . ms_location) modSums
+                let ours = map (moduleName . ms_mod) modSums
 
                 missingImportsAndAnnotatedAST <- flip traverse modSums $ \modSum -> do
                     t <- parseModule modSum >>= typecheckModule
@@ -68,7 +61,18 @@ hsmerge filePath = do
 
                     return (proposedImportsToAdd, newParsedSource)
                     
-                extensions <- liftIO . fmap (unlines . map show) . getAllPragmas . map fromJust $ filter isJust locations
+                d <- liftIO getCurrentDirectory
+                let crd = cradleRootDir cradle 
+                    root = if crd == "." then d else crd
+
+                extensions <- 
+                    liftIO 
+                    . fmap (unlines . map show) 
+                    . getAllPragmas 
+                    . catMaybes 
+                    . map (fmap (\f -> if f == filePath then root <> "/" <> f else f) . ml_hs_file . ms_location) 
+                    $ modSums
+
                 let 
                     annASTs      = map snd missingImportsAndAnnotatedAST
                     modName      = Just . noLoc $ mkModuleName "AllInOne"
@@ -77,7 +81,7 @@ hsmerge filePath = do
                     decls        = concatMap hsmodDecls annASTs
                     mergedMod    = HsModule modName Nothing imports decls Nothing Nothing
 
-                liftIO . writeFile (cradleRootDir cradle <> "AllInOne.hs") $ unlines [extensions, oshow mergedMod]
+                liftIO . writeFile "AllInOne.hs" $ unlines [extensions, oshow mergedMod]
 
         CradleFail err  -> error $ show err
         _               -> error "Cradle wasn't loaded successfully! Maybe you're missing a hie.yaml file?"
@@ -119,14 +123,18 @@ name2ProposedChange imports ours n
 
 findBestMatchingImport :: [ModuleName] -> ModuleName -> Either ModuleName ModuleName
 findBestMatchingImport imports mn
-    | mn `elem` imports    = Right mn
+    | mn `elem` imports                                                         = Right mn
     -- | mn `elem` imports    = trace'' "right mn" (const (oshow mn <> ", " <> oshow imports)) $ Right mn
-    | bestMatchLength >= 2 = Right bestMatch 
-    | otherwise            = Left mn
+    | Just (bestMatch, bestMatchLength) <- safeLast arst, bestMatchLength >= 2  = Right bestMatch 
+    | otherwise                                                                 = Left mn
   where 
-        components                   = modname2components . T.pack $ moduleNameString mn
-        importsSorted                = map (\i -> ((,) i) . length . filter (==True) . zipWith (==) components . modname2components . T.pack . moduleNameString $ i) imports
-        (bestMatch, bestMatchLength) = last $ sortOn snd importsSorted
+        components      = modname2components . T.pack $ moduleNameString mn
+        importsSorted   = map (\i -> ((,) i) . length . filter (==True) . zipWith (==) components . modname2components . T.pack . moduleNameString $ i) imports
+        arst            = sortOn snd importsSorted
+
+safeLast :: [a] -> Maybe a
+safeLast [] = Nothing
+safeLast xs = Just $ last xs
 
 ambiguousField2ProposedChanged :: [ModuleName] -> [ModuleName] -> AmbiguousFieldOcc GhcRn -> (SrcSpan, RdrName -> RdrName)
 ambiguousField2ProposedChanged imports ours (Unambiguous n (L l rn))
@@ -195,9 +203,6 @@ unqualName :: RdrName -> RdrName
 unqualName (Qual _ on) = Unqual on
 unqualName n = n
 
-unqualText :: T.Text -> T.Text
-unqualText = (*=~/ [ed|(([A-Z][A-Za-z0-9_]*)\.)+${e}([A-Za-z][A-Za-z0-9_']*)///${e}|])
-
 --  | make all imports qualified, hiding nothing, no aliasing and no safe imports
 qualImports :: [LImportDecl p] -> [LImportDecl p]
 qualImports = map (\(L l i) ->
@@ -214,12 +219,6 @@ removeImports ours = filter go
       go (L _ i) = let modName = unLoc . ideclName $ i
                    in  modName `notElem` ours && ("Prelude" /= (moduleNameString modName))
 
--- | qualify an occ name
-qualName :: ModuleName -> OccName -> OccName
-qualName mn on = mkOccName ns $ modulenameSansInternal ++ "." ++ oshow on
-  where 
-      ns = occNameSpace on
-      modulenameSansInternal = moduleNameString mn 
 
 -- | too naive check if something is an operator
 -- TODO: use syntax from Haskell2010 report
@@ -249,51 +248,5 @@ randomOpString = do
 -- ***************************************************************************
 -- CABAL FILE UTILITIES
 -- ***************************************************************************
-getFiles :: ProjectType -> [Path Abs Dir] -> [DPF.Field a] -> IO [Path Abs File]
-getFiles projectType srcDirs =
-      filterM (doesFileExist . fromAbsFile)
-    . fromJust
-    . fmap (concatMap (\n -> map (\d -> d </> n) srcDirs) . concat)
-    . traverse (file2Paths modName2FileName ["exposed-modules", "other-modules", "main-is"])
-    . keepFields [show projectType]
-
-field2Entries :: [BS.ByteString] -> DPF.Field b -> [String]
-field2Entries names (DPF.Section _ _ f) = concatMap (field2Entries names) f
-field2Entries names (DPF.Field n f)
-  | BS.map W8.toLower (DPF.getName n) `elem` names = map (filter ((/= ' ') <&&> (/= ','))  . B8.unpack . fieldLineBS) f
-  | otherwise = return []
-
-file2Paths :: (FilePath -> Maybe (Path Rel a)) -> [BS.ByteString] -> DPF.Field b -> Maybe [Path Rel a]
-file2Paths g names (DPF.Section _ _ f) = concat <$> traverse (file2Paths g names) f
-file2Paths g names (DPF.Field n f)
-  | BS.map W8.toLower (DPF.getName n) `elem` names = sequence . filter isJust . map g $ map (B8.unpack . fieldLineBS) f
-  | otherwise = return []
-
-getDirs :: ProjectType -> [BS.ByteString] -> Path Abs Dir -> [DPF.Field a] -> Maybe [Path Abs Dir]
-getDirs projectType dirNames rootPath sections = do
-    relPaths <- fmap concat . traverse (file2Paths parseRelDir dirNames) . keepFields [show projectType] $ sections
-  
-    relPathsFixed <-
-        sequence
-        . filter isJust
-        . concatMap (map parseRelDir . words . map (\c -> if c == ',' then ' ' else c) . fromRelDir)
-        $ relPaths
-  
-    fmap (map (rootPath </>)) .  traverse (parseRelDir . filter (/= ',') . fromRelDir) $ relPathsFixed
-
-
-modName2FileName :: String -> Maybe (Path Rel File)
-modName2FileName f
-   | f == "Main.hs"            = parseRelFile f
-   | ".hs" `isSubsequenceOf` f = let fileName = take (length f - 3) f
-                                 in parseRelFile $ map (\case '.' -> '/'; c -> c) fileName ++ ".hs"
-   | otherwise = parseRelFile $ (map (\case '.' -> '/'; c -> c) $ filter ((/= ' ') <&&> (/= ',')) f) ++ ".hs"
-
-keepFields :: [String] -> [DPF.Field a] -> [DPF.Field a]
-keepFields names = filter ((`elem` map B8.pack names) . BS.map W8.toLower . DPF.getName . DPF.fieldName)
-
-fieldLineBS :: DPF.FieldLine a -> B8.ByteString
-fieldLineBS (DPF.FieldLine _ bs) = bs
-
 getAllPragmas :: [FilePath] -> IO [Pragma]
-getAllPragmas interestingFiles = fmap concat . mapM getPragmas . map (fromJust . parseAbsFile) $ interestingFiles
+getAllPragmas = fmap concat . mapM getPragmas . map (fromJust . parseAbsFile)

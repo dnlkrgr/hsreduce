@@ -51,7 +51,7 @@ rmvSigs (Just unusedBinds) = reduceListOfSubelements f' rmvOneDecl
 filterUnusedSigLists :: Maybe [T.Text] -> HsDecl GhcPs -> Maybe (HsDecl GhcPs)
 filterUnusedSigLists (Just bns) (TypeSigDeclP ids swt) =
   let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
-  in Just $ (TypeSigDeclX newFunIds swt)
+  in Just $ TypeSigDeclX newFunIds swt
 filterUnusedSigLists _ _ = Nothing
 
 -- | brute force filter out IDs in a signature
@@ -110,7 +110,7 @@ getName _ = Nothing
 
 -- | brute force remove constructors
 rmvCons :: LHsDecl GhcPs -> Maybe (R (LHsDecl GhcPs))
-rmvCons t@(L _ (TyClD _ (DataDecl {}))) =
+rmvCons t@(L _ (TyClD _ DataDecl{})) =
   Just $ reduceListOfSubelements decl2ConsStrings delCons t
   where
     decl2ConsStrings = \case

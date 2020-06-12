@@ -86,9 +86,6 @@ fastTryR f e = fromMaybe (return e) . f $ e
 fastTry :: Data a => (a -> Maybe a) -> Located a -> R (Located a)
 fastTry f e = maybe (return e) (tryNewValue e) . f . unLoc $ e
 
-try :: Data a => (a -> a) -> Located a -> R (Located a)
-try g (L l v) = tryNewValue (L l v) (g v)
-
 reduceListOfSubelements ::
   (Data a, Eq e) =>
   -- | how to get a list of comparable elements
@@ -98,6 +95,9 @@ reduceListOfSubelements ::
   Located a ->
   R (Located a)
 reduceListOfSubelements getCmpElements f la = (foldr ((>=>) . try . f) return . getCmpElements . unLoc $ la) la
+
+try :: Data a => (a -> a) -> Located a -> R (Located a)
+try g (L l v) = tryNewValue (L l v) (g v)
 
 tryNewValue :: Data a => Located a -> a -> R (Located a)
 tryNewValue oldValue@(L loc _) newValue = do
@@ -169,7 +169,7 @@ getGhcOutput tool ghcMode sourcePath = do
 
     (_, stdout, _) <- 
         fromMaybe (error "getGhcOutput timeout!") 
-        <$> timeout (fromIntegral $ defaultDuration) (readCreateProcessWithExitCode ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
+        <$> timeout (fromIntegral defaultDuration) (readCreateProcessWithExitCode ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
 
     return $ case stdout of
         "" -> Nothing
@@ -317,7 +317,6 @@ lshow = showSDocUnsafe . ppr . unLoc
 
 trace' :: Show a => a -> a
 trace' a = traceShow a a
-
 
 
 

@@ -24,9 +24,9 @@ reduce = do
     case maybeExports of
   
       Nothing -> do
-          modName <- takeWhile (/= '.') . fromAbsFile . _sourceFile <$> ask
+          modName <- asks (takeWhile (/= '.') . fromAbsFile . _sourceFile)
   
-          let oldExports = map fromJust . filter isJust . map (decl2Export . unLoc) $ allDecls
+          let oldExports = mapMaybe (decl2Export . unLoc) allDecls
               newModName =
                   case maybeModName of
                       Nothing -> Just . L noSrcSpan . mkModuleName $ modName
@@ -39,7 +39,7 @@ reduce = do
   
       Just _ -> return ()
   
-    void . (descendBiM (fastTryR removeExports)) $ _parsed oldState
+    void . descendBiM (fastTryR removeExports) $ _parsed oldState
 
 removeExports :: Located [LIE GhcPs] -> Maybe (R (Located [LIE GhcPs]))
 removeExports = Just . reduceListOfSubelements (map (oshow . unLoc)) (\name exports -> filter ((/= name) . oshow . unLoc) exports)

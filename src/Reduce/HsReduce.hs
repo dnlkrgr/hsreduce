@@ -70,7 +70,7 @@ hsreduce test filePath = do
     print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
 allActions :: R ()
-allActions = do
+allActions = 
     runTest (120 * 1000 * 1000) >>= \case
         Uninteresting -> error "*** test is uninteresting at the start! ***"
         Interesting -> do
