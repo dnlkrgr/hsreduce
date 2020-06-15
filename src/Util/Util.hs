@@ -30,6 +30,9 @@ import qualified Text.Megaparsec.Char as MC
 import System.Directory
 import System.Posix.Files
 
+minireduce :: Data a => (Located a -> R (Located a)) -> R ()
+minireduce pass = void . (transformBiM pass) =<< gets _parsed
+
 modname2components :: T.Text -> [T.Text]
 modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)
 
@@ -67,15 +70,13 @@ gshows = render `extQ` (shows :: String -> ShowS) where
 
 
 recListDirectory :: FilePath -> IO [FilePath]
-recListDirectory dir =
-  listDirectory dir >>=
-    fmap concat . mapM
-      (\f ->
-        let f' = dir <> "/" <> f
-        in (isDirectory <$> getFileStatus f') >>=
-           \case
-             False -> return [f']
-             True  -> recListDirectory f')
+recListDirectory dir = listDirectory dir >>=
+   fmap concat . mapM
+       (\f ->
+           let f' = dir <> "/" <> f
+           in (isDirectory <$> getFileStatus f') >>= \case
+               False -> return [f']
+               True  -> recListDirectory f')
 
 trace'' :: String -> (a -> String) -> a -> a
 trace'' s f a = traceShow (s <> ": " <> f a) a
@@ -101,9 +102,9 @@ try g (L l v) = tryNewValue (L l v) (g v)
 
 tryNewValue :: Data a => Located a -> a -> R (Located a)
 tryNewValue oldValue@(L loc _) newValue = do
-  oldState <- get
-  let newSource = descendBi (overwriteAtLoc loc newValue) (_parsed oldState)
-  testAndUpdateStateFlex oldValue (L loc newValue) (oldState { _parsed = newSource })
+    oldState <- get
+    let newSource = transformBi (overwriteAtLoc loc newValue) (_parsed oldState)
+    testAndUpdateStateFlex oldValue (L loc newValue) (oldState { _parsed = newSource })
 
 overwriteAtLoc ::
   -- | loc:      location that should be updated
@@ -114,47 +115,47 @@ overwriteAtLoc ::
   Located a ->
   Located a
 overwriteAtLoc loc newValue oldValue@(L oldLoc _)
-  | loc == oldLoc = L loc newValue
-  | otherwise = oldValue
+    | loc == oldLoc = L loc newValue
+    | otherwise = oldValue
 
 testAndUpdateStateFlex :: a -> a -> RState -> R a
 testAndUpdateStateFlex a b newState = do
-  sourceFile <- asks _sourceFile
-  (liftIO . CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-    Left (_ :: CE.SomeException) -> return a
-    Right _ -> do
-      runTest defaultDuration >>= \case
-        Uninteresting -> return a
-        Interesting -> do
-          -- TODO: add information to change operation for better debugging messages
-
-          modify $
-            \s -> newState {
-              _isAlive = if _isAlive s
-                         then traceShow ("+" :: String) $ True
-                         else let e = showState newState /= showState s
-                              in if e then traceShow ("+" :: String) e else e
-              }
-
-          return b
+    sourceFile <- asks _sourceFile
+    (liftIO . CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
+        Left (_ :: CE.SomeException) -> return a
+        Right _ -> do
+          runTest defaultDuration >>= \case
+              Uninteresting -> return a
+              Interesting -> do
+                -- TODO: add information to change operation for better debugging messages
+  
+                  modify $
+                    \s -> newState {
+                      _isAlive = if _isAlive s
+                                 then traceShow ("+" :: String) $ True
+                                 else let e = showState newState /= showState s
+                                      in if e then traceShow ("+" :: String) e else e
+                      }
+  
+                  return b
 
 
 -- TODO: before running test: check if parseable, renaming and typchecking succeed
 -- | run the interestingness test on a timeout of 30 seconds
 runTest :: Word -> R Interesting
 runTest duration = do
-  test <- asks _test
-  let dirName = parent test
-  let testName = filename test
-  -- TODO: make timout duration configurable
-  liftIO $ timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) "") >>= \case
-       Nothing -> do
-         errorPrint "runTest: timed out"
-         return Uninteresting
-       Just (exitCode, _, _) ->
-         case exitCode of
-           ExitFailure _ -> return Uninteresting
-           ExitSuccess -> return Interesting
+    test <- asks _test
+    let dirName = parent test
+    let testName = filename test
+    -- TODO: make timout duration configurable
+    liftIO $ timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) "") >>= \case
+         Nothing -> do
+           errorPrint "runTest: timed out"
+           return Uninteresting
+         Just (exitCode, _, _) ->
+             case exitCode of
+                 ExitFailure _ -> return Uninteresting
+                 ExitSuccess -> return Interesting
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 getGhcOutput :: Tool -> GhcMode -> Path Abs File -> IO (Maybe [(Either (M.ParseErrorBundle T.Text Void) T.Text, SL.RealSrcSpan)])
@@ -208,81 +209,80 @@ useP = flip M.parse ""
 
 notInScopeP :: Parser T.Text
 notInScopeP = do
-  void $ M.chunk "Not in scope:"
-  void $ M.some (M.satisfy (/= '‘'))
-  void $ MC.char '‘'
-  T.pack <$> M.some (M.satisfy (/= '’'))
+    void $ M.chunk "Not in scope:"
+    void $ M.some (M.satisfy (/= '‘'))
+    void $ MC.char '‘'
+    T.pack <$> M.some (M.satisfy (/= '’'))
 
 perhapsYouMeantP :: Parser T.Text
 perhapsYouMeantP = do
-  void $ M.chunk "Not in scope:"
-  void $ M.some (M.satisfy (/= '‘'))
-  void $ MC.char '‘'
-  void $ M.some (M.satisfy (/= '’'))
-  void $ MC.char '’'
-  MC.space
-  void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
-  void $ M.some (M.satisfy (/= '‘'))
-  void $ MC.char '‘'
-  T.pack <$> M.some (M.satisfy (/= '’'))
+    void $ M.chunk "Not in scope:"
+    void $ M.some (M.satisfy (/= '‘'))
+    void $ MC.char '‘'
+    void $ M.some (M.satisfy (/= '’'))
+    void $ MC.char '’'
+    MC.space
+    void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
+    void $ M.some (M.satisfy (/= '‘'))
+    void $ MC.char '‘'
+    T.pack <$> M.some (M.satisfy (/= '’'))
    
 removeUseOfHidden :: T.Text -> T.Text
 removeUseOfHidden s 
-  | length components > 2 
-  = removeInternal init (T.intercalate "." $ init components) <> "." <> (last components)
-  | otherwise = s
-  where components = modname2components s 
+    | length components > 2 
+    = removeInternal init (T.intercalate "." $ init components) <> "." <> (last components)
+    | otherwise = s
+    where components = modname2components s 
 
 removeInternal :: ([T.Text] -> [T.Text]) -> T.Text -> T.Text
 removeInternal f s
-  | length components > 2 = T.intercalate "." . (\wrds -> if "Internal" `elem` wrds then takeWhile (/= "Internal") wrds else f wrds) $ components
-  | otherwise = s
+    | length components > 2 = T.intercalate "." . (\wrds -> if "Internal" `elem` wrds then takeWhile (/= "Internal") wrds else f wrds) $ components
+    | otherwise = s
   where components = modname2components s 
 
 hiddenImportP :: Parser T.Text
 hiddenImportP = do
-  void $ M.chunk "Could not load module"
-  MC.space
-  void $ MC.char '‘'
-  T.pack <$> M.some (M.satisfy (/= '’'))
+    void $ M.chunk "Could not load module"
+    MC.space
+    void $ MC.char '‘'
+    T.pack <$> M.some (M.satisfy (/= '’'))
 
 noModuleNamedP :: Parser T.Text
 noModuleNamedP = do
-  void $ M.chunk "Not in scope:"
-  MC.space
-  go
-  void $ MC.char '‘'
-  T.pack <$> M.some (M.satisfy (/= '’'))
+    void $ M.chunk "Not in scope:"
+    MC.space
+    go
+    void $ MC.char '‘'
+    T.pack <$> M.some (M.satisfy (/= '’'))
   where 
-    go = do
-      M.try (M.chunk "No module named" >> MC.space) 
-        <|> do
-              void $ M.some (M.satisfy (/= '\n')) 
-              MC.space 
-              go
+      go = do
+          M.try (M.chunk "No module named" >> MC.space) 
+              <|> do
+                      void $ M.some (M.satisfy (/= '\n')) 
+                      MC.space 
+                      go
 
 importedFromP :: Parser T.Text
 importedFromP = do
-  void $ M.some $ M.satisfy (/= '(')
-  void $ MC.char '('
-  void $ M.chunk "imported"
-  MC.space
-  void $ M.chunk "from"
-  MC.space
-  fmap T.pack . M.some $ M.satisfy (/= ')')
+    void $ M.some $ M.satisfy (/= '(')
+    void $ MC.char '('
+    void $ M.chunk "imported"
+    MC.space
+    void $ M.chunk "from"
+    MC.space
+    fmap T.pack . M.some $ M.satisfy (/= ')')
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
   where n = mkFastString $ T.unpack f
 
 isQual :: T.Text -> Bool
-isQual =
-  matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
+isQual = matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
 debug :: MonadIO m => (a -> m ()) -> a -> m ()
 debug f s
-  | isInProduction = return ()
-  | otherwise = f s
+    | isInProduction = return ()
+    | otherwise = f s
 
 errorPrint :: MonadIO m => String -> m ()
 errorPrint = debug (liftIO . putStrLn . ("[error] " ++))
@@ -309,8 +309,8 @@ oshow = showSDocUnsafe . ppr
 banner :: MonadIO m => String -> m ()
 banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
   where
-    n = 80 - length s
-    s' = replicate (div n 2) '='
+      n = 80 - length s
+      s' = replicate (div n 2) '='
 
 lshow :: Outputable a => Located a -> String
 lshow = showSDocUnsafe . ppr . unLoc

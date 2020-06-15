@@ -24,8 +24,8 @@ import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 
-hsreduce :: Path Abs File -> Path Abs File -> IO ()
-hsreduce test filePath = do
+hsreduce :: Path Abs File -> Path Abs File -> Maybe (R ()) -> IO ()
+hsreduce test filePath action = do
     putStrLn "*******************************************************"
   
     startTime   <- utctDayTime <$> getCurrentTime
@@ -54,7 +54,10 @@ hsreduce test filePath = do
                        then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
                        else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
   
-                snd <$> runR (RConf tempTest tempFilePath) beginState allActions)
+                case action of
+                    Nothing -> snd <$> runR (RConf tempTest tempFilePath) beginState allActions
+                    Just a  -> snd <$> runR (RConf tempTest tempFilePath) beginState (largestFixpoint a)
+                )
   
     let fileName = takeWhile (/= '.') . fromAbsFile $ filePath
         newSize  = T.length . showState $ newState
@@ -90,8 +93,8 @@ fast = do
 
 slow :: R ()
 slow = do
-    fast
     Stubbing.reduce
+    fast
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- smaller than the old one

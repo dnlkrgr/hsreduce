@@ -1,4 +1,4 @@
-module Reduce.Passes.RemoveUnused.Decls (reduce) where
+module Reduce.Passes.RemoveUnused.Decls where
 
 import Data.Either
 import Debug.Trace
@@ -22,12 +22,12 @@ reduce = do
     liftIO $ putStrLn "\n***Removing unused declarations***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (getGhcOutput Ghc Binds sourceFile)
-    _ <- (traceShow ("rmvSigs" :: String) descendBiM (rmvSigs mUnusedBinds)
-            >=> traceShow ("filterUnusedSigLists" :: String) descendBiM (fastTry (filterUnusedSigLists mUnusedBinds))
-            >=> traceShow ("filterSigLists" :: String) descendBiM (fastTryR filterSigLists)
-            >=> traceShow ("rmvDecls" :: String) descendBiM (rmvDecls mUnusedBinds)
-            >=> traceShow ("rmvCons" :: String) descendBiM (fastTryR rmvCons)
-            >=> traceShow ("undefFunBind" :: String) descendBiM (fastTry undefFunBind))
+    _ <- (traceShow ("rmvSigs" :: String) transformBiM (rmvSigs mUnusedBinds)
+            >=> traceShow ("filterUnusedSigLists" :: String) transformBiM (fastTry (filterUnusedSigLists mUnusedBinds))
+            >=> traceShow ("filterSigLists" :: String) transformBiM (fastTryR filterSigLists)
+            >=> traceShow ("rmvDecls" :: String) transformBiM (rmvDecls mUnusedBinds)
+            >=> traceShow ("rmvCons" :: String) transformBiM (fastTryR rmvCons)
+            >=> traceShow ("undefFunBind" :: String) transformBiM (fastTry undefFunBind))
              (_parsed oldState)
     return ()
 

@@ -1,4 +1,4 @@
-module Reduce.Passes.Stubbing (reduce) where
+module Reduce.Passes.Stubbing where
 
 import Data.Ratio
 import qualified Data.ByteString as BS
@@ -24,30 +24,31 @@ reduce = do
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
     void $ stubbings oldState
 
+
+-- TODO: make this parametric
 stubbings :: RState -> R ParsedSource
 stubbings =
-    (
-             -- traceShow ("recordCon" :: String)               . descendBiM (fastTryR recordCon)
-             traceShow ("exprWithList" :: String)            . descendBiM exprWithList
-         -- -- >=> traceShow ("simplifyExpr" :: String)            . descendBiM (fastTry simplifyExpr)
-         >=> traceShow ("expr2Undefined" :: String)          . descendBiM (fastTry expr2Undefined)
-         >=> traceShow ("deleteGADTforall" :: String)        . descendBiM (fastTry deleteGADTforall)
-         >=> traceShow ("deleteGADTctxt" :: String)          . descendBiM (fastTry deleteGADTctxt)
-         -- >=> traceShow ("matchDelRhsUndef" :: String)        . descendBiM (try matchDelRhsUndef)
-         -- >=> traceShow ("matchDelIfUndefAnywhere" :: String) . descendBiM (try matchDelIfUndefAnywhere)
-         >=> traceShow ("rmvMatches" :: String) . descendBiM (fastTryR rmvMatches)
-         -- >=> traceShow ("simplifyMatch" :: String)           . descendBiM simplifyMatch
-         -- >=> traceShow ("simplifyLGRHS" :: String)           . descendBiM (fastTry simplifyLGRHS)
-         >=> traceShow ("valBinds" :: String)                . descendBiM (fastTryR valBinds)
-         >=> traceShow ("familyResultSig" :: String)                . descendBiM (fastTry familyResultSig)
-         >=> traceShow ("tyVarBndr" :: String)                . descendBiM (fastTry tyVarBndr)
-         >=> traceShow ("simplifyType" :: String)             . descendBiM (fastTry simplifyType)
-         >=> traceShow ("simplifyTypeR" :: String)            . descendBiM (fastTryR simplifyTypeR)
-         >=> traceShow ("type2Unit" :: String)               . descendBiM (fastTry type2Unit)
-         >=> traceShow ("deleteWhereClause" :: String)       . descendBiM (fastTry deleteWhereClause)
-         -- >=> traceShow ("inlineFunctions" :: String)         . descendBiM inlineFunctions
-         -- >=> traceShow ("simplifyLit" :: String)             . descendBiM (try simplifyLit)
-         >=> traceShow ("pat2Wildcard" :: String)             . descendBiM (try pat2Wildcard))
+    (   traceShow     ("recordCon" :: String)               . transformBiM (fastTryR recordCon)
+        >=> traceShow ("exprWithList" :: String)            . transformBiM exprWithList
+        >=> traceShow ("simplifyExpr" :: String)            . transformBiM (fastTry simplifyExpr)
+        >=> traceShow ("expr2Undefined" :: String)          . transformBiM (fastTry expr2Undefined)
+        >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (fastTry deleteGADTforall)
+        >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (fastTry deleteGADTctxt)
+        >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
+        >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
+        >=> traceShow ("rmvMatches" :: String) . transformBiM (fastTryR rmvMatches)
+        >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
+        >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (fastTry simplifyLGRHS)
+        >=> traceShow ("valBinds" :: String)                . transformBiM (fastTryR valBinds)
+        >=> traceShow ("familyResultSig" :: String)         . transformBiM (fastTry familyResultSig)
+        >=> traceShow ("tyVarBndr" :: String)               . transformBiM (fastTry tyVarBndr)
+        >=> traceShow ("simplifyType" :: String)            . transformBiM (fastTry simplifyType)
+        >=> traceShow ("simplifyTypeR" :: String)           . transformBiM (fastTryR simplifyTypeR)
+        >=> traceShow ("type2Unit" :: String)               . transformBiM (fastTry type2Unit)
+        >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (fastTry deleteWhereClause)
+        -- >=> traceShow ("inlineFunctions" :: String)         . transformBiM inlineFunctions
+        -- >=> traceShow ("simplifyLit" :: String)             . transformBiM (try simplifyLit)
+        >=> traceShow ("pat2Wildcard" :: String)            . transformBiM (try pat2Wildcard))
     . _parsed
 
 
@@ -115,26 +116,26 @@ simplifyType _ = Nothing
 
 -- TODO: can we use -Wunused-... for this?
 -- also: return Nothing for uninteresting cases
--- recordCon :: LConDecl GhcPs -> Maybe (R (LConDecl GhcPs))
--- recordCon (L _ (XConDecl _)) = Nothing
--- recordCon x
---   | isRecCon x = Just $ reduceListOfSubelements f g x
---   | otherwise  = Nothing
---   where
---     isRecCon = (\case
---                    RecCon _ -> True
---                    _ -> False)
---                . con_args
---                . unLoc
---     f = \case
---       c -> (\case
---               RecCon (L _ flds) -> map getLoc flds
---               _ -> []) . con_args $ c
---     g loc = \case
---       XConDecl _ -> XConDecl NoExt
---       c -> c { con_args = case con_args c of
---                  RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
---                  a -> a }
+recordCon :: LConDecl GhcPs -> Maybe (R (LConDecl GhcPs))
+recordCon (L _ (XConDecl _)) = Nothing
+recordCon x
+  | isRecCon x = Just $ reduceListOfSubelements f g x
+  | otherwise  = Nothing
+  where
+    isRecCon = (\case
+                   RecCon _ -> True
+                   _        -> False)
+               . con_args
+               . unLoc
+    f = \case
+      c -> (\case
+              RecCon (L _ flds) -> map getLoc flds
+              _                 -> []) . con_args $ c
+    g loc = \case
+      XConDecl _ -> XConDecl NoExt
+      c -> c { con_args = case con_args c of
+                 RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
+                 a                 -> a }
 
 deleteGADTforall :: ConDecl GhcPs -> Maybe (ConDecl GhcPs)
 deleteGADTforall gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) = Just $ gadtDecl{ con_forall = L forallLoc False} -- delete forall

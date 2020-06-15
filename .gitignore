@@ -26,7 +26,6 @@ small.c.old
 small.c.orig
 small.c.simple
 test1.sh
-test/Test.hs
 Arst.hs
 test-cases/**/*.txt
 test-cases/**/*.nix

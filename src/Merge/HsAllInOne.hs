@@ -57,7 +57,7 @@ hsmerge filePath = do
                                 $  (map (fmap snd) $ proposedNameChanges)
                                 <> [ ambiguousField2ProposedChanged importsModuleNames ours a | a <- universeBi renamedGroups ]
                                 <> [ field2ProposedChange importsModuleNames ours f | f <- universeBi renamedGroups ]
-                        newParsedSource = descendBi unqualSig . descendBi unqualBinds . descendBi (applyChange proposedChanges) $ myParsedSource
+                        newParsedSource = transformBi unqualSig . transformBi unqualBinds . transformBi (applyChange proposedChanges) $ myParsedSource
 
                     return (proposedImportsToAdd, newParsedSource)
                     
@@ -192,7 +192,7 @@ unqualBinds fb@(FunBind _ (L l n) fm  _ _)
     | isQual (T.pack $ oshow n) = newFB
     | otherwise = fb
   where 
-      newFM = descendBi unqualMatchCtxt fm
+      newFM = transformBi unqualMatchCtxt fm
       newFB = fb { fun_id = L l $ unqualName n, fun_matches = newFM }
 unqualBinds hb = hb
 

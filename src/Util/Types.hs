@@ -82,13 +82,13 @@ data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
 pragma2Extension :: Pragma -> Maybe Extension
 pragma2Extension (Language e) = 
     case e of
-        "AllowAmbiguousTypes"   -> Just AllowAmbiguousTypes
-        "ConstraintKinds"       -> Just ConstraintKinds
-        "RankNTypes"            -> Just RankNTypes
-        "TypeApplications "     -> Just TypeApplications 
-        "TypeFamilies"          -> Just TypeFamilies
-        "TypeInType "           -> Just TypeInType 
-        "TypeOperators"         -> Just TypeOperators
+        "AllowAmbiguousTypes" -> Just AllowAmbiguousTypes
+        "ConstraintKinds"     -> Just ConstraintKinds
+        "RankNTypes"          -> Just RankNTypes
+        "TypeApplications "   -> Just TypeApplications 
+        "TypeFamilies"        -> Just TypeFamilies
+        "TypeInType "         -> Just TypeInType 
+        "TypeOperators"       -> Just TypeOperators
         _ -> Nothing
 pragma2Extension _ = Nothing 
 
