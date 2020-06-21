@@ -36,29 +36,30 @@ import qualified Reduce.Passes.Stubbing             as Stubbing
 
 
 testRegressions :: IO ()
-testRegressions = hspec $ do
-    let 
-        root    = "/home/daniel/workspace/hsreduce/test-cases/regressions/"
-        test    = fromJust . parseAbsFile $ root <> "interesting.sh"
-        sources = 
-            map (\(src, a, m, e) -> (fromJust . parseAbsFile . (root <>) . (<> ".hs") $ src, a, m, e)) 
-                [ ("Imports",   Imports.reduce, Nothing, "module Imports where\n")
-                , ("Pragmas",   Pragmas.reduce, Nothing, "module Pragmas where\n")
-                , ("Exports",   Exports.reduce, Nothing, "module Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
-                , ("Exports2",  Exports.reduce, Nothing, "module Exports (\n        Arst(..), a, b, c\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
-                -- *****
-                -- Decls
-                -- *****
-                , ("Decls",     Decls.reduce,                        Nothing,            "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
-                -- deleting only some of the fun ids in a line
-                , ("FunIds",    minireduce (Decls.rmvDecls Nothing), (Just "funids.sh"), "module FunIds (\n        foo\n    ) where\nfoo x = 3\n")
-                , ("Cons",      minireduce (fastTryR Decls.rmvCons), Nothing,            "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
-                -- ********
-                -- Stubbing
-                -- ********
-                , ("Undefined", minireduce (fastTry Stubbing.expr2Undefined), Nothing, "module Undefined where\nfoo x = undefined\n")
-                , ("Unit",      minireduce (fastTry Stubbing.type2Unit),      Nothing, "module Unit where\narst :: ()\narst = undefined\n")
-                ]
+testRegressions = undefined
+-- testRegressions = hspec $ do
+--     let 
+--         root    = "/home/daniel/workspace/hsreduce/test-cases/regressions/"
+--         test    = fromJust . parseAbsFile $ root <> "interesting.sh"
+--         sources = 
+--             map (\(src, a, m, e) -> (fromJust . parseAbsFile . (root <>) . (<> ".hs") $ src, a, m, e)) 
+--                 [ ("Imports",   Imports.reduce, Nothing, "module Imports where\n")
+--                 , ("Pragmas",   Pragmas.reduce, Nothing, "module Pragmas where\n")
+--                 , ("Exports",   Exports.reduce, Nothing, "module Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
+--                 , ("Exports2",  Exports.reduce, Nothing, "module Exports (\n        Arst(..), a, b, c\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
+--                 -- *****
+--                 -- Decls
+--                 -- *****
+--                 , ("Decls",     Decls.reduce,                        Nothing,            "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
+--                 -- deleting only some of the fun ids in a line
+--                 , ("FunIds",    minireduce (Decls.rmvDecls Nothing), (Just "funids.sh"), "module FunIds (\n        foo\n    ) where\nfoo x = 3\n")
+--                 , ("Cons",      minireduce (fastTryR Decls.rmvCons), Nothing,            "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
+--                 -- ********
+--                 -- Stubbing
+--                 -- ********
+--                 -- , ("Undefined", minireduce (fastTry Stubbing.expr2Undefined), Nothing, "module Undefined where\nfoo x = undefined\n")
+--                 , ("Unit",      minireduce (fastTry Stubbing.type2Unit),      Nothing, "module Unit where\narst :: ()\narst = undefined\n")
+--                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title
     describe "regressions" $ do

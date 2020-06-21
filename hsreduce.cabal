@@ -63,17 +63,15 @@ executable hsmerge
 
 library
     exposed-modules:   
-                       Merge.HsAllInOne
-                       Test
                        Reduce.HsReduce
                        Util.Util
                        Util.Types
                        Parser.Parser
-                       Reduce.Passes.RemoveUnused.Decls
-                       Reduce.Passes.RemoveUnused.Imports
-                       Reduce.Passes.RemoveUnused.Exports
-                       Reduce.Passes.RemoveUnused.Pragmas
                        Reduce.Passes.Stubbing
+                       -- Reduce.Passes.RemoveUnused.Decls
+                       -- Reduce.Passes.RemoveUnused.Imports
+                       -- Reduce.Passes.RemoveUnused.Exports
+                       -- Reduce.Passes.RemoveUnused.Pragmas
 --     other-modules:     
 --                        Util.Util
 --                        Util.Types
@@ -86,6 +84,7 @@ library
                        , ghc
                        , Cabal
                        , MonadRandom
+                       , split
                        , QuickCheck
                        , async
                        , aeson
@@ -115,6 +114,7 @@ library
                        , uniplate
                        , unix
                        , monad-par
+                       , stm
                        , regex
                        , word8
                        , generic-deriving

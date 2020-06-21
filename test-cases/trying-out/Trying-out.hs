@@ -34,6 +34,8 @@ data DumbRec = DumbRec {
   , b :: String
   }
 
+data EvenDumberRec = EvenDumber { c :: Int, d :: String, e :: Char }
+
 data Expr a where
     I   :: Int  -> Expr Int
     B   :: Bool -> Expr Bool

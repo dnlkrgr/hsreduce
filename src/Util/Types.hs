@@ -1,8 +1,9 @@
 module Util.Types where
 
+import Control.Concurrent.STM.TChan
 import GHC.LanguageExtensions.Type
 import Data.Void
-import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec as MP
 import Path
 import qualified Data.Text as T
 import Control.Applicative
@@ -22,17 +23,19 @@ newtype R a
 
 data RConf
   = RConf
-      { _test       :: Path Abs File,
-        _sourceFile :: Path Abs File
+      { _test            :: Path Rel File
+      , _sourceFile      :: Path Rel File
+      , _numberOfThreads :: Int
+      , _tempDirs        :: TChan (Path Abs Dir)
       }
 
 data RState
   = RState
-      { _pragmas     :: ![Pragma]
-      , _parsed      :: !ParsedSource
-      , _renamed     :: Maybe RenamedSource
-      , _typechecked :: Maybe TypecheckedSource
-      , _isAlive     :: !Bool
+      { _pragmas      :: ![Pragma]
+      , _parsed       :: !ParsedSource
+      , _renamed      :: Maybe RenamedSource
+      , _typechecked  :: Maybe TypecheckedSource
+      , _isAlive      :: !Bool
       }
 
 showState :: RState -> T.Text
@@ -103,4 +106,4 @@ instance Show Pragma where
   show (OptionsGhc o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
   show (Include i)    = "{-# INCLUDE "     ++ T.unpack i ++ " #-}"
 
-type Parser = M.Parsec Void T.Text
+type Parser = MP.Parsec Void T.Text

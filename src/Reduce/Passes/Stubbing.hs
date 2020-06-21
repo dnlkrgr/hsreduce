@@ -1,8 +1,10 @@
 module Reduce.Passes.Stubbing where
 
+import Data.List.Split
+import Control.Concurrent.Async
+import Control.Monad.Reader
 import Data.Ratio
 import qualified Data.ByteString as BS
-import Data.Maybe
 import Debug.Trace
 import qualified Data.Text as T
 import Data.List
@@ -12,9 +14,11 @@ import GHC
 import Outputable hiding ((<>))
 import OccName
 import Data.Generics.Uniplate.Data
+import Data.Data
 
 import Util.Types
 import Util.Util
+
 
 -- | run a pass on the old module and return the new one if it's interesting
 reduce :: R ()
@@ -22,34 +26,116 @@ reduce = do
     oldState  <- get
     liftIO $ putStrLn "\n***Stubbing expressions***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-    void $ stubbings oldState
+    -- void $ stubbings oldState
+    newParsed <- stubbings $ _parsed oldState
+    modify $ \s -> s { _parsed = newParsed }
+
+type WaysToChange a = a -> [a -> a]
+
+-- ***mock inverting intensifies***
+stubbings :: ParsedSource -> R ParsedSource
+stubbings = 
+    runPass recordCon 
+    >=> runPass exprWithList 
+    >=> runPass simplifyExpr 
+    >=> runPass expr2Undefined 
+    -- >=> runPass deleteGADTforall 
+    -- >=> runPass deleteGADTctxt 
+    -- >=> runPass matchDelRhsUndef 
+    -- >=> runPass matchDelIfUndefAnywhere 
+    -- >=> runPass rmvMatches 
+    -- >=> runPass simplifyMatch 
+    -- >=> runPass simplifyLGRHS 
+    -- >=> runPass valBinds 
+    -- >=> runPass familyResultSig 
+    -- >=> runPass tyVarBndr 
+    -- >=> runPass simplifyType 
+    -- >=> runPass simplifyTypeR 
+    -- >=> runPass type2Unit 
+    -- >=> runPass deleteWhereClause 
+    -- -- >=> runPass inlineFunctions 
+    -- -- >=> runPass simplifyLit 
+    -- >=> runPass pat2Wildcard 
+
+runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
+runPass pass ast = do 
+    let arst = getProposedChanges ast pass
+
+    results <- filter snd <$> getInterestingChanges ast arst
+
+    let newAST =  applyChanges ast . map fst $ results
+
+    -- modify $ \s -> s {
+    --     _isAlive = 
+    --         if _isAlive s && not (null results)
+    --             then traceShow ("+" :: String) $ True
+    --             else 
+    --                 let e = oshow newAST /= oshow ast
+    --                 in if e then traceShow ("+" :: String) e else e
+    -- }
+
+    return newAST
 
 
--- TODO: make this parametric
-stubbings :: RState -> R ParsedSource
-stubbings =
-    (   traceShow     ("recordCon" :: String)               . transformBiM (fastTryR recordCon)
-        >=> traceShow ("exprWithList" :: String)            . transformBiM exprWithList
-        >=> traceShow ("simplifyExpr" :: String)            . transformBiM (fastTry simplifyExpr)
-        >=> traceShow ("expr2Undefined" :: String)          . transformBiM (fastTry expr2Undefined)
-        >=> traceShow ("deleteGADTforall" :: String)        . transformBiM (fastTry deleteGADTforall)
-        >=> traceShow ("deleteGADTctxt" :: String)          . transformBiM (fastTry deleteGADTctxt)
-        >=> traceShow ("matchDelRhsUndef" :: String)        . transformBiM (try matchDelRhsUndef)
-        >=> traceShow ("matchDelIfUndefAnywhere" :: String) . transformBiM (try matchDelIfUndefAnywhere)
-        >=> traceShow ("rmvMatches" :: String) . transformBiM (fastTryR rmvMatches)
-        >=> traceShow ("simplifyMatch" :: String)           . transformBiM simplifyMatch
-        >=> traceShow ("simplifyLGRHS" :: String)           . transformBiM (fastTry simplifyLGRHS)
-        >=> traceShow ("valBinds" :: String)                . transformBiM (fastTryR valBinds)
-        >=> traceShow ("familyResultSig" :: String)         . transformBiM (fastTry familyResultSig)
-        >=> traceShow ("tyVarBndr" :: String)               . transformBiM (fastTry tyVarBndr)
-        >=> traceShow ("simplifyType" :: String)            . transformBiM (fastTry simplifyType)
-        >=> traceShow ("simplifyTypeR" :: String)           . transformBiM (fastTryR simplifyTypeR)
-        >=> traceShow ("type2Unit" :: String)               . transformBiM (fastTry type2Unit)
-        >=> traceShow ("deleteWhereClause" :: String)       . transformBiM (fastTry deleteWhereClause)
-        -- >=> traceShow ("inlineFunctions" :: String)         . transformBiM inlineFunctions
-        -- >=> traceShow ("simplifyLit" :: String)             . transformBiM (try simplifyLit)
-        >=> traceShow ("pat2Wildcard" :: String)            . transformBiM (try pat2Wildcard))
-    . _parsed
+getProposedChanges :: Data a => ParsedSource -> (a -> [a -> a]) -> [Located a -> Located a]
+getProposedChanges ast pass = concat [map (overwriteAtLoc' l) $ pass e | L l e <- universeBi ast]
+
+
+getInterestingChanges :: Data a => ParsedSource -> [Located a -> Located a] -> R [(Located a -> Located a, Bool)]
+getInterestingChanges ast proposedChanges = do
+    oldState        <- get
+    oldConf         <- ask
+    numberOfThreads <- asks _numberOfThreads
+
+    let l       = length proposedChanges
+    let batches = let temp@(x:y:xs) = chunksOf (div l numberOfThreads) proposedChanges
+                  in 
+                      if length temp > numberOfThreads
+                          then (x ++ y) : xs
+                          else temp
+    
+    -- sourceDir <- getTempDir
+
+    changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
+        -- create temp dir 
+        -- copy test and source file there
+        -- files      <- listDirectory $ fromAbsDir sourceDir
+
+        -- tempDir <- fst <$> runR oldConf oldState getTempDir
+  
+        -- forM_ files $ \f -> do
+        --     iterFile <- parseRelFile f
+        --     let oldPath = fromAbsFile $ sourceDir </> iterFile
+        --     status   <- getFileStatus oldPath
+  
+        --     if isDirectory status
+        --         then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
+        --         else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+
+        -- let newConf = RConf test sourceFile numberOfThreads undefined
+
+        forM batch $ \c -> do
+            b <- tryNewValue' oldConf oldState ast c
+            -- liftIO $ print b
+            return (c, b)
+
+    -- -- clean up the assignment of 
+    -- gets _tempDirPaths >>= \case
+    --     []   -> return ()
+    --     x:xs -> modify $ \s -> s { _tempDirPaths = x : xs }
+
+    return changes
+
+
+applyChanges :: Data a => ParsedSource -> [Located a -> Located a] -> ParsedSource
+applyChanges ast changes = foldr transformBi ast changes 
+-- *** mocking ends **    
+
+-- get ways to change an expression that contains a list as an subexpression
+-- p: preprocessing (getting to the list)
+-- f: filtering and returning a valid expression again
+h :: Eq e => (a -> [e]) -> (e -> a -> a) -> WaysToChange a
+h p f = map (\l o -> f l o) . p
 
 
 class HasList a where
@@ -60,53 +146,40 @@ instance HasList (HsType p) where
     hasList HsQualTy {}   = True
     hasList _ = False
 
+-- *********************************************************************************************************************************************************************
+-- PASSES
+-- *********************************************************************************************************************************************************************
 
 -- ***************************************************************************
 -- REAL STUBBINGS
 -- ***************************************************************************
 
-expr2Undefined :: HsExpr GhcPs -> Maybe (HsExpr GhcPs)
-expr2Undefined expr
-    | oshow expr == "undefined" = Nothing
-    | otherwise = Just $ HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined"
 
-type2Unit :: HsType GhcPs -> Maybe (HsType GhcPs)
-type2Unit UnitTypeP = Nothing
-type2Unit _         = Just UnitTypeP
+type2Unit :: WaysToChange (HsType GhcPs)
+type2Unit UnitTypeP = []
+type2Unit _         = [const UnitTypeP]
 
-pat2Wildcard :: Pat GhcPs -> Pat GhcPs
-pat2Wildcard _ = WildPat NoExt
+pat2Wildcard :: WaysToChange (Pat GhcPs)
+pat2Wildcard (WildPat{}) = []
+pat2Wildcard _ = [const (WildPat NoExt)]
 
 
 -- ***************************************************************************
 -- TYPES
 -- ***************************************************************************
 
-simplifyTypeR :: LHsType GhcPs -> Maybe (R (LHsType GhcPs))
-simplifyTypeR t
-    | unLoc $ hasList <$> t = Just $ reduceListOfSubelements f g t
-    | otherwise = Nothing
-  where 
-      f = \case
-              (HsForAllTy _ bndrs _) -> map getLoc bndrs
-              (HsQualTy _ ctxt _) -> map getLoc $ unLoc ctxt
-              _ -> []
-      g loc = \case
-              (HsForAllTy _ bndrs body) -> HsForAllTy NoExt (filter ((/= loc) . getLoc) bndrs) body
-              (HsQualTy _ ctxt body) -> HsQualTy NoExt (filter ((/= loc) . getLoc) <$> ctxt) body
-              x -> x
 
-simplifyType :: HsType GhcPs -> Maybe (HsType GhcPs)
-simplifyType (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP)) = Nothing
+simplifyType :: WaysToChange (HsType GhcPs)
+simplifyType (HsFunTy NoExt (L _ UnitTypeP) (L _ UnitTypeP)) = []
 -- simplifyType (ForallTypeP body) = Just body
-simplifyType (QualTypeP body)           = Just body
-simplifyType o@(HsOpTy _ (L _ t) _ _)   = traceShow ("HsOpTy: " <> oshow o <> " " <> oshow t) $ Just t -- doesn't work so far :-/
-simplifyType (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = Just t1
+simplifyType (QualTypeP body)           = [const ( body)]
+simplifyType o@(HsOpTy _ (L _ t) _ _)   = traceShow ("HsOpTy: " <> oshow o <> " " <> oshow t) $ [const t] -- doesn't work so far :-/
+simplifyType (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = [const t1]
 -- simplifyType (HsAppTy _ (L l t1@(HsTyVar{})) _ ) = traceShow ("TyVar: " <> oshow t1) Nothing
 -- simplifyType (HsAppTy _ (L l t1@(HsSumTy{})) _ ) = traceShow ("HsSumTy: " <> oshow t1) Nothing
-simplifyType (HsAppTy _ (L l _)  u@(L _ (HsTupleTy _ _ [])))    = Just $ HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u
-simplifyType (HsKindSig _ (L _ t) _)                            = Just t
-simplifyType _ = Nothing
+simplifyType (HsAppTy _ (L l _)  u@(L _ (HsTupleTy _ _ [])))    = [const (HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u)]
+simplifyType (HsKindSig _ (L _ t) _)                            = [const t]
+simplifyType _ = []
 
 
 
@@ -114,55 +187,33 @@ simplifyType _ = Nothing
 -- CON DECLS
 -- ***************************************************************************
 
--- TODO: can we use -Wunused-... for this?
--- also: return Nothing for uninteresting cases
-recordCon :: LConDecl GhcPs -> Maybe (R (LConDecl GhcPs))
-recordCon (L _ (XConDecl _)) = Nothing
-recordCon x
-  | isRecCon x = Just $ reduceListOfSubelements f g x
-  | otherwise  = Nothing
-  where
-    isRecCon = (\case
-                   RecCon _ -> True
-                   _        -> False)
-               . con_args
-               . unLoc
-    f = \case
-      c -> (\case
-              RecCon (L _ flds) -> map getLoc flds
-              _                 -> []) . con_args $ c
-    g loc = \case
-      XConDecl _ -> XConDecl NoExt
-      c -> c { con_args = case con_args c of
-                 RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
-                 a                 -> a }
 
-deleteGADTforall :: ConDecl GhcPs -> Maybe (ConDecl GhcPs)
-deleteGADTforall gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) = Just $ gadtDecl{ con_forall = L forallLoc False} -- delete forall
-deleteGADTforall _ = Nothing
+deleteGADTforall :: WaysToChange (ConDecl GhcPs)
+deleteGADTforall gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) = [const (gadtDecl{ con_forall = L forallLoc False})]
+deleteGADTforall _ = []
 
-deleteGADTctxt :: ConDecl GhcPs -> Maybe (ConDecl GhcPs)
-deleteGADTctxt gadtDecl@ConDeclGADT{} = Just $ gadtDecl{ con_mb_cxt = Nothing}
-deleteGADTctxt _ = Nothing
+deleteGADTctxt :: WaysToChange (ConDecl GhcPs) 
+deleteGADTctxt gadtDecl@ConDeclGADT{} = [const (gadtDecl{ con_mb_cxt = Nothing})]
+deleteGADTctxt _ = []
 
 -- ***************************************************************************
 -- BINDS
 -- ***************************************************************************
 
-type LLocalBind = Located (HsLocalBindsLR GhcPs GhcPs)
+type LocalBind = HsLocalBindsLR GhcPs GhcPs
 
-valBinds :: LLocalBind -> Maybe (R LLocalBind)
+valBinds :: WaysToChange LocalBind
 valBinds x
-    | isValBinds x = Just $ reduceListOfSubelements lvalBinds2SrcSpans deleteLocalBindSig x
-    | otherwise = Nothing
+    | isValBinds x = h p f x
+    | otherwise    = []
   where
       isValBinds = (\case
                        HsValBinds _ ValBinds {} -> True
-                       _ -> False ) . unLoc
-      lvalBinds2SrcSpans = \case
+                       _ -> False )
+      p = \case
           (HsValBinds _ (ValBinds _ _ sigs)) -> map getLoc sigs
           _ -> []
-      deleteLocalBindSig sigLoc = \case
+      f sigLoc = \case
           (HsValBinds _ (ValBinds _ binds sigs)) ->
               HsValBinds NoExt
             . ValBinds NoExt binds
@@ -171,24 +222,23 @@ valBinds x
           hvb -> hvb
 
 
-deleteWhereClause :: HsLocalBinds GhcPs -> Maybe (HsLocalBinds GhcPs)
-deleteWhereClause (EmptyLocalBinds _) = Nothing
-deleteWhereClause _                   = Just $ EmptyLocalBinds NoExt
+deleteWhereClause :: WaysToChange (HsLocalBinds GhcPs) 
+deleteWhereClause (EmptyLocalBinds _) = []
+deleteWhereClause _                   = [const (EmptyLocalBinds NoExt)]
 
 -- ***************************************************************************
 -- MATCHES
 -- ***************************************************************************
 
 -- TODO: better name
-simplifyMatch :: LMatch GhcPs (LHsExpr GhcPs) -> R (LMatch GhcPs (LHsExpr GhcPs))
-simplifyMatch =
-  reduceListOfSubelements match2SrcSpans deleteGRHS
+simplifyMatch :: WaysToChange (Match GhcPs (LHsExpr GhcPs))
+simplifyMatch = h p f
   where
-    match2SrcSpans = \case
+    p = \case
         -- reverse because the lower have to be tried first
         MatchP iterGRHSs _ -> map getLoc . reverse $ iterGRHSs
         _ -> []
-    deleteGRHS grhsLoc = \case
+    f grhsLoc = \case
         m@(Match _ _ _ (GRHSs _ grhss lb)) ->
           let newGRHSs = filter ((/= grhsLoc) . getLoc) grhss
           in case newGRHSs of
@@ -199,26 +249,61 @@ simplifyMatch =
 
 
 -- TODO: this doesn't fit, this deletes the WHOLE match if only one grhs is undefined
-matchDelRhsUndef :: [LMatch GhcPs (LHsExpr GhcPs)]
-                       -> [LMatch GhcPs (LHsExpr GhcPs)]
-matchDelRhsUndef [] = []
-matchDelRhsUndef mtchs =
-  filter (\(L _ (Match _ _ _ grhss@GRHSs{})) ->
-           let b = (showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
-           in traceShow (show b) b)
-         mtchs
+matchDelRhsUndef :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
+matchDelRhsUndef _ = [filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")]
+
 
 -- TODO: filter out matches one by one
-rmvMatches :: Located [LMatch GhcPs (LHsExpr GhcPs)] -> Maybe (R (Located [LMatch GhcPs (LHsExpr GhcPs)]))
-rmvMatches (L _ []) = Nothing
-rmvMatches m  = Just . reduceListOfSubelements f g $ m
-  where f     = map getLoc
-        g loc = filter ((/= loc) . getLoc)
+rmvMatches :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
+rmvMatches = h (map getLoc) f
+  where f loc = filter ((/= loc) . getLoc)
 
-matchDelIfUndefAnywhere :: [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
-matchDelIfUndefAnywhere [] = []
-matchDelIfUndefAnywhere mtchs =
-  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) ->
+-- TODO: can we use -Wunused-... for this?
+-- also: return Nothing for uninteresting cases
+recordCon :: WaysToChange (ConDecl GhcPs)
+-- recordCon (RecCon (L _ flds)) = map (\l o -> g l o) $ map getLoc flds
+recordCon (XConDecl _) = []
+recordCon x
+ | isRecCon x = h p f x
+ | otherwise  = []
+  where
+    isRecCon = (\case
+                   RecCon _ -> True
+                   _        -> False)
+               . con_args
+    p = \case
+      c -> (\case
+              RecCon (L _ flds) -> map getLoc flds
+              _                 -> []) . con_args $ c
+    f loc = \case
+      XConDecl _ -> XConDecl NoExt
+      c -> c { con_args = case con_args c of
+                 RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
+                 a                 -> a }
+
+simplifyTypeR :: WaysToChange (HsType GhcPs)
+simplifyTypeR t
+    | hasList t = h p f t
+    | otherwise = []
+  where 
+      p = \case
+          (HsForAllTy _ bndrs _) -> map getLoc bndrs
+          (HsQualTy _ ctxt _)    -> map getLoc $ unLoc ctxt
+          _ -> []
+      f loc = \case
+          (HsForAllTy x bndrs body) -> HsForAllTy x (filter ((/= loc) . getLoc) bndrs) body
+          (HsQualTy x ctxt body)    -> HsQualTy   x (filter ((/= loc) . getLoc) <$> ctxt) body
+          x -> x
+
+
+expr2Undefined :: WaysToChange (HsExpr GhcPs)
+expr2Undefined expr
+    | oshow expr == "undefined" = []
+    | otherwise = [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined") ]
+
+matchDelIfUndefAnywhere :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
+matchDelIfUndefAnywhere _ =
+  [filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) ->
            not
              (all
                ((\b -> traceShow (show b) b)
@@ -227,12 +312,11 @@ matchDelIfUndefAnywhere mtchs =
                . showSDocUnsafe
                . pprGRHS LambdaExpr
                . unLoc)
-               grhs))
-             mtchs
+               grhs))]
 
-simplifyLGRHS :: GRHS GhcPs (LHsExpr GhcPs) -> Maybe (GRHS GhcPs (LHsExpr GhcPs))
-simplifyLGRHS (GRHS _ _ body)      = Just $ GRHS NoExt [] body
-simplifyLGRHS _ = Nothing
+simplifyLGRHS :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
+simplifyLGRHS (GRHS _ _ body) = [const (GRHS NoExt [] body)]
+simplifyLGRHS _ = []
 
 
 -- function inlining
@@ -243,43 +327,43 @@ simplifyLGRHS _ = Nothing
 -- count occurences
 
 -- 2. maybe just inline everytime?
-inlineFunctions :: LHsExpr GhcPs -> R (LHsExpr GhcPs)
-inlineFunctions old@(L _ (HsApp _ (L l1 (HsVar _ (L _ n))) expr)) = do
-
-  p <- gets _parsed
-
-  let funMatches =
-          map snd
-        . filter ((== n) . fst)
-        . fromMaybe []
-        . traverse getNameAndMatchGroup
-        . getFunBinds
-        $ p
-
-  if null funMatches
-    then return old
-    else do
-
-      let (MG _ (L l2 lmatches) _ : _) = funMatches
-      let nPats = length . m_pats . unLoc . head $ lmatches
-      let nMatches = length lmatches
-      liftIO $ putStrLn $ "\n\nlength lmatches: " ++ show nMatches
-
-      -- this is obviously not the best we can do
-      -- but I don't know how to handle n matches with m patterns yet
-      let app con ctxt f = HsApp NoExt (L l1 (HsPar NoExt (noLoc (con NoExt $ MG NoExt (L l2 $ map (changeMatchContext ctxt) (f lmatches)) FromSource)))) expr
-      let new = case (nMatches, nPats) of
-                           (1, 0) -> unLoc old -- eta reduced function, how to handle multiple guards?
-                           (1, _) -> app HsLam LambdaExpr (take 1)
-                           (_, 1) -> app HsLamCase CaseAlt id
-                           _      -> unLoc old
-
-          -- if the user created overlapping patterns we only take the first match
-          -- or should we do nothing when encountering overlapping patterns?
-
-      liftIO . putStrLn $ "new: " ++ oshow new
-      tryNewValue old new
-inlineFunctions e = return e
+-- inlineFunctions :: LHsExpr GhcPs -> R (LHsExpr GhcPs)
+-- inlineFunctions old@(L _ (HsApp _ (L l1 (HsVar _ (L _ n))) expr)) = do
+-- 
+--   p <- gets _parsed
+-- 
+--   let funMatches =
+--           map snd
+--         . filter ((== n) . fst)
+--         . fromMaybe []
+--         . traverse getNameAndMatchGroup
+--         . getFunBinds
+--         $ p
+-- 
+--   if null funMatches
+--     then return old
+--     else do
+-- 
+--       let (MG _ (L l2 lmatches) _ : _) = funMatches
+--       let nPats = length . m_pats . unLoc . head $ lmatches
+--       let nMatches = length lmatches
+--       liftIO $ putStrLn $ "\n\nlength lmatches: " ++ show nMatches
+-- 
+--       -- this is obviously not the best we can do
+--       -- but I don't know how to handle n matches with m patterns yet
+--       let app con ctxt f = HsApp NoExt (L l1 (HsPar NoExt (noLoc (con NoExt $ MG NoExt (L l2 $ map (changeMatchContext ctxt) (f lmatches)) FromSource)))) expr
+--       let new = case (nMatches, nPats) of
+--                            (1, 0) -> unLoc old -- eta reduced function, how to handle multiple guards?
+--                            (1, _) -> app HsLam LambdaExpr (take 1)
+--                            (_, 1) -> app HsLamCase CaseAlt id
+--                            _      -> unLoc old
+-- 
+--           -- if the user created overlapping patterns we only take the first match
+--           -- or should we do nothing when encountering overlapping patterns?
+-- 
+--       liftIO . putStrLn $ "new: " ++ oshow new
+--       tryNewValue old new
+-- inlineFunctions e = return e
 
 changeMatchContext :: HsMatchContext RdrName
      -> LMatch GhcPs (LHsExpr GhcPs)
@@ -302,9 +386,9 @@ getNameAndMatchGroup _ = Nothing
 -- ***************************************************************************
 
 -- simplifyin any expression with a list in it
-exprWithList :: LHsExpr GhcPs -> R (LHsExpr GhcPs)
-exprWithList = reduceListOfSubelements f g
-  where f  = \case
+exprWithList :: WaysToChange (HsExpr GhcPs)
+exprWithList = h p f
+  where p  = \case
           (RecordUpd _ _ fields)   -> map getLoc fields
           (RecordCon _ _ fields)   -> map getLoc . rec_flds $ fields
           (ExplicitTuple _ args _) -> map getLoc args
@@ -313,7 +397,7 @@ exprWithList = reduceListOfSubelements f g
           (HsDo _ _ (L _ stmts)) -> map getLoc stmts
           (ExplicitList _ _ es) -> map getLoc es
           _ -> []
-        g loc = \case
+        f loc = \case
           (RecordUpd _ e fields) -> RecordUpd NoExt e $ filter ((/= loc) . getLoc) fields
           (RecordCon _ n fields)   -> RecordCon NoExt n $
             fields { rec_flds = filter ((/= loc) . getLoc) (rec_flds fields) }
@@ -328,11 +412,11 @@ exprWithList = reduceListOfSubelements f g
 -- expr -> undefined
 -- delete if-then-else branches
 -- case expr with one case -> body
-simplifyExpr :: HsExpr GhcPs -> Maybe (HsExpr GhcPs)
-simplifyExpr (SingleCase body)     = Just body
+simplifyExpr :: WaysToChange (HsExpr GhcPs)
+simplifyExpr (SingleCase body)     = [const body]
 simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
-  | oshow ls == "undefined"        = Just rs
-  | oshow rs == "undefined"        = Just ls
+  | oshow ls == "undefined"        = [const rs]
+  | oshow rs == "undefined"        = [const ls]
 -- simplifyExpr (HsApp _ _ e)         = Just $ unLoc e
 -- simplifyExpr (HsAppType _ e)       = Just $ unLoc e
 -- simplifyExpr (OpApp _ _ l r)
@@ -358,7 +442,7 @@ simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
 -- simplifyExpr (EViewPat _ _ e)      = Just $ unLoc e -- choosing right expression, is this correct?
 -- simplifyExpr (ELazyPat _ e)        = Just $ unLoc e
 -- simplifyExpr (HsWrap _ _ e)        = Just $ e
-simplifyExpr _ = Nothing
+simplifyExpr _ = []
 
 
 -- ***************************************************************************
@@ -388,14 +472,14 @@ simplifyLit l = l
 -- MISC
 -- ***************************************************************************
 
-familyResultSig :: FamilyResultSig GhcPs -> Maybe (FamilyResultSig GhcPs)
-familyResultSig (NoSig _) = Nothing
-familyResultSig (XFamilyResultSig _) = Nothing
-familyResultSig _ = Just $ NoSig NoExt
+familyResultSig :: WaysToChange (FamilyResultSig GhcPs)
+familyResultSig (NoSig _) = []
+familyResultSig (XFamilyResultSig _) = []
+familyResultSig _ = [const (NoSig NoExt)]
 
-tyVarBndr :: HsTyVarBndr GhcPs -> Maybe (HsTyVarBndr GhcPs)
-tyVarBndr (KindedTyVar _ lId _) = Just $ UserTyVar NoExt lId
-tyVarBndr _ = Nothing
+tyVarBndr :: WaysToChange (HsTyVarBndr GhcPs)
+tyVarBndr (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
+tyVarBndr _ = []
 
 
 
