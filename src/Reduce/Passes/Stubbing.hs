@@ -1,3 +1,4 @@
+{-# language BangPatterns #-}
 module Reduce.Passes.Stubbing where
 
 import Data.List.Split
@@ -39,23 +40,23 @@ stubbings =
     >=> runPass exprWithList 
     >=> runPass simplifyExpr 
     >=> runPass expr2Undefined 
-    -- >=> runPass deleteGADTforall 
-    -- >=> runPass deleteGADTctxt 
-    -- >=> runPass matchDelRhsUndef 
-    -- >=> runPass matchDelIfUndefAnywhere 
-    -- >=> runPass rmvMatches 
-    -- >=> runPass simplifyMatch 
-    -- >=> runPass simplifyLGRHS 
-    -- >=> runPass valBinds 
-    -- >=> runPass familyResultSig 
-    -- >=> runPass tyVarBndr 
-    -- >=> runPass simplifyType 
-    -- >=> runPass simplifyTypeR 
-    -- >=> runPass type2Unit 
-    -- >=> runPass deleteWhereClause 
+    >=> runPass deleteGADTforall 
+    >=> runPass deleteGADTctxt 
+    >=> runPass matchDelRhsUndef 
+    >=> runPass matchDelIfUndefAnywhere 
+    >=> runPass rmvMatches 
+    >=> runPass simplifyMatch 
+    >=> runPass simplifyLGRHS 
+    >=> runPass valBinds 
+    >=> runPass familyResultSig 
+    >=> runPass tyVarBndr 
+    >=> runPass simplifyType 
+    >=> runPass simplifyTypeR 
+    >=> runPass type2Unit 
+    >=> runPass deleteWhereClause 
     -- -- >=> runPass inlineFunctions 
     -- -- >=> runPass simplifyLit 
-    -- >=> runPass pat2Wildcard 
+    >=> runPass pat2Wildcard 
 
 runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
 runPass pass ast = do 
@@ -65,14 +66,14 @@ runPass pass ast = do
 
     let newAST =  applyChanges ast . map fst $ results
 
-    -- modify $ \s -> s {
-    --     _isAlive = 
-    --         if _isAlive s && not (null results)
-    --             then traceShow ("+" :: String) $ True
-    --             else 
-    --                 let e = oshow newAST /= oshow ast
-    --                 in if e then traceShow ("+" :: String) e else e
-    -- }
+    modify $ \s -> s {
+        _isAlive = 
+            if _isAlive s && not (null results)
+                then True
+                else 
+                    let e = oshow newAST /= oshow ast
+                    in if e then e else e
+    }
 
     return newAST
 
@@ -87,44 +88,32 @@ getInterestingChanges ast proposedChanges = do
     oldConf         <- ask
     numberOfThreads <- asks _numberOfThreads
 
-    let l       = length proposedChanges
-    let batches = let temp = chunksOf (div l numberOfThreads) proposedChanges
-                  in case temp of
-                        (x:y:xs) -> 
-                              if length temp > numberOfThreads
-                              then (x ++ y) : xs
-                              else temp
-                        _ -> temp
+    let l = length proposedChanges
+    let chunkSize = div l numberOfThreads
+    -- liftIO $ print l
+    -- liftIO $ print numberOfThreads
+    -- liftIO $ print $ div l numberOfThreads
+
+    -- let batches = [proposedChanges]
+    let batches = case chunkSize of
+            0 -> [proposedChanges]
+            _ -> let temp = chunksOf chunkSize proposedChanges
+                 in case reverse temp of
+                     (x:y:xs) -> 
+                         if length temp > numberOfThreads
+                         then (x ++ y) : xs
+                         else temp
+                     _ -> temp
+
+    -- liftIO . print $ length batches                        
     
-    -- sourceDir <- getTempDir
+    changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
+        -- liftIO $ print $ length batch
 
-    changes <- liftIO . fmap concat . forM batches $ \batch -> do
-        -- create temp dir 
-        -- copy test and source file there
-        -- files      <- listDirectory $ fromAbsDir sourceDir
-
-        -- tempDir <- fst <$> runR oldConf oldState getTempDir
-  
-        -- forM_ files $ \f -> do
-        --     iterFile <- parseRelFile f
-        --     let oldPath = fromAbsFile $ sourceDir </> iterFile
-        --     status   <- getFileStatus oldPath
-  
-        --     if isDirectory status
-        --         then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
-        --         else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
-
-        -- let newConf = RConf test sourceFile numberOfThreads undefined
-
-        forM batch $ \c -> do
+        forM (zip [1..] batch) $ \(n, c) -> do
             b <- tryNewValue' oldConf oldState ast c
-            -- liftIO $ print b
+            -- liftIO $ putStrLn $ show n <> "/" <> (show $ length batch )
             return (c, b)
-
-    -- -- clean up the assignment of 
-    -- gets _tempDirPaths >>= \case
-    --     []   -> return ()
-    --     x:xs -> modify $ \s -> s { _tempDirPaths = x : xs }
 
     return changes
 
@@ -299,18 +288,17 @@ simplifyTypeR t
 
 
 expr2Undefined :: WaysToChange (HsExpr GhcPs)
-expr2Undefined expr
-    | oshow expr == "undefined" = []
-    | otherwise = [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined") ]
+expr2Undefined expr = [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined") ]
+--     | oshow expr == "undefined" = []
+--     | otherwise = [\_ -> undefined] -- [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined") ]
 
 matchDelIfUndefAnywhere :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
 matchDelIfUndefAnywhere _ =
   [filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) ->
            not
              (all
-               ((\b -> traceShow (show b) b)
-               . ("undefined" `isSubsequenceOf`)
-               . trace'
+               ( -- (\b -> traceShow (show b) b)
+                 ("undefined" `isSubsequenceOf`)
                . showSDocUnsafe
                . pprGRHS LambdaExpr
                . unLoc)
@@ -411,12 +399,15 @@ exprWithList = h p f
           (ExplicitList _ se es) -> ExplicitList NoExt se $ filter ((/= loc) . getLoc) es
           e -> e
 
+-- h :: Eq e => (a -> [e]) -> (e -> a -> a) -> WaysToChange a
+-- h p f = map (\l o -> f l o) . p
+
 -- expr -> undefined
 -- delete if-then-else branches
 -- case expr with one case -> body
 simplifyExpr :: WaysToChange (HsExpr GhcPs)
-simplifyExpr (SingleCase body)     = [const body]
-simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
+simplifyExpr (SingleCase !body)     = [const body]
+simplifyExpr (HsIf _ _ _ (L _ !ls) (L _ !rs))
   | oshow ls == "undefined"        = [const rs]
   | oshow rs == "undefined"        = [const ls]
 -- simplifyExpr (HsApp _ _ e)         = Just $ unLoc e

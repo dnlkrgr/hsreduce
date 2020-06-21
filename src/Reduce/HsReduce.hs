@@ -35,11 +35,12 @@ hsreduce sourceDir test filePath = do
     beginState          <- parse True [] [] fullFilePath
     let oldSize         =  T.length fileContent
     files               <- listDirectory (fromAbsDir sourceDir)
-    let numberOfThreads = 2
+    let numberOfThreads = 4
 
     tchan <- atomically newTChan
-    forM_ [0 .. numberOfThreads] $ \_ ->  do
+    forM_ [1 .. numberOfThreads] $ \_ ->  do
         t <- createTempDirectory "/tmp" "hsreduce"
+
         tempDir <- parseAbsDir t
 
   

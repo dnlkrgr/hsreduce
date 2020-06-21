@@ -116,8 +116,8 @@ trace'' s f a = traceShow (s <> ": " <> f a) a
 
 -- ** mocking **
 overwriteAtLoc' :: SrcSpan -> (a -> a) -> Located a -> Located a
-overwriteAtLoc' loc f oldValue@(L oldLoc a)
-    | loc == oldLoc = L loc $ f a
+overwriteAtLoc' loc f oldValue@(L oldLoc !a)
+    | loc == oldLoc = L loc $! f a
     | otherwise = oldValue
 
 tryNewValue' :: Data a => RConf -> RState -> ParsedSource -> (Located a -> Located a) -> IO Bool
@@ -133,7 +133,7 @@ testAndUpdateStateFlex' conf a b newState =
 
 
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-            Left (_ :: CE.SomeException) -> return a
+            Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
             Right _ -> do
                 runTest' test defaultDuration >>= return . \case
                     Uninteresting -> a
@@ -147,9 +147,10 @@ runTest' test duration = do
          Nothing -> do
            errorPrint "runTest: timed out"
            return Uninteresting
-         Just (exitCode, _, _) -> return $ case exitCode of
-             ExitFailure _ -> Uninteresting
-             ExitSuccess   -> Interesting
+         Just (exitCode, _, _) -> case exitCode of
+             ExitFailure _ -> do
+                return Uninteresting
+             ExitSuccess   -> return Interesting
 -- ** end of mocking **
 
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a

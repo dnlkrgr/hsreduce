@@ -117,8 +117,6 @@ executable hsreduce
                          -- StrictData
                          ViewPatterns
     ghc-options:       -Wall -O2 -threaded 
-    -- -prof -fprof-auto -with-rtsopts
-    -- -rtsopts -prof -fprof-auto
 
 library
     exposed-modules:   
