@@ -23,18 +23,18 @@ newtype R a
 
 data RConf
   = RConf
-      { _test            :: Path Rel File
-      , _sourceFile      :: Path Rel File
-      , _numberOfThreads :: Int
-      , _tempDirs        :: TChan (Path Abs Dir)
+      { _test            :: !(Path Rel File)
+      , _sourceFile      :: !(Path Rel File)
+      , _numberOfThreads :: !Int
+      , _tempDirs        :: !(TChan (Path Abs Dir))
       }
 
 data RState
   = RState
       { _pragmas      :: ![Pragma]
       , _parsed       :: !ParsedSource
-      , _renamed      :: Maybe RenamedSource
-      , _typechecked  :: Maybe TypecheckedSource
+      , _renamed      :: !(Maybe RenamedSource)
+      , _typechecked  :: !(Maybe TypecheckedSource)
       , _isAlive      :: !Bool
       }
 

@@ -61,6 +61,65 @@ executable hsmerge
     ghc-options:       -Wall
     
 
+executable hsreduce
+    main-is: Main.hs
+    build-depends:       base
+                       , hsreduce
+                       , ghc
+                       , Cabal
+                       , MonadRandom
+                       , split
+                       , QuickCheck
+                       , async
+                       , aeson
+                       , bytestring
+                       , containers
+                       , directory
+                       , extra
+                       , path
+                       , ghc-boot-th
+                       , ghc-paths
+                       , hie-bios
+                       , haskell-src-exts
+                       , haskell-names
+                       , hse-cpp
+                       , filepath
+                       , hashable
+                       , hspec
+                       , megaparsec
+                       , mtl
+                       , process
+                       , random
+                       , syb
+                       , temporary
+                       , text
+                       , time
+                       , transformers
+                       , uniplate
+                       , unix
+                       , monad-par
+                       , stm
+                       , regex
+                       , word8
+                       , generic-deriving
+    hs-source-dirs:    src
+    default-language:  Haskell2010
+    default-extensions:  DeriveGeneric
+                         LambdaCase
+                         PatternSynonyms
+                         Rank2Types  
+                         TypeFamilies
+                         PackageImports
+                         QuasiQuotes
+                         GeneralizedNewtypeDeriving 
+                         OverloadedStrings 
+                         ScopedTypeVariables
+                         -- StrictData
+                         ViewPatterns
+    ghc-options:       -Wall -O2 -threaded 
+    -- -prof -fprof-auto -with-rtsopts
+    -- -rtsopts -prof -fprof-auto
+
 library
     exposed-modules:   
                        Reduce.HsReduce
@@ -130,6 +189,7 @@ library
                          GeneralizedNewtypeDeriving 
                          OverloadedStrings 
                          ScopedTypeVariables
-                         StrictData
+                         -- StrictData
                          ViewPatterns
-    ghc-options:       -Wall
+    ghc-options:       -Wall 
+-- -rtsopts -prof -fprof-auto

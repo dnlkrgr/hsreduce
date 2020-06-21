@@ -1,3 +1,4 @@
+{-# language BangPatterns #-}
 module Util.Util where
 
 import Control.Concurrent.STM
@@ -134,9 +135,9 @@ testAndUpdateStateFlex' conf a b newState =
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
             Left (_ :: CE.SomeException) -> return a
             Right _ -> do
-              runTest' test defaultDuration >>= return . \case
-                  Uninteresting -> a
-                  Interesting   -> b
+                runTest' test defaultDuration >>= return . \case
+                    Uninteresting -> a
+                    Interesting   -> b
 
 runTest' :: Path Abs File -> Word -> IO Interesting
 runTest' test duration = do

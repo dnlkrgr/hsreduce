@@ -88,15 +88,17 @@ getInterestingChanges ast proposedChanges = do
     numberOfThreads <- asks _numberOfThreads
 
     let l       = length proposedChanges
-    let batches = let temp@(x:y:xs) = chunksOf (div l numberOfThreads) proposedChanges
-                  in 
-                      if length temp > numberOfThreads
-                          then (x ++ y) : xs
-                          else temp
+    let batches = let temp = chunksOf (div l numberOfThreads) proposedChanges
+                  in case temp of
+                        (x:y:xs) -> 
+                              if length temp > numberOfThreads
+                              then (x ++ y) : xs
+                              else temp
+                        _ -> temp
     
     -- sourceDir <- getTempDir
 
-    changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
+    changes <- liftIO . fmap concat . forM batches $ \batch -> do
         -- create temp dir 
         -- copy test and source file there
         -- files      <- listDirectory $ fromAbsDir sourceDir

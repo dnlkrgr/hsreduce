@@ -35,7 +35,7 @@ hsreduce sourceDir test filePath = do
     beginState          <- parse True [] [] fullFilePath
     let oldSize         =  T.length fileContent
     files               <- listDirectory (fromAbsDir sourceDir)
-    let numberOfThreads = 4
+    let numberOfThreads = 2
 
     tchan <- atomically newTChan
     forM_ [0 .. numberOfThreads] $ \_ ->  do
@@ -48,9 +48,9 @@ hsreduce sourceDir test filePath = do
             let oldPath = fromAbsFile $ sourceDir </> iterFile
             status <- getFileStatus oldPath
   
-            if isDirectory status
-               then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
-               else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+            -- if isDirectory status
+            --    then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
+            copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
 
         atomically $ writeTChan tchan tempDir
 
@@ -71,9 +71,9 @@ hsreduce sourceDir test filePath = do
 
 allActions :: R ()
 allActions = do
-    sourceFile <- asks _sourceFile
+    test <- asks _test
     tchan      <- asks _tempDirs
-    result <- liftIO $ withTempDir tchan $ \tempDir -> runTest' (tempDir </> sourceFile) (120 * 1000 * 1000) 
+    result <- liftIO $ withTempDir tchan $ \tempDir -> runTest' (tempDir </> test) (120 * 1000 * 1000) 
 
     case result of 
         Uninteresting -> error "*** test is uninteresting at the start! ***"
