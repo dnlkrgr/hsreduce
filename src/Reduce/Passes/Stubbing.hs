@@ -1,8 +1,6 @@
 {-# language BangPatterns #-}
 module Reduce.Passes.Stubbing where
 
-import Data.List.Split
-import Control.Concurrent.Async
 import Control.Monad.Reader
 import Data.Ratio
 import qualified Data.ByteString as BS
@@ -15,7 +13,6 @@ import GHC
 import Outputable hiding ((<>))
 import OccName
 import Data.Generics.Uniplate.Data
-import Data.Data
 
 import Util.Types
 import Util.Util
@@ -27,11 +24,8 @@ reduce = do
     oldState  <- get
     liftIO $ putStrLn "\n***Stubbing expressions***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-    -- void $ stubbings oldState
-    newParsed <- stubbings $ _parsed oldState
-    modify $ \s -> s { _parsed = newParsed }
+    void . stubbings $ _parsed oldState
 
-type WaysToChange a = a -> [a -> a]
 
 -- ***mock inverting intensifies***
 stubbings :: ParsedSource -> R ParsedSource
@@ -57,77 +51,6 @@ stubbings =
     -- -- >=> runPass inlineFunctions 
     -- -- >=> runPass simplifyLit 
     >=> runPass pat2Wildcard 
-
-runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
-runPass pass ast = do 
-    let arst = getProposedChanges ast pass
-
-    results <- filter snd <$> getInterestingChanges ast arst
-
-    let newAST =  applyChanges ast . map fst $ results
-
-    modify $ \s -> s {
-        _isAlive = 
-            if _isAlive s && not (null results)
-                then True
-                else 
-                    let e = oshow newAST /= oshow ast
-                    in if e then e else e
-    }
-
-    return newAST
-
-
-getProposedChanges :: Data a => ParsedSource -> (a -> [a -> a]) -> [Located a -> Located a]
-getProposedChanges ast pass = concat [map (overwriteAtLoc' l) $ pass e | L l e <- universeBi ast]
-
-
-getInterestingChanges :: Data a => ParsedSource -> [Located a -> Located a] -> R [(Located a -> Located a, Bool)]
-getInterestingChanges ast proposedChanges = do
-    oldState        <- get
-    oldConf         <- ask
-    numberOfThreads <- asks _numberOfThreads
-
-    let l = length proposedChanges
-    let chunkSize = div l numberOfThreads
-    -- liftIO $ print l
-    -- liftIO $ print numberOfThreads
-    -- liftIO $ print $ div l numberOfThreads
-
-    -- let batches = [proposedChanges]
-    let batches = case chunkSize of
-            0 -> [proposedChanges]
-            _ -> let temp = chunksOf chunkSize proposedChanges
-                 in case reverse temp of
-                     (x:y:xs) -> 
-                         if length temp > numberOfThreads
-                         then (x ++ y) : xs
-                         else temp
-                     _ -> temp
-
-    -- liftIO . print $ length batches                        
-    
-    changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
-        -- liftIO $ print $ length batch
-
-        forM (zip [1..] batch) $ \(n, c) -> do
-            b <- tryNewValue' oldConf oldState ast c
-            -- liftIO $ putStrLn $ show n <> "/" <> (show $ length batch )
-            return (c, b)
-
-    return changes
-
-
-applyChanges :: Data a => ParsedSource -> [Located a -> Located a] -> ParsedSource
-applyChanges ast changes = foldr transformBi ast changes 
--- *** mocking ends **    
-
--- get ways to change an expression that contains a list as an subexpression
--- p: preprocessing (getting to the list)
--- f: filtering and returning a valid expression again
-h :: Eq e => (a -> [e]) -> (e -> a -> a) -> WaysToChange a
-h p f = map (\l o -> f l o) . p
-
 
 class HasList a where
     hasList :: a -> Bool
@@ -288,9 +211,9 @@ simplifyTypeR t
 
 
 expr2Undefined :: WaysToChange (HsExpr GhcPs)
-expr2Undefined expr = [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined") ]
---     | oshow expr == "undefined" = []
---     | otherwise = [\_ -> undefined] -- [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined") ]
+expr2Undefined expr
+    | oshow expr == "undefined" = []
+    | otherwise = [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined")]
 
 matchDelIfUndefAnywhere :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
 matchDelIfUndefAnywhere _ =

@@ -125,10 +125,10 @@ library
                        Util.Types
                        Parser.Parser
                        Reduce.Passes.Stubbing
-                       -- Reduce.Passes.RemoveUnused.Decls
-                       -- Reduce.Passes.RemoveUnused.Imports
-                       -- Reduce.Passes.RemoveUnused.Exports
-                       -- Reduce.Passes.RemoveUnused.Pragmas
+                       Reduce.Passes.RemoveUnused.Decls
+                       Reduce.Passes.RemoveUnused.Imports
+                       Reduce.Passes.RemoveUnused.Exports
+                       Reduce.Passes.RemoveUnused.Pragmas
 --     other-modules:     
 --                        Util.Util
 --                        Util.Types

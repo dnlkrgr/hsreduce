@@ -15,10 +15,10 @@ import "temporary" System.IO.Temp (createTempDirectory)
 import Data.Time
 import Util.Util
 import Util.Types
--- import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
--- import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (reduce)
--- import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
--- import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
+import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
+import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (reduce)
+import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
+import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (reduce)
 import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
@@ -49,9 +49,9 @@ hsreduce sourceDir test filePath = do
             let oldPath = fromAbsFile $ sourceDir </> iterFile
             status <- getFileStatus oldPath
   
-            -- if isDirectory status
-            --    then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
-            copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+            if isDirectory status
+            then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
+            else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
 
         atomically $ writeTChan tchan tempDir
 
@@ -80,23 +80,23 @@ allActions = do
         Uninteresting -> error "*** test is uninteresting at the start! ***"
         Interesting -> do
             liftIO $ putStrLn ":-) Test is interesting at the start"
-            -- largestFixpoint fast
+            largestFixpoint fast
             liftIO $ putStrLn "*** Increasing granularity ***"
             largestFixpoint slow
 
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
--- fast :: R ()
--- fast = do
---     Imports.reduce
---     Pragmas.reduce
---     Exports.reduce
---     Decls.reduce
+fast :: R ()
+fast = do
+    Imports.reduce
+    Pragmas.reduce
+    Exports.reduce
+    Decls.reduce
 
 slow :: R ()
 slow = do
     Stubbing.reduce
-    -- fast
+    fast
 
 -- | calculate the fixpoint, by always checking if the new module is
 -- smaller than the old one

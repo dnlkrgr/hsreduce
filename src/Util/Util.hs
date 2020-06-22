@@ -32,6 +32,72 @@ import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 import System.Directory
 import System.Posix.Files
+import Data.List.Split
+import Control.Concurrent.Async
+
+type WaysToChange a = a -> [a -> a]
+
+runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
+runPass pass ast = do 
+
+    let arst   =  getProposedChanges ast pass
+    results    <- filter snd <$> getInterestingChanges ast arst
+    let newAST =  applyChanges ast . map fst $ results
+
+    modify $ \s -> s {
+        _isAlive = 
+            if _isAlive s && not (null results)
+                then True
+                else oshow newAST /= oshow ast
+
+        , _parsed  = newAST
+    }
+
+    return newAST
+
+
+getProposedChanges :: Data a => ParsedSource -> (a -> [a -> a]) -> [Located a -> Located a]
+getProposedChanges ast pass = concat [map (overwriteAtLoc' l) $ pass e | L l e <- universeBi ast]
+
+
+getInterestingChanges :: Data a => ParsedSource -> [Located a -> Located a] -> R [(Located a -> Located a, Bool)]
+getInterestingChanges ast proposedChanges = do
+    oldState        <- get
+    oldConf         <- ask
+    numberOfThreads <- asks _numberOfThreads
+
+    let l = length proposedChanges
+    let chunkSize = div l numberOfThreads
+
+    let batches = case chunkSize of
+            0 -> [proposedChanges]
+            _ -> let temp = chunksOf chunkSize proposedChanges
+                 in case reverse temp of
+                     (x:y:xs) -> 
+                         if length temp > numberOfThreads
+                         then (x ++ y) : xs
+                         else temp
+                     _ -> temp
+
+    changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
+        forM batch $ \c -> do
+            b <- tryNewValue' oldConf oldState ast c
+            return (c, b)
+
+    return changes
+
+
+applyChanges :: Data a => ParsedSource -> [Located a -> Located a] -> ParsedSource
+applyChanges ast changes = foldr transformBi ast changes 
+-- *** mocking ends **    
+
+-- get ways to change an expression that contains a list as an subexpression
+-- p: preprocessing (getting to the list)
+-- f: filtering and returning a valid expression again
+h :: Eq e => (a -> [e]) -> (e -> a -> a) -> WaysToChange a
+h p f = map (\l o -> f l o) . p
+
+
 
 minireduce :: Data a => (Located a -> R (Located a)) -> R ()
 minireduce pass = void . (transformBiM pass) =<< gets _parsed
@@ -123,10 +189,10 @@ overwriteAtLoc' loc f oldValue@(L oldLoc !a)
 tryNewValue' :: Data a => RConf -> RState -> ParsedSource -> (Located a -> Located a) -> IO Bool
 tryNewValue' conf oldState ast f = do
     let newSource = transformBi f ast
-    testAndUpdateStateFlex' conf False True (oldState { _parsed = newSource })
+    testAndUpdateStateFlex conf False True (oldState { _parsed = newSource })
 
-testAndUpdateStateFlex' :: RConf -> a -> a -> RState -> IO a
-testAndUpdateStateFlex' conf a b newState =
+testAndUpdateStateFlex :: RConf -> a -> a -> RState -> IO a
+testAndUpdateStateFlex conf a b newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
         let sourceFile = tempDir </> _sourceFile conf
         let test       = tempDir </> _test conf
@@ -147,8 +213,12 @@ runTest' test duration = do
          Nothing -> do
            errorPrint "runTest: timed out"
            return Uninteresting
-         Just (exitCode, _, _) -> case exitCode of
+         Just (exitCode, a, b) -> case exitCode of
              ExitFailure _ -> do
+                print dirName
+                print testName
+                print a
+                print b
                 return Uninteresting
              ExitSuccess   -> return Interesting
 -- ** end of mocking **
@@ -161,7 +231,6 @@ withTempDir tchan action = do
     return a
 
 
-
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 getGhcOutput :: Tool -> GhcMode -> Path Abs File -> IO (Maybe [(Either (M.ParseErrorBundle T.Text Void) T.Text, SL.RealSrcSpan)])
 getGhcOutput tool ghcMode sourcePath = do
@@ -170,7 +239,7 @@ getGhcOutput tool ghcMode sourcePath = do
     let dirName  = parent sourcePath
         fileName = filename sourcePath
         command = case tool of
-            Ghc -> "ghc " ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas) ++ " " ++ fromRelFile fileName
+            Ghc   -> "ghc " ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas) ++ " " ++ fromRelFile fileName
             Cabal -> "nix-shell --run 'cabal new-build'"
 
     (_, stdout, _) <- 

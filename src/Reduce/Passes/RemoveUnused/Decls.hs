@@ -1,7 +1,7 @@
 module Reduce.Passes.RemoveUnused.Decls where
 
+import Path 
 import Data.Either
-import Debug.Trace
 import Control.Monad.State.Strict
 import qualified Data.Text as T
 import Util.Types
@@ -12,52 +12,51 @@ import Outputable
 import BasicTypes
 import TcEvidence
 import CoreSyn
-import Data.Generics.Uniplate.Data
+
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: R ()
 reduce = do
+    tchan <- asks _tempDirs
     oldState <- get
     sourceFile <- asks _sourceFile
     liftIO $ putStrLn "\n***Removing unused declarations***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-    mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (getGhcOutput Ghc Binds sourceFile)
-    _ <- (traceShow ("rmvSigs" :: String) transformBiM (rmvSigs mUnusedBinds)
-            >=> traceShow ("filterUnusedSigLists" :: String) transformBiM (fastTry (filterUnusedSigLists mUnusedBinds))
-            >=> traceShow ("filterSigLists" :: String) transformBiM (fastTryR filterSigLists)
-            >=> traceShow ("rmvDecls" :: String) transformBiM (rmvDecls mUnusedBinds)
-            >=> traceShow ("rmvCons" :: String) transformBiM (fastTryR rmvCons)
-            >=> traceShow ("undefFunBind" :: String) transformBiM (fastTry undefFunBind))
-             (_parsed oldState)
-    return ()
+    mUnusedBinds <- 
+        fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
+    void . allActions mUnusedBinds . _parsed =<< get
 
-
+allActions :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
+allActions mUnusedBinds = 
+    runPass (rmvSigs mUnusedBinds)
+    >=> runPass (filterUnusedSigLists mUnusedBinds)
+    >=> runPass (filterSigLists)
+    >=> runPass (rmvDecls mUnusedBinds)
+    >=> runPass (rmvCons)
+    >=> runPass (undefFunBind)
 
 -- ***************************************************************************
 -- SIGNATURES
 -- ***************************************************************************
 
 -- | remove whole signature declarations
-rmvSigs :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
-rmvSigs Nothing = reduceListOfSubelements f' rmvOneDecl
-  where f' = getDeclLocs (filter (isSig . unLoc))
-rmvSigs (Just unusedBinds) = reduceListOfSubelements f' rmvOneDecl
-  where f' = getDeclLocs (filter ((isSig
-                                  <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow)
-                                        . getName))
-                                  . unLoc))
+rmvSigs :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
+rmvSigs Nothing =  h f' rmvOneDecl
+  where f' = getDeclLocs (filter isSig)
+rmvSigs (Just unusedBinds) = h f' rmvOneDecl
+  where f' = getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
 
 -- | filter out unused IDs in a signature
-filterUnusedSigLists :: Maybe [T.Text] -> HsDecl GhcPs -> Maybe (HsDecl GhcPs)
+filterUnusedSigLists :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
 filterUnusedSigLists (Just bns) (TypeSigDeclP ids swt) =
   let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
-  in Just $ TypeSigDeclX newFunIds swt
-filterUnusedSigLists _ _ = Nothing
+  in [const (TypeSigDeclX newFunIds swt)]
+filterUnusedSigLists _ _ = []
 
 -- | brute force filter out IDs in a signature
-filterSigLists :: LHsDecl GhcPs -> Maybe (R (LHsDecl GhcPs))
-filterSigLists ldcl@(L _ TypeSigDeclP{}) =
-  Just $ reduceListOfSubelements typeSig2Ids transformTypeSig ldcl
+filterSigLists :: WaysToChange (HsDecl GhcPs)
+filterSigLists =
+  h typeSig2Ids transformTypeSig 
   where
     typeSig2Ids = \case
       TypeSigDeclP ids _ -> ids
@@ -67,10 +66,9 @@ filterSigLists ldcl@(L _ TypeSigDeclP{}) =
         let newIds = filter (/= e) ids -- L l . flip TypeSigDeclX swt
         in TypeSigDeclX newIds swt
       d -> d
-filterSigLists _ = Nothing
 
-isSig :: HsDecl GhcPs -> Bool
-isSig (SigD _ _) = True
+isSig :: LHsDecl GhcPs -> Bool
+isSig (L _ (SigD _ _)) = True
 isSig _ = False
 
 
@@ -80,26 +78,26 @@ isSig _ = False
 -- ***************************************************************************
 
 -- | remove unused decls
-rmvDecls :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
+rmvDecls :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
 rmvDecls Nothing   = defaultBehavior
 rmvDecls (Just []) = defaultBehavior
-rmvDecls (Just unusedBinds) = reduceListOfSubelements f' rmvOneDecl
-  where f' = getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName . unLoc))
+rmvDecls (Just unusedBinds) = h f' rmvOneDecl
+  where f' = getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))
 
-defaultBehavior :: ParsedSource -> R ParsedSource
-defaultBehavior = reduceListOfSubelements (map getLoc . hsmodDecls) rmvOneDecl
+defaultBehavior :: WaysToChange (HsModule GhcPs)
+defaultBehavior = h (map getLoc . hsmodDecls) rmvOneDecl
 
 getDeclLocs :: ([LHsDecl GhcPs] -> [Located e]) -> HsModule GhcPs -> [SrcSpan]
-getDeclLocs h = map getLoc . h .  hsmodDecls
+getDeclLocs f = map getLoc . f .  hsmodDecls
 
 rmvOneDecl :: SrcSpan -> HsModule GhcPs -> HsModule GhcPs
 rmvOneDecl loc m = m { hsmodDecls = filter ((/= loc) . getLoc ) $ hsmodDecls m }
 
 -- TODO: what other decls make sense here?
-getName :: HsDecl GhcPs -> Maybe (IdP GhcPs)
-getName (TyClD _ d)       = Just . tcdName $ d
-getName (SimplFunP funId) = Just . unLoc $ funId
-getName (SimplSigP funId) = Just . unLoc $ funId
+getName :: LHsDecl GhcPs -> Maybe (IdP GhcPs)
+getName (L _ (TyClD _ d))       = Just . tcdName $ d
+getName (L _ (SimplFunP funId)) = Just . unLoc $ funId
+getName (L _ (SimplSigP funId)) = Just . unLoc $ funId
 getName _ = Nothing
 
 
@@ -109,9 +107,9 @@ getName _ = Nothing
 -- ***************************************************************************
 
 -- | brute force remove constructors
-rmvCons :: LHsDecl GhcPs -> Maybe (R (LHsDecl GhcPs))
-rmvCons t@(L _ (TyClD _ DataDecl{})) =
-  Just $ reduceListOfSubelements decl2ConsStrings delCons t
+rmvCons :: WaysToChange (HsDecl GhcPs)
+rmvCons =
+  h decl2ConsStrings delCons
   where
     decl2ConsStrings = \case
       (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
@@ -121,7 +119,6 @@ rmvCons t@(L _ (TyClD _ DataDecl{})) =
         let newCons = dd_cons oldDataDefn
         in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
       d -> d
-rmvCons _ = Nothing
 
 
 
@@ -130,13 +127,13 @@ rmvCons _ = Nothing
 -- ***************************************************************************
 
 -- | remove fun binds with undefined rhs
-undefFunBind :: HsDecl GhcPs -> Maybe (HsDecl GhcPs)
+undefFunBind :: WaysToChange (HsDecl GhcPs)
 undefFunBind (FunDeclP fid loc mtchs mo fw ft) =
   let nMtchs =
         filter (\(L _ (Match _ _ _ grhss)) ->
           showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
-  in Just (FunDeclP fid loc nMtchs mo fw ft)
-undefFunBind _ = Nothing
+  in [const (FunDeclP fid loc nMtchs mo fw ft)]
+undefFunBind _ = []
 
 
 

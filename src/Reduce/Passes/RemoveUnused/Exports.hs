@@ -8,7 +8,6 @@ import Util.Util
 import Control.Monad.Reader
 import qualified Data.Text as T
 import GHC
-import Data.Generics.Uniplate.Data
 
 reduce :: R ()
 reduce = do
@@ -24,7 +23,7 @@ reduce = do
     case maybeExports of
   
       Nothing -> do
-          modName <- asks (takeWhile (/= '.') . fromAbsFile . _sourceFile)
+          modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
   
           let oldExports = mapMaybe (decl2Export . unLoc) allDecls
               newModName =
@@ -32,17 +31,20 @@ reduce = do
                       Nothing -> Just . L noSrcSpan . mkModuleName $ modName
                       m -> m
               newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
-              newState = oldState { _parsed = L l newModule }
+              newState  = oldState { _parsed = L l newModule }
   
           put newState
           -- TODO: if no exports were removed, turn it into Nothing again
   
       Just _ -> return ()
   
-    void . descendBiM (fastTryR removeExports) $ _parsed oldState
+    void . runPass removeExports . _parsed =<< get
 
-removeExports :: Located [LIE GhcPs] -> Maybe (R (Located [LIE GhcPs]))
-removeExports = Just . reduceListOfSubelements (map (oshow . unLoc)) (\name exports -> filter ((/= name) . oshow . unLoc) exports)
+removeExports :: WaysToChange [LIE GhcPs]
+removeExports = h (map getLoc) (\loc -> filter ((/= loc) . getLoc))
+
+-- rmvImports = h (map getLoc . hsmodImports) f
+--   where f loc m = m { hsmodImports = filter ((/= loc) . getLoc) (hsmodImports m) }
 
 
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)

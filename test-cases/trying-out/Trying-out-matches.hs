@@ -1,4 +1,7 @@
+{-# language OverloadedStrings #-}
+{-# language TypeFamilies #-}
 module Matches where
+
 
 
 data Dumb = Dumb { a :: Int, b :: String } 
