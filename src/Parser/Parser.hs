@@ -14,8 +14,8 @@ import qualified Data.Text.IO as TIO
 import qualified Text.Megaparsec as M
 import Text.Megaparsec.Char
 import GHC hiding (extensions)
-import GHC.Paths
 import Util.Types
+import GHC.Paths
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]
@@ -64,7 +64,6 @@ parse justParse includeDirs srcDirs fileName = do
   
     extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
     print extensions
-  
   
     (p, et) <- runGhc (Just libdir) $ do
       dflags <- flip (L.foldl' xopt_set) extensions . (\(a,_,_) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)

@@ -1,9 +1,8 @@
 module Main where
 
-import Data.Maybe
-import Path
+import Path 
 import System.Environment
-import System.Directory
+import Data.Maybe
 import Reduce.HsReduce
 
 main :: IO ()

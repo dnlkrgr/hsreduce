@@ -1,4 +1,3 @@
-{-# language BangPatterns #-}
 module Util.Util where
 
 import Control.Concurrent.STM
@@ -150,40 +149,10 @@ recListDirectory dir = listDirectory dir >>=
 trace'' :: String -> (a -> String) -> a -> a
 trace'' s f a = traceShow (s <> ": " <> f a) a
 
-
--- 
--- 
---     -- TODO: 
---     -- get tvar from conf
---     -- atomically modify tvar:
---     --      check if thread id is already in the list
---     --      otherwise: add it
---     --
---     --      if there is no room anymore, fail
---     tvar <- asks _tempDirs
---     liftIO . atomically $ do
---         -- modify $ \s -> s { _tempDirPaths = map (\c@(_, o) -> if o == t then (Just i, o) else c ) oldPaths }
---                 return snd . head . filter (not . isJust . fst) $ tempDirs
--- 
---         tempDirs <- readTVar tvar
--- 
---         case Just i `lookup` tempDirs of
---             Nothing -> do
---                 modifyTVar tvar $ \tempDirs -> foldr go [] tempDirs
---                 -- update list
---                 -- return value at index of thread id
---             Just dir -> return dir
--- 
---     return undefined
---   where go i (a,b) c = case a of
---                 Nothing -> (Just i, b) : c
---                 _ -> (a,b) : c
-
-
 -- ** mocking **
 overwriteAtLoc' :: SrcSpan -> (a -> a) -> Located a -> Located a
-overwriteAtLoc' loc f oldValue@(L oldLoc !a)
-    | loc == oldLoc = L loc $! f a
+overwriteAtLoc' loc f oldValue@(L oldLoc a)
+    | loc == oldLoc = L loc $ f a
     | otherwise = oldValue
 
 tryNewValue' :: Data a => RConf -> RState -> ParsedSource -> (Located a -> Located a) -> IO Bool
@@ -197,7 +166,6 @@ testAndUpdateStateFlex conf a b newState =
         let sourceFile = tempDir </> _sourceFile conf
         let test       = tempDir </> _test conf
 
-
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
             Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
             Right _ -> do
@@ -207,20 +175,16 @@ testAndUpdateStateFlex conf a b newState =
 
 runTest' :: Path Abs File -> Word -> IO Interesting
 runTest' test duration = do
-    let dirName  = parent test
+    let dirName  = parent   test
     let testName = filename test
-    timeout (fromIntegral duration) (readCreateProcessWithExitCode ((shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) "") >>= \case
+
+    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
          Nothing -> do
            errorPrint "runTest: timed out"
            return Uninteresting
-         Just (exitCode, a, b) -> case exitCode of
-             ExitFailure _ -> do
-                print dirName
-                print testName
-                print a
-                print b
-                return Uninteresting
-             ExitSuccess   -> return Interesting
+         Just (exitCode,_,_) -> return $ case exitCode of
+             ExitFailure _ -> Uninteresting
+             ExitSuccess   -> Interesting
 -- ** end of mocking **
 
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a
@@ -244,7 +208,7 @@ getGhcOutput tool ghcMode sourcePath = do
 
     (_, stdout, _) <- 
         fromMaybe (error "getGhcOutput timeout!") 
-        <$> timeout (fromIntegral defaultDuration) (readCreateProcessWithExitCode ((shell command) {cwd = Just $ fromAbsDir dirName}) "")
+        <$> timeout (fromIntegral $ 60 * defaultDuration) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))
 
     return $ case stdout of
         "" -> Nothing

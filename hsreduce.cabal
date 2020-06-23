@@ -8,186 +8,134 @@ cabal-version:       >=1.10
 
 executable hsmerge
     main-is: Main.hs
-    build-depends:       base
-                       , ghc
-                       , Cabal
-                       , MonadRandom
-                       , QuickCheck
-                       , async
-                       , aeson
-                       , bytestring
-                       , containers
-                       , directory
-                       , extra
-                       , path
-                       , ghc-boot-th
-                       , ghc-paths
-                       , hie-bios
-                       , haskell-src-exts
-                       , haskell-names
-                       , hse-cpp
-                       , filepath
-                       , hashable
-                       , megaparsec
-                       , mtl
-                       , process
-                       , random
-                       , syb
-                       , temporary
-                       , text
-                       , time
-                       , transformers
-                       , uniplate
-                       , unix
-                       , monad-par
-                       , regex
-                       , word8
-                       , generic-deriving
-                       , hsreduce
-    hs-source-dirs:      src/Merge
-    default-language:    Haskell2010
-    default-extensions:  DeriveGeneric
-                         LambdaCase
-                         PatternSynonyms
-                         Rank2Types  
-                         TypeFamilies
-                         PackageImports
-                         QuasiQuotes
-                         GeneralizedNewtypeDeriving 
-                         OverloadedStrings 
-                         ScopedTypeVariables
-                         StrictData
-                         ViewPatterns
-    ghc-options:       -Wall
+    other-modules:
+        Merge.HsAllInOne
+    build-depends:       
+        base
+        , Cabal
+        , MonadRandom
+        , QuickCheck
+        , aeson
+        , async
+        , bytestring
+        , containers
+        , directory
+        , extra
+        , filepath
+        , generic-deriving
+        , ghc
+        , ghc-boot-th
+        , ghc-paths
+        , hashable
+        , hie-bios
+        , hse-cpp
+        , megaparsec
+        , monad-par
+        , mtl
+        , path
+        , process
+        , random
+        , regex
+        , split
+        , stm
+        , syb
+        , temporary
+        , text
+        , time
+        , transformers
+        , uniplate
+        , unix
+        , word8
+    hs-source-dirs:      
+        src
+        src/Merge
+    default-language:    
+        Haskell2010
+    default-extensions:  
+        DeriveGeneric
+        LambdaCase
+        PatternSynonyms
+        Rank2Types  
+        TypeFamilies
+        PackageImports
+        QuasiQuotes
+        GeneralizedNewtypeDeriving 
+        OverloadedStrings 
+        ScopedTypeVariables
+        StrictData
+        ViewPatterns
+    ghc-options:       
+        -Wall
     
-
 executable hsreduce
-    main-is: Main.hs
-    build-depends:       base
-                       , hsreduce
-                       , ghc
-                       , Cabal
-                       , MonadRandom
-                       , split
-                       , QuickCheck
-                       , async
-                       , aeson
-                       , bytestring
-                       , containers
-                       , directory
-                       , extra
-                       , path
-                       , ghc-boot-th
-                       , ghc-paths
-                       , hie-bios
-                       , haskell-src-exts
-                       , haskell-names
-                       , hse-cpp
-                       , filepath
-                       , hashable
-                       , hspec
-                       , megaparsec
-                       , mtl
-                       , process
-                       , random
-                       , syb
-                       , temporary
-                       , text
-                       , time
-                       , transformers
-                       , uniplate
-                       , unix
-                       , monad-par
-                       , stm
-                       , regex
-                       , word8
-                       , generic-deriving
-    hs-source-dirs:    src
-    default-language:  Haskell2010
-    default-extensions:  DeriveGeneric
-                         LambdaCase
-                         PatternSynonyms
-                         Rank2Types  
-                         TypeFamilies
-                         PackageImports
-                         QuasiQuotes
-                         GeneralizedNewtypeDeriving 
-                         OverloadedStrings 
-                         ScopedTypeVariables
-                         -- StrictData
-                         ViewPatterns
-    ghc-options:       -Wall -O2 -threaded 
-
-library
-    exposed-modules:   
-                       Reduce.HsReduce
-                       Util.Util
-                       Util.Types
-                       Parser.Parser
-                       Reduce.Passes.Stubbing
-                       Reduce.Passes.RemoveUnused.Decls
-                       Reduce.Passes.RemoveUnused.Imports
-                       Reduce.Passes.RemoveUnused.Exports
-                       Reduce.Passes.RemoveUnused.Pragmas
---     other-modules:     
---                        Util.Util
---                        Util.Types
---                        Parser.Parser
---                        Reduce.Passes.RemoveUnused.Decls
---                        Reduce.Passes.RemoveUnused.Imports
---                        Reduce.Passes.RemoveUnused.Exports
---                        Reduce.Passes.Stubbing
-    build-depends:       base
-                       , ghc
-                       , Cabal
-                       , MonadRandom
-                       , split
-                       , QuickCheck
-                       , async
-                       , aeson
-                       , bytestring
-                       , containers
-                       , directory
-                       , extra
-                       , path
-                       , ghc-boot-th
-                       , ghc-paths
-                       , hie-bios
-                       , haskell-src-exts
-                       , haskell-names
-                       , hse-cpp
-                       , filepath
-                       , hashable
-                       , hspec
-                       , megaparsec
-                       , mtl
-                       , process
-                       , random
-                       , syb
-                       , temporary
-                       , text
-                       , time
-                       , transformers
-                       , uniplate
-                       , unix
-                       , monad-par
-                       , stm
-                       , regex
-                       , word8
-                       , generic-deriving
-    hs-source-dirs:      src, test
-    default-language:    Haskell2010
-    default-extensions:  DeriveGeneric
-                         LambdaCase
-                         PatternSynonyms
-                         Rank2Types  
-                         TypeFamilies
-                         PackageImports
-                         QuasiQuotes
-                         GeneralizedNewtypeDeriving 
-                         OverloadedStrings 
-                         ScopedTypeVariables
-                         -- StrictData
-                         ViewPatterns
-    ghc-options:       -Wall 
--- -rtsopts -prof -fprof-auto
+    main-is: 
+        Main.hs
+    other-modules:   
+        Reduce.HsReduce
+        Util.Util
+        Util.Types
+        Parser.Parser
+        Reduce.Passes.Stubbing
+        Reduce.Passes.RemoveUnused.Decls
+        Reduce.Passes.RemoveUnused.Imports
+        Reduce.Passes.RemoveUnused.Exports
+        Reduce.Passes.RemoveUnused.Pragmas
+    build-depends:       
+        base
+        , Cabal
+        , MonadRandom
+        , QuickCheck
+        , aeson
+        , async
+        , bytestring
+        , containers
+        , directory
+        , extra
+        , filepath
+        , generic-deriving
+        , ghc
+        , ghc-boot-th
+        , ghc-paths
+        , hashable
+        , hie-bios
+        , hse-cpp
+        , hspec
+        , megaparsec
+        , monad-par
+        , mtl
+        , path
+        , process
+        , random
+        , regex
+        , split
+        , stm
+        , syb
+        , temporary
+        , text
+        , time
+        , transformers
+        , uniplate
+        , unix
+        , word8
+    hs-source-dirs:    
+        src
+        src/Reduce
+    default-language:  
+        Haskell2010
+    default-extensions:  
+        DeriveGeneric
+        LambdaCase
+        PatternSynonyms
+        Rank2Types  
+        TypeFamilies
+        PackageImports
+        QuasiQuotes
+        GeneralizedNewtypeDeriving 
+        OverloadedStrings 
+        ScopedTypeVariables
+        StrictData
+        ViewPatterns
+    ghc-options:       
+        -Wall 
+        -O2 
+        -threaded 

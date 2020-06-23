@@ -23,19 +23,19 @@ newtype R a
 
 data RConf
   = RConf
-      { _test            :: !(Path Rel File)
-      , _sourceFile      :: !(Path Rel File)
-      , _numberOfThreads :: !Int
-      , _tempDirs        :: !(TChan (Path Abs Dir))
+      { _test            :: (Path Rel File)
+      , _sourceFile      :: (Path Rel File)
+      , _numberOfThreads :: Int
+      , _tempDirs        :: (TChan (Path Abs Dir))
       }
 
 data RState
   = RState
-      { _pragmas      :: ![Pragma]
-      , _parsed       :: !ParsedSource
-      , _renamed      :: !(Maybe RenamedSource)
-      , _typechecked  :: !(Maybe TypecheckedSource)
-      , _isAlive      :: !Bool
+      { _pragmas      :: [Pragma]
+      , _parsed       :: ParsedSource
+      , _renamed      :: (Maybe RenamedSource)
+      , _typechecked  :: (Maybe TypecheckedSource)
+      , _isAlive      :: Bool
       }
 
 showState :: RState -> T.Text
@@ -47,11 +47,11 @@ showState (RState prags ps _ _ _)  =
 
 data Span
   = Span
-      { file      :: !T.Text
-      , startLine :: !Int
-      , startCol  :: !Int
-      , endLine   :: !Int
-      , endCol    :: !Int
+      { file      :: T.Text
+      , startLine :: Int
+      , startCol  :: Int
+      , endLine   :: Int
+      , endCol    :: Int
       }
   deriving (Eq, Generic, Show)
 instance FromJSON Span
@@ -59,9 +59,9 @@ instance FromJSON Span
 
 data GhcOutput
   = GhcOutput
-      { span   :: !(Maybe Span),
-        doc    :: !T.Text,
-        reason :: !(Maybe T.Text)
+      { span   :: (Maybe Span),
+        doc    :: T.Text,
+        reason :: (Maybe T.Text)
       }
   deriving (Eq, Generic, Show)
 instance FromJSON GhcOutput

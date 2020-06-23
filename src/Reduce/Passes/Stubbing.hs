@@ -1,4 +1,3 @@
-{-# language BangPatterns #-}
 module Reduce.Passes.Stubbing where
 
 import Control.Monad.Reader
@@ -329,8 +328,8 @@ exprWithList = h p f
 -- delete if-then-else branches
 -- case expr with one case -> body
 simplifyExpr :: WaysToChange (HsExpr GhcPs)
-simplifyExpr (SingleCase !body)     = [const body]
-simplifyExpr (HsIf _ _ _ (L _ !ls) (L _ !rs))
+simplifyExpr (SingleCase body)     = [const body]
+simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))
   | oshow ls == "undefined"        = [const rs]
   | oshow rs == "undefined"        = [const ls]
 -- simplifyExpr (HsApp _ _ e)         = Just $ unLoc e

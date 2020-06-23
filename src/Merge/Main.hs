@@ -4,4 +4,7 @@ import System.Environment
 import Merge.HsAllInOne
 
 main :: IO ()
-main = hsmerge =<< head <$> getArgs
+main = do 
+    x <- head <$> getArgs
+    hsmerge x
+    dieForGhcSins
