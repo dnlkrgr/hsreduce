@@ -38,7 +38,6 @@ type WaysToChange a = a -> [a -> a]
 
 runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
 runPass pass ast = do 
-
     let arst   =  getProposedChanges ast pass
     results    <- filter snd <$> getInterestingChanges ast arst
     let newAST =  applyChanges ast . map fst $ results
@@ -88,7 +87,7 @@ getInterestingChanges ast proposedChanges = do
 
 applyChanges :: Data a => ParsedSource -> [Located a -> Located a] -> ParsedSource
 applyChanges ast changes = foldr transformBi ast changes 
--- *** mocking ends **    
+
 
 -- get ways to change an expression that contains a list as an subexpression
 -- p: preprocessing (getting to the list)
@@ -149,7 +148,6 @@ recListDirectory dir = listDirectory dir >>=
 trace'' :: String -> (a -> String) -> a -> a
 trace'' s f a = traceShow (s <> ": " <> f a) a
 
--- ** mocking **
 overwriteAtLoc' :: SrcSpan -> (a -> a) -> Located a -> Located a
 overwriteAtLoc' loc f oldValue@(L oldLoc a)
     | loc == oldLoc = L loc $ f a
@@ -185,7 +183,6 @@ runTest' test duration = do
          Just (exitCode,_,_) -> return $ case exitCode of
              ExitFailure _ -> Uninteresting
              ExitSuccess   -> Interesting
--- ** end of mocking **
 
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a
 withTempDir tchan action = do

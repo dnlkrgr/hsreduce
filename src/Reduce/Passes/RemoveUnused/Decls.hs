@@ -29,60 +29,32 @@ reduce = do
 allActions :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
 allActions mUnusedBinds = 
     runPass (rmvSigs mUnusedBinds)
-    >=> runPass (filterUnusedSigLists mUnusedBinds)
-    >=> runPass (filterSigLists)
+    >=> runPass (simplifyHsDecl mUnusedBinds)
     >=> runPass (rmvDecls mUnusedBinds)
-    >=> runPass (rmvCons)
-    >=> runPass (undefFunBind)
 
 -- ***************************************************************************
 -- SIGNATURES
 -- ***************************************************************************
-
--- | remove whole signature declarations
 rmvSigs :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
 rmvSigs Nothing =  h f' rmvOneDecl
   where f' = getDeclLocs (filter isSig)
 rmvSigs (Just unusedBinds) = h f' rmvOneDecl
   where f' = getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
 
--- | filter out unused IDs in a signature
-filterUnusedSigLists :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
-filterUnusedSigLists (Just bns) (TypeSigDeclP ids swt) =
-  let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
-  in [const (TypeSigDeclX newFunIds swt)]
-filterUnusedSigLists _ _ = []
-
--- | brute force filter out IDs in a signature
-filterSigLists :: WaysToChange (HsDecl GhcPs)
-filterSigLists =
-  h typeSig2Ids transformTypeSig 
-  where
-    typeSig2Ids = \case
-      TypeSigDeclP ids _ -> ids
-      _ -> []
-    transformTypeSig e = \case
-      TypeSigDeclP ids swt ->
-        let newIds = filter (/= e) ids -- L l . flip TypeSigDeclX swt
-        in TypeSigDeclX newIds swt
-      d -> d
-
 isSig :: LHsDecl GhcPs -> Bool
 isSig (L _ (SigD _ _)) = True
 isSig _ = False
 
 
-
 -- ***************************************************************************
--- DECLS
+-- UNUSED DECLS IN MODULE
 -- ***************************************************************************
-
--- | remove unused decls
 rmvDecls :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
 rmvDecls Nothing   = defaultBehavior
 rmvDecls (Just []) = defaultBehavior
 rmvDecls (Just unusedBinds) = h f' rmvOneDecl
-  where f' = getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))
+  where 
+    f' = getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))
 
 defaultBehavior :: WaysToChange (HsModule GhcPs)
 defaultBehavior = h (map getLoc . hsmodDecls) rmvOneDecl
@@ -100,42 +72,40 @@ getName (L _ (SimplFunP funId)) = Just . unLoc $ funId
 getName (L _ (SimplSigP funId)) = Just . unLoc $ funId
 getName _ = Nothing
 
-
-
 -- ***************************************************************************
--- CONSTRUCTORS
+-- HsDecls
 -- ***************************************************************************
 
--- | brute force remove constructors
-rmvCons :: WaysToChange (HsDecl GhcPs)
-rmvCons =
-  h decl2ConsStrings delCons
-  where
-    decl2ConsStrings = \case
-      (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
-      _ -> []
-    delCons loc = \case
-      (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) ->
-        let newCons = dd_cons oldDataDefn
-        in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
-      d -> d
-
-
-
--- ***************************************************************************
--- FUN BINDS
--- ***************************************************************************
-
--- | remove fun binds with undefined rhs
-undefFunBind :: WaysToChange (HsDecl GhcPs)
-undefFunBind (FunDeclP fid loc mtchs mo fw ft) =
-  let nMtchs =
-        filter (\(L _ (Match _ _ _ grhss)) ->
-          showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
-  in [const (FunDeclP fid loc nMtchs mo fw ft)]
-undefFunBind _ = []
-
-
+simplifyHsDecl :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
+simplifyHsDecl (Just bns) (TypeSigDeclP ids swt) =
+    let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
+    in [const (TypeSigDeclX newFunIds swt)]
+simplifyHsDecl _ (FunDeclP fid loc mtchs mo fw ft) =
+    let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
+    in [const (FunDeclP fid loc nMtchs mo fw ft)]
+simplifyHsDecl _ t@(TypeSigDeclP{}) = 
+    h typeSig2Ids transformTypeSig t
+    where
+        typeSig2Ids = \case
+            TypeSigDeclP ids _ -> ids
+            _ -> []
+        transformTypeSig e = \case
+            TypeSigDeclP ids swt ->
+              let newIds = filter (/= e) ids -- L l . flip TypeSigDeclX swt
+              in TypeSigDeclX newIds swt
+            d -> d
+simplifyHsDecl _ t@(TyClD {}) = 
+    h decl2ConsStrings delCons t
+    where
+        decl2ConsStrings = \case
+            (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
+            _ -> []
+        delCons loc = \case
+            (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) ->
+                let newCons = dd_cons oldDataDefn
+                in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
+            d -> d
+simplifyHsDecl _ _ = []
 
 -- ***************************************************************************
 -- PATTERNS

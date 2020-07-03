@@ -25,10 +25,12 @@ import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 import Control.Concurrent.STM
 
-hsreduce :: Path Abs Dir -> Path Rel File -> Path Rel File -> IO ()
-hsreduce sourceDir test filePath = do
+hsreduce :: FilePath -> FilePath -> FilePath -> IO ()
+hsreduce fSourceDir fTest fFilePath  = do
     putStrLn "*******************************************************"
-
+    sourceDir           <- parseAbsDir fSourceDir
+    test                <- parseRelFile fTest
+    filePath            <- parseRelFile fFilePath 
     startTime           <- utctDayTime <$> getCurrentTime
     let fullFilePath    =  sourceDir </> filePath
     fileContent         <- TIO.readFile $ fromAbsFile fullFilePath
@@ -69,6 +71,7 @@ hsreduce sourceDir test filePath = do
   
     endTime <- utctDayTime <$> getCurrentTime
     print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
+
 
 allActions :: R ()
 allActions = do
