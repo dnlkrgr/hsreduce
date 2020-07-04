@@ -5,7 +5,7 @@ import GHC (ParsedSource)
 import Data.Void
 import Data.Generics.Aliases (extQ)
 import Parser.Parser
-import qualified Control.Exception as CE
+import qualified Control.Exception  as CE
 import qualified Data.Text.Encoding as TE
 import Path
 import Control.Applicative
@@ -34,22 +34,35 @@ import System.Posix.Files
 import Data.List.Split
 import Control.Concurrent.Async
 
+
+isTestStillFresh :: String -> R ()
+isTestStillFresh context = do 
+    conf     <- ask
+    newState <- get
+    liftIO $ testAndUpdateStateFlex conf False True newState >>= \case
+        False -> do
+            liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
+            error $ "Test case is broken at >>>" <> context <> "<<<"
+        True  -> putStrLn $ "Test case is still fresh :-)"
+
 type WaysToChange a = a -> [a -> a]
 
 runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
 runPass pass ast = do 
     let arst   =  getProposedChanges ast pass
     results    <- filter snd <$> getInterestingChanges ast arst
-    let newAST =  applyChanges ast . map fst $ results
+    let newAST =  foldr transformBi ast $ map fst results
 
     modify $ \s -> s {
-        _isAlive = 
+        _isAlive  = 
             if _isAlive s && not (null results)
                 then True
                 else oshow newAST /= oshow ast
 
-        , _parsed  = newAST
+        , _parsed = newAST
     }
+
+    flip when (liftIO $ putStr "+") . (&& not (null results)) =<< gets _isAlive 
 
     return newAST
 
@@ -67,6 +80,7 @@ getInterestingChanges ast proposedChanges = do
     let l = length proposedChanges
     let chunkSize = div l numberOfThreads
 
+    -- number of proposedChanges might be smaller than number of threads which might result in chunkSize of 0, so we need to check for that!
     let batches = case chunkSize of
             0 -> [proposedChanges]
             _ -> let temp = chunksOf chunkSize proposedChanges
@@ -85,16 +99,12 @@ getInterestingChanges ast proposedChanges = do
     return changes
 
 
-applyChanges :: Data a => ParsedSource -> [Located a -> Located a] -> ParsedSource
-applyChanges ast changes = foldr transformBi ast changes 
-
 
 -- get ways to change an expression that contains a list as an subexpression
 -- p: preprocessing (getting to the list)
 -- f: filtering and returning a valid expression again
-h :: Eq e => (a -> [e]) -> (e -> a -> a) -> WaysToChange a
-h p f = map (\l o -> f l o) . p
-
+h :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
+h f p = map f . p
 
 
 minireduce :: Data a => (Located a -> R (Located a)) -> R ()
@@ -329,6 +339,9 @@ isInProduction = False
 -- currently so high, because in big files we have up to 8000 errors
 defaultDuration :: Word
 defaultDuration = 30 * 1000 * 1000
+
+longDuration :: Word
+longDuration = 120 * 1000 * 1000
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)

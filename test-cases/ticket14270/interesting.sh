@@ -1,5 +1,5 @@
 #!/run/current-system/sw/bin/bash
-TICKET=Ticket14270
+TICKET=Bug
 OUTPUT=output.txt
 ERROR=error.txt
 GHC_VERSION=ghc822

@@ -3,6 +3,7 @@ module Reduce.HsReduce
   )
 where
 
+import Data.Maybe
 import System.Posix.Files
 import Path
 import System.Directory
@@ -25,31 +26,34 @@ import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
 import Control.Concurrent.STM
 
-hsreduce :: FilePath -> FilePath -> FilePath -> IO ()
-hsreduce fSourceDir fTest fFilePath  = do
+
+hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
+hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
     putStrLn "*******************************************************"
-    sourceDir           <- parseAbsDir fSourceDir
-    test                <- parseRelFile fTest
-    filePath            <- parseRelFile fFilePath 
-    startTime           <- utctDayTime <$> getCurrentTime
+    -- 1. parse the test case once at the beginning so we can work on the AST
+    -- 2. record all the files in the current directory
+    -- 3. record the starting time
     let fullFilePath    =  sourceDir </> filePath
     fileContent         <- TIO.readFile $ fromAbsFile fullFilePath
     beginState          <- parse True [] [] fullFilePath
     let oldSize         =  T.length fileContent
     files               <- listDirectory (fromAbsDir sourceDir)
-    let numberOfThreads = 4
+    startTime           <- utctDayTime <$> getCurrentTime
 
+    -- 1. create a channel
+    -- 2. create as many temp dirs as we have threads
+    -- 3. copy all necessary files into the temp dir 
+    -- 4. write the temp dir name into the channel
     tchan <- atomically newTChan
     forM_ [1 .. numberOfThreads] $ \_ ->  do
         t <- createTempDirectory "/tmp" "hsreduce"
 
         tempDir <- parseAbsDir t
 
-  
         forM_ files $ \f -> do
-            iterFile <- parseRelFile f
+            iterFile    <- parseRelFile f
             let oldPath = fromAbsFile $ sourceDir </> iterFile
-            status <- getFileStatus oldPath
+            status      <- getFileStatus oldPath
   
             if isDirectory status
             then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
@@ -57,8 +61,10 @@ hsreduce fSourceDir fTest fFilePath  = do
 
         atomically $ writeTChan tchan tempDir
 
+    -- run the reducing functions
     newState <- snd <$> runR (RConf test filePath numberOfThreads tchan) beginState allActions
   
+    -- handling of the result and outputting useful information
     let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
         newSize  = T.length . showState $ newState
         ratio    = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
@@ -75,17 +81,9 @@ hsreduce fSourceDir fTest fFilePath  = do
 
 allActions :: R ()
 allActions = do
-    test <- asks _test
-    tchan      <- asks _tempDirs
-    result <- liftIO $ withTempDir tchan $ \tempDir -> runTest' (tempDir </> test) (120 * 1000 * 1000) 
-
-    case result of 
-        Uninteresting -> error "*** test is uninteresting at the start! ***"
-        Interesting -> do
-            liftIO $ putStrLn ":-) Test is interesting at the start"
-            largestFixpoint fast
-            liftIO $ putStrLn "*** Increasing granularity ***"
-            largestFixpoint slow
+    largestFixpoint fast
+    liftIO $ putStrLn "*** Increasing granularity ***"
+    largestFixpoint slow
 
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
@@ -95,23 +93,30 @@ fast = do
     Pragmas.reduce
     Exports.reduce
     Decls.reduce
+    return ()
 
 slow :: R ()
 slow = do
     Stubbing.reduce
     fast
 
--- | calculate the fixpoint, by always checking if the new module is
--- smaller than the old one
+-- 1. check if the test-case is still interesting (it should be at the start of the loop!)
+-- 2. set alive variable to false
+-- 3. run reducing function f
+-- 4. check if something interesting happened; if yes, continue
 largestFixpoint :: R () -> R ()
 largestFixpoint f =
     go
     where
       go = do
           liftIO $ putStrLn "\n***NEW ITERATION***"
+
+          isTestStillFresh "largestFixpoint"
   
           modify $ \s -> s { _isAlive = False }
           f
           isAlive <- gets _isAlive
   
           when isAlive go
+
+          liftIO $ putStrLn "\n***QUITTING***"

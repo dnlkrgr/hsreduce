@@ -1,5 +1,6 @@
 module Reduce.Passes.RemoveUnused.Decls where
 
+import Debug.Trace
 import Path 
 import Data.Either
 import Control.Monad.State.Strict
@@ -13,51 +14,50 @@ import BasicTypes
 import TcEvidence
 import CoreSyn
 
-
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: R ()
 reduce = do
-    tchan <- asks _tempDirs
-    oldState <- get
+    tchan      <- asks _tempDirs
+    oldState   <- get
     sourceFile <- asks _sourceFile
+
     liftIO $ putStrLn "\n***Removing unused declarations***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-    mUnusedBinds <- 
-        fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
+
+    mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
+
     void . allActions mUnusedBinds . _parsed =<< get
+
 
 allActions :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
 allActions mUnusedBinds = 
-    runPass (rmvSigs mUnusedBinds)
-    >=> runPass (simplifyHsDecl mUnusedBinds)
-    >=> runPass (rmvDecls mUnusedBinds)
+        (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds))
+    >=> (traceShow ("simplifyHsDecl"    :: String) $ runPass (simplifyHsDecl mUnusedBinds))
+    >=> (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds))
+
 
 -- ***************************************************************************
 -- SIGNATURES
 -- ***************************************************************************
 rmvSigs :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
-rmvSigs Nothing =  h f' rmvOneDecl
-  where f' = getDeclLocs (filter isSig)
-rmvSigs (Just unusedBinds) = h f' rmvOneDecl
-  where f' = getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
+rmvSigs Nothing             = h rmvOneDecl (getDeclLocs (filter isSig))
+rmvSigs (Just unusedBinds)  = h rmvOneDecl (getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))))
 
 isSig :: LHsDecl GhcPs -> Bool
-isSig (L _ (SigD _ _)) = True
-isSig _ = False
+isSig (L _ (SigD _ _))  = True
+isSig _                 = False
 
 
 -- ***************************************************************************
 -- UNUSED DECLS IN MODULE
 -- ***************************************************************************
 rmvDecls :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
-rmvDecls Nothing   = defaultBehavior
-rmvDecls (Just []) = defaultBehavior
-rmvDecls (Just unusedBinds) = h f' rmvOneDecl
-  where 
-    f' = getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))
+rmvDecls Nothing            = defaultBehavior
+rmvDecls (Just [])          = defaultBehavior
+rmvDecls (Just unusedBinds) = h rmvOneDecl (getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
 
 defaultBehavior :: WaysToChange (HsModule GhcPs)
-defaultBehavior = h (map getLoc . hsmodDecls) rmvOneDecl
+defaultBehavior = h rmvOneDecl (map getLoc . hsmodDecls) 
 
 getDeclLocs :: ([LHsDecl GhcPs] -> [Located e]) -> HsModule GhcPs -> [SrcSpan]
 getDeclLocs f = map getLoc . f .  hsmodDecls
@@ -84,7 +84,7 @@ simplifyHsDecl _ (FunDeclP fid loc mtchs mo fw ft) =
     let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
     in [const (FunDeclP fid loc nMtchs mo fw ft)]
 simplifyHsDecl _ t@(TypeSigDeclP{}) = 
-    h typeSig2Ids transformTypeSig t
+    h transformTypeSig typeSig2Ids t
     where
         typeSig2Ids = \case
             TypeSigDeclP ids _ -> ids
@@ -95,7 +95,7 @@ simplifyHsDecl _ t@(TypeSigDeclP{}) =
               in TypeSigDeclX newIds swt
             d -> d
 simplifyHsDecl _ t@(TyClD {}) = 
-    h decl2ConsStrings delCons t
+    h delCons decl2ConsStrings t
     where
         decl2ConsStrings = \case
             (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn

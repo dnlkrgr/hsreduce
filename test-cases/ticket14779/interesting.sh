@@ -1,5 +1,5 @@
 #!/run/current-system/sw/bin/bash
-TICKET=Ticket14779
+TICKET=Bug
 OUTPUT=output.txt
 ERROR=error.txt
 RELEASE_OR_COMMIT=83b35508c6491103cd16a796758e07417a28698b

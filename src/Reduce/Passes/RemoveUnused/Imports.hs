@@ -15,5 +15,5 @@ reduce = do
     void . runPass rmvImports $ _parsed oldState
 
 rmvImports :: WaysToChange (HsModule GhcPs)
-rmvImports = h (map getLoc . hsmodImports) f
+rmvImports = h f (map getLoc . hsmodImports) 
   where f loc m = m { hsmodImports = filter ((/= loc) . getLoc) (hsmodImports m) }

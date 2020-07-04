@@ -1,5 +1,5 @@
 #!/run/current-system/sw/bin/bash
-TICKET=Ticket15753
+TICKET=Bug
 GHC_VERSION=ghc861
 RELEASE_OR_COMMIT=18.09
 ERROR=error.txt

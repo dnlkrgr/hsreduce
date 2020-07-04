@@ -5,5 +5,5 @@ import Reduce.HsReduce
 
 main :: IO ()
 main = do
-    x:y:z:_        <- getArgs
-    hsreduce x y z
+    n:x:y:z:_        <- getArgs
+    hsreduce (read n) x y z
