@@ -21,6 +21,7 @@ import Util.Util
 -- | run a pass on the old module and return the new one if it's interesting
 reduce :: R ()
 reduce = do
+    isTestStillFresh "Stubbing"
     oldState  <- get
 
     liftIO $ putStrLn "\n***Stubbing expressions***"

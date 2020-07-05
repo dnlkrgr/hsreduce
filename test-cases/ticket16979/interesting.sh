@@ -11,4 +11,7 @@ COMMAND="ghc -O -dcore-lint -g -c ${TICKET}.hs"
 nix-shell $GHC_VERSION.nix --run "${COMMAND}" > $OUTPUT 2> $ERROR
 
 grep "Compilation had errors" $ERROR &&
-grep "*** Core Lint errors : in result of Simplifier ***" $OUTPUT
+grep "*** Core Lint errors : in result of Simplifier ***" $OUTPUT &&
+grep "no location info>: warning:" $OUTPUT && 
+grep "In the expression: " $OUTPUT
+

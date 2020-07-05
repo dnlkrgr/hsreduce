@@ -17,6 +17,7 @@ import CoreSyn
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: R ()
 reduce = do
+    isTestStillFresh "Decls"
     tchan      <- asks _tempDirs
     oldState   <- get
     sourceFile <- asks _sourceFile

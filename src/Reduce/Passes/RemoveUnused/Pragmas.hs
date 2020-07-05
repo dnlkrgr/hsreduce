@@ -10,6 +10,7 @@ import Util.Util
 
 reduce :: R ()
 reduce = do
+    isTestStillFresh "Pragmas"
     liftIO $ putStrLn "\n***Performing RemovePragmas***"
     oldState <- get
     liftIO . putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)

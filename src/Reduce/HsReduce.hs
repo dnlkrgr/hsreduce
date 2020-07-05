@@ -93,7 +93,6 @@ fast = do
     Pragmas.reduce
     Exports.reduce
     Decls.reduce
-    return ()
 
 slow :: R ()
 slow = do
@@ -118,5 +117,3 @@ largestFixpoint f =
           isAlive <- gets _isAlive
   
           when isAlive go
-
-          liftIO $ putStrLn "\n***QUITTING***"

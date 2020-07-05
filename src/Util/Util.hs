@@ -47,7 +47,7 @@ isTestStillFresh context = do
 
 type WaysToChange a = a -> [a -> a]
 
-runPass :: Data a => (a -> [a -> a]) -> ParsedSource -> R ParsedSource
+runPass :: Data a => WaysToChange a -> ParsedSource -> R ParsedSource
 runPass pass ast = do 
     let arst   =  getProposedChanges ast pass
     results    <- filter snd <$> getInterestingChanges ast arst
@@ -188,8 +188,8 @@ runTest' test duration = do
 
     (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
          Nothing -> do
-           errorPrint "runTest: timed out"
-           return Uninteresting
+             errorPrint "runTest: timed out"
+             return Uninteresting
          Just (exitCode,_,_) -> return $ case exitCode of
              ExitFailure _ -> Uninteresting
              ExitSuccess   -> Interesting
