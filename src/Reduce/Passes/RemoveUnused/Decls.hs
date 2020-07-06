@@ -31,18 +31,20 @@ reduce = do
 
 
 allActions :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
-allActions mUnusedBinds = 
-        (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds))
-    >=> (traceShow ("simplifyHsDecl"    :: String) $ runPass (simplifyHsDecl mUnusedBinds))
-    >=> (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds))
+allActions mUnusedBinds a = do
+    b <- (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds)) a
+    isTestStillFresh "rmvSigs"
+    c <- (traceShow ("simplifyHsDecl"    :: String) $ runPass (simplifyHsDecl mUnusedBinds)) b
+    isTestStillFresh "simplifyHsDecl"
+    (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds)) c
 
 
 -- ***************************************************************************
 -- SIGNATURES
 -- ***************************************************************************
 rmvSigs :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
-rmvSigs Nothing             = h rmvOneDecl (getDeclLocs (filter isSig))
-rmvSigs (Just unusedBinds)  = h rmvOneDecl (getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))))
+rmvSigs Nothing             = handleSubList rmvOneDecl (getDeclLocs (filter isSig))
+rmvSigs (Just unusedBinds)  = handleSubList rmvOneDecl (getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))))
 
 isSig :: LHsDecl GhcPs -> Bool
 isSig (L _ (SigD _ _))  = True
@@ -55,10 +57,10 @@ isSig _                 = False
 rmvDecls :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
 rmvDecls Nothing            = defaultBehavior
 rmvDecls (Just [])          = defaultBehavior
-rmvDecls (Just unusedBinds) = h rmvOneDecl (getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
+rmvDecls (Just unusedBinds) = handleSubList rmvOneDecl (getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
 
 defaultBehavior :: WaysToChange (HsModule GhcPs)
-defaultBehavior = h rmvOneDecl (map getLoc . hsmodDecls) 
+defaultBehavior = handleSubList rmvOneDecl (map getLoc . hsmodDecls) 
 
 getDeclLocs :: ([LHsDecl GhcPs] -> [Located e]) -> HsModule GhcPs -> [SrcSpan]
 getDeclLocs f = map getLoc . f .  hsmodDecls
@@ -76,7 +78,6 @@ getName _ = Nothing
 -- ***************************************************************************
 -- HsDecls
 -- ***************************************************************************
-
 simplifyHsDecl :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
 simplifyHsDecl (Just bns) (TypeSigDeclP ids swt) =
     let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
@@ -85,7 +86,7 @@ simplifyHsDecl _ (FunDeclP fid loc mtchs mo fw ft) =
     let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
     in [const (FunDeclP fid loc nMtchs mo fw ft)]
 simplifyHsDecl _ t@(TypeSigDeclP{}) = 
-    h transformTypeSig typeSig2Ids t
+    handleSubList transformTypeSig typeSig2Ids t
     where
         typeSig2Ids = \case
             TypeSigDeclP ids _ -> ids
@@ -96,7 +97,7 @@ simplifyHsDecl _ t@(TypeSigDeclP{}) =
               in TypeSigDeclX newIds swt
             d -> d
 simplifyHsDecl _ t@(TyClD {}) = 
-    h delCons decl2ConsStrings t
+    handleSubList delCons decl2ConsStrings t
     where
         decl2ConsStrings = \case
             (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
@@ -107,6 +108,7 @@ simplifyHsDecl _ t@(TyClD {}) =
                 in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
             d -> d
 simplifyHsDecl _ _ = []
+
 
 -- ***************************************************************************
 -- PATTERNS

@@ -46,7 +46,7 @@ reduce = do
 
 
 removeExports :: WaysToChange [LIE GhcPs]
-removeExports = h (\loc -> filter ((/= loc) . getLoc)) (map getLoc) 
+removeExports = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc) 
 
 
 -- | turn decl into a fitting export, somehow type synonyms and 

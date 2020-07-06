@@ -39,12 +39,13 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
     let oldSize         =  T.length fileContent
     files               <- listDirectory (fromAbsDir sourceDir)
     startTime           <- utctDayTime <$> getCurrentTime
+    tAST                <- atomically . newTVar $ _parsed beginState
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
     -- 3. copy all necessary files into the temp dir 
     -- 4. write the temp dir name into the channel
-    tchan <- atomically newTChan
+    tChan <- atomically newTChan
     forM_ [1 .. numberOfThreads] $ \_ ->  do
         t <- createTempDirectory "/tmp" "hsreduce"
 
@@ -59,10 +60,10 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
             then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
             else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
 
-        atomically $ writeTChan tchan tempDir
+        atomically $ writeTChan tChan tempDir
 
     -- run the reducing functions
-    newState <- snd <$> runR (RConf test filePath numberOfThreads tchan) beginState allActions
+    newState <- snd <$> runR (RConf test filePath numberOfThreads tChan tAST) beginState allActions
   
     -- handling of the result and outputting useful information
     let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath

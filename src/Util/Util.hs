@@ -1,5 +1,6 @@
 module Util.Util where
 
+import Data.List
 import Control.Concurrent.STM
 import GHC (ParsedSource)
 import Data.Void
@@ -43,15 +44,15 @@ isTestStillFresh context = do
         False -> do
             liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
             error $ "Test case is broken at >>>" <> context <> "<<<"
-        True  -> putStrLn $ "Test case is still fresh :-)"
+        True  -> putStrLn $ context <> ": Test case is still fresh :-)"
 
 type WaysToChange a = a -> [a -> a]
 
 runPass :: Data a => WaysToChange a -> ParsedSource -> R ParsedSource
 runPass pass ast = do 
-    let arst   =  getProposedChanges ast pass
-    results    <- filter snd <$> getInterestingChanges ast arst
-    let newAST =  foldr transformBi ast $ map fst results
+    let proposedChanges     =  getProposedChanges ast pass
+    results                 <- filter snd <$> getInterestingChanges ast proposedChanges
+    let newAST              =  foldr transformBi ast $ map fst results
 
     modify $ \s -> s {
         _isAlive  = 
@@ -67,23 +68,26 @@ runPass pass ast = do
     return newAST
 
 
-getProposedChanges :: Data a => ParsedSource -> (a -> [a -> a]) -> [Located a -> Located a]
-getProposedChanges ast pass = concat [map (overwriteAtLoc' l) $ pass e | L l e <- universeBi ast]
+getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [(SrcSpan, [Located a -> Located a])]
+getProposedChanges ast pass = [(l, map (overwriteAtLoc l) $ pass e) | L l e <- universeBi ast]
 
 
-getInterestingChanges :: Data a => ParsedSource -> [Located a -> Located a] -> R [(Located a -> Located a, Bool)]
+getInterestingChanges :: Data a => ParsedSource -> [(SrcSpan, [Located a -> Located a])] -> R [(Located a -> Located a, Bool)]
 getInterestingChanges ast proposedChanges = do
     oldState        <- get
     oldConf         <- ask
     numberOfThreads <- asks _numberOfThreads
+    tAST            <- asks _tAST
 
-    let l = length proposedChanges
-    let chunkSize = div l numberOfThreads
-
-    -- number of proposedChanges might be smaller than number of threads which might result in chunkSize of 0, so we need to check for that!
-    let batches = case chunkSize of
-            0 -> [proposedChanges]
-            _ -> let temp = chunksOf chunkSize proposedChanges
+    let 
+        -- list of changes, grouped by location
+        groupedChanges  = map snd . concat $ groupBy (\a b -> fst a == fst b) proposedChanges
+        chunkSize       = div (length groupedChanges) numberOfThreads
+        -- number of proposedChanges might be smaller than number of threads which might result in chunkSize of 0, so we need to check for that!
+        batches         = case chunkSize of
+            0 -> groupedChanges
+            _ -> let 
+                    temp = map concat . chunksOf chunkSize $ groupedChanges
                  in case reverse temp of
                      (x:y:xs) -> 
                          if length temp > numberOfThreads
@@ -93,8 +97,20 @@ getInterestingChanges ast proposedChanges = do
 
     changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
         forM batch $ \c -> do
-            b <- tryNewValue' oldConf oldState ast c
-            return (c, b)
+            firstResult  <- tryNewValue oldConf oldState ast c
+            secondResult <- 
+                if firstResult 
+                then do
+                    -- get tvar
+                    currentAST <- atomically $ readTVar tAST
+                    -- try new value
+                    b <- tryNewValue oldConf oldState currentAST c
+                    when b . atomically $ writeTVar tAST (transformBi c currentAST)
+                    return b
+                else
+                    return False
+
+            return (c, secondResult)
 
     return changes
 
@@ -103,8 +119,8 @@ getInterestingChanges ast proposedChanges = do
 -- get ways to change an expression that contains a list as an subexpression
 -- p: preprocessing (getting to the list)
 -- f: filtering and returning a valid expression again
-h :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
-h f p = map f . p
+handleSubList :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
+handleSubList f p = map f . p
 
 
 minireduce :: Data a => (Located a -> R (Located a)) -> R ()
@@ -158,13 +174,13 @@ recListDirectory dir = listDirectory dir >>=
 trace'' :: String -> (a -> String) -> a -> a
 trace'' s f a = traceShow (s <> ": " <> f a) a
 
-overwriteAtLoc' :: SrcSpan -> (a -> a) -> Located a -> Located a
-overwriteAtLoc' loc f oldValue@(L oldLoc a)
+overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
+overwriteAtLoc loc f oldValue@(L oldLoc a)
     | loc == oldLoc = L loc $ f a
     | otherwise = oldValue
 
-tryNewValue' :: Data a => RConf -> RState -> ParsedSource -> (Located a -> Located a) -> IO Bool
-tryNewValue' conf oldState ast f = do
+tryNewValue :: Data a => RConf -> RState -> ParsedSource -> (Located a -> Located a) -> IO Bool
+tryNewValue conf oldState ast f = do
     let newSource = transformBi f ast
     testAndUpdateStateFlex conf False True (oldState { _parsed = newSource })
 
@@ -177,12 +193,13 @@ testAndUpdateStateFlex conf a b newState =
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
             Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
             Right _ -> do
-                runTest' test defaultDuration >>= return . \case
+                runTest test defaultDuration >>= return . \case
                     Uninteresting -> a
                     Interesting   -> b
 
-runTest' :: Path Abs File -> Word -> IO Interesting
-runTest' test duration = do
+
+runTest :: Path Abs File -> Word -> IO Interesting
+runTest test duration = do
     let dirName  = parent   test
     let testName = filename test
 
@@ -194,11 +211,12 @@ runTest' test duration = do
              ExitFailure _ -> Uninteresting
              ExitSuccess   -> Interesting
 
+
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a
-withTempDir tchan action = do
-    tempDir <- atomically $ readTChan tchan
+withTempDir tChan action = do
+    tempDir <- atomically $ readTChan tChan
     a <- action tempDir
-    atomically $ writeTChan tchan tempDir
+    atomically $ writeTChan tChan tempDir
     return a
 
 

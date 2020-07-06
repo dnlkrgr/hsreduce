@@ -1,6 +1,6 @@
 module Util.Types where
 
-import Control.Concurrent.STM.TChan
+import Control.Concurrent.STM
 import GHC.LanguageExtensions.Type
 import Data.Void
 import qualified Text.Megaparsec as MP
@@ -20,17 +20,18 @@ newtype R a = R (ReaderT RConf (StateT RState IO) a)
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadState RState)
 
 data RConf = RConf
-    { _test            :: (Path Rel File)
-    , _sourceFile      :: (Path Rel File)
+    { _test            :: Path Rel File
+    , _sourceFile      :: Path Rel File
     , _numberOfThreads :: Int
-    , _tempDirs        :: (TChan (Path Abs Dir))
+    , _tempDirs        :: TChan (Path Abs Dir)
+    , _tAST            :: TVar ParsedSource
     }
 
 data RState = RState
     { _pragmas      :: [Pragma]
     , _parsed       :: ParsedSource
-    , _renamed      :: (Maybe RenamedSource)
-    , _typechecked  :: (Maybe TypecheckedSource)
+    , _renamed      :: Maybe RenamedSource
+    , _typechecked  :: Maybe TypecheckedSource
     , _isAlive      :: Bool
     }
 
@@ -54,9 +55,9 @@ instance FromJSON Span
 
 
 data GhcOutput = GhcOutput
-    { span   :: (Maybe Span)
+    { span   :: Maybe Span
     , doc    :: T.Text
-    , reason :: (Maybe T.Text)
+    , reason :: Maybe T.Text
     }
     deriving (Eq, Generic, Show)
 
