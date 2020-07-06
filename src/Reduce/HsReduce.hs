@@ -27,8 +27,8 @@ import Distribution.Verbosity
 import Control.Concurrent.STM
 
 
-hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
-hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
+hsreduce :: FilePath -> FilePath -> FilePath -> IO ()
+hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
     putStrLn "*******************************************************"
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
@@ -40,6 +40,7 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
     files               <- listDirectory (fromAbsDir sourceDir)
     startTime           <- utctDayTime <$> getCurrentTime
     tAST                <- atomically . newTVar $ _parsed beginState
+    let numberOfThreads = 1
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads

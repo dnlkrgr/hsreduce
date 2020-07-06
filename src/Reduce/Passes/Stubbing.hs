@@ -21,36 +21,26 @@ import Util.Util
 -- | run a pass on the old module and return the new one if it's interesting
 reduce :: R ()
 reduce = do
-    isTestStillFresh "Stubbing"
     oldState  <- get
 
     liftIO $ putStrLn "\n***Stubbing expressions***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
 
-    void . allActions $ _parsed oldState
+    allActions
 
 
-allActions :: ParsedSource -> R ParsedSource
-allActions a = do
-    b <- (traceShow ("simplifyExpr"      :: String) $ runPass simplifyExpr) a
-    isTestStillFresh "simplifyExpr"
-    c <- (traceShow ("simplifyConDecl"   :: String) $ runPass simplifyConDecl) b
-    isTestStillFresh "simplifyConDecl"
-    d <- (traceShow ("simplifyMatches"   :: String) $ runPass simplifyMatches) c
-    isTestStillFresh "simplifyMatches"
-    e <- (traceShow ("simplifyMatch"     :: String) $ runPass simplifyMatch) d
-    isTestStillFresh "simplifyMatch"
-    f <- (traceShow ("simplifyLGRHS"     :: String) $ runPass simplifyLGRHS) e
-    isTestStillFresh "simplifyLGRHS"
-    g <- (traceShow ("familyResultSig"   :: String) $ runPass familyResultSig) f
-    isTestStillFresh "familyResultSig"
-    h <- (traceShow ("tyVarBndr"         :: String) $ runPass tyVarBndr) g
-    isTestStillFresh "tyVarBndr"
-    i <- (traceShow ("simplifyType"      :: String) $ runPass simplifyType) h
-    isTestStillFresh "simplifyType"
-    j <- (traceShow ("localBinds"        :: String) $ runPass localBinds) i
-    isTestStillFresh "localBinds"
-    (traceShow ("pat2Wildcard"      :: String) $ runPass pat2Wildcard) j
+allActions :: R ()
+allActions = do
+    (traceShow ("simplifyExpr"      :: String) $ runPass simplifyExpr)
+    (traceShow ("simplifyConDecl"   :: String) $ runPass simplifyConDecl)
+    (traceShow ("simplifyMatches"   :: String) $ runPass simplifyMatches)
+    (traceShow ("simplifyMatch"     :: String) $ runPass simplifyMatch)
+    (traceShow ("simplifyLGRHS"     :: String) $ runPass simplifyLGRHS)
+    (traceShow ("familyResultSig"   :: String) $ runPass familyResultSig)
+    (traceShow ("tyVarBndr"         :: String) $ runPass tyVarBndr)
+    (traceShow ("simplifyType"      :: String) $ runPass simplifyType)
+    (traceShow ("localBinds"        :: String) $ runPass localBinds)
+    (traceShow ("pat2Wildcard"      :: String) $ runPass pat2Wildcard)
 
 
 -- ***************************************************************************

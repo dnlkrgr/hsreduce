@@ -1,6 +1,5 @@
 module Util.Util where
 
-import Data.List
 import Control.Concurrent.STM
 import GHC (ParsedSource)
 import Data.Void
@@ -48,32 +47,43 @@ isTestStillFresh context = do
 
 type WaysToChange a = a -> [a -> a]
 
-runPass :: Data a => WaysToChange a -> ParsedSource -> R ParsedSource
-runPass pass ast = do 
-    let proposedChanges     =  getProposedChanges ast pass
-    results                 <- filter snd <$> getInterestingChanges ast proposedChanges
-    let newAST              =  foldr transformBi ast $ map fst results
+runPass :: Data a => WaysToChange a -> R ()
+runPass pass = do 
+    conf     <- ask
+    oldState <- get
 
-    modify $ \s -> s {
-        _isAlive  = 
-            if _isAlive s && not (null results)
-                then True
-                else oshow newAST /= oshow ast
+    let 
+        ast = _parsed oldState
+        proposedChanges =  getProposedChanges ast pass
 
-        , _parsed = newAST
-    }
+    -- 1. fold
+    -- take the current AST and the next proposed change
+    -- apply the change
+    -- call testAndUpdateStateFlex conf oldAST newAST currentState
 
-    flip when (liftIO $ putStr "+") . (&& not (null results)) =<< gets _isAlive 
+    void $ foldM (\oldAST c -> do
+        let newAST = transformBi c oldAST
 
-    return newAST
+        b <- liftIO $ tryNewValue conf oldState { _parsed = newAST }
+        if b then do
+            liftIO $ putStr "+"
+            modify $ \s -> s { 
+                  _parsed  = newAST
+                , _isAlive = _isAlive s || oshow oldAST /= oshow newAST 
+                }
+            return newAST
+        else return oldAST
+
+        ) ast (concat proposedChanges)
 
 
-getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [(SrcSpan, [Located a -> Located a])]
-getProposedChanges ast pass = [(l, map (overwriteAtLoc l) $ pass e) | L l e <- universeBi ast]
+
+getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [[Located a -> Located a]]
+getProposedChanges ast pass = [map (overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
 
 
-getInterestingChanges :: Data a => ParsedSource -> [(SrcSpan, [Located a -> Located a])] -> R [(Located a -> Located a, Bool)]
-getInterestingChanges ast proposedChanges = do
+getInterestingChanges :: Data a => [[Located a -> Located a]] -> R [(Located a -> Located a, Bool)]
+getInterestingChanges proposedChanges = do
     oldState        <- get
     oldConf         <- ask
     numberOfThreads <- asks _numberOfThreads
@@ -81,13 +91,13 @@ getInterestingChanges ast proposedChanges = do
 
     let 
         -- list of changes, grouped by location
-        groupedChanges  = map snd . concat $ groupBy (\a b -> fst a == fst b) proposedChanges
-        chunkSize       = div (length groupedChanges) numberOfThreads
+        -- groupedChanges  = map snd . concat $ groupBy (\a b -> fst a == fst b) proposedChanges
+        chunkSize       = div (length proposedChanges) numberOfThreads
         -- number of proposedChanges might be smaller than number of threads which might result in chunkSize of 0, so we need to check for that!
         batches         = case chunkSize of
-            0 -> groupedChanges
+            0 -> proposedChanges
             _ -> let 
-                    temp = map concat . chunksOf chunkSize $ groupedChanges
+                    temp = map concat . chunksOf chunkSize $ proposedChanges
                  in case reverse temp of
                      (x:y:xs) -> 
                          if length temp > numberOfThreads
@@ -95,22 +105,16 @@ getInterestingChanges ast proposedChanges = do
                          else temp
                      _ -> temp
 
-    changes <- liftIO . fmap concat . forConcurrently batches $ \batch -> do
-        forM batch $ \c -> do
-            firstResult  <- tryNewValue oldConf oldState ast c
-            secondResult <- 
-                if firstResult 
-                then do
-                    -- get tvar
-                    currentAST <- atomically $ readTVar tAST
-                    -- try new value
-                    b <- tryNewValue oldConf oldState currentAST c
-                    when b . atomically $ writeTVar tAST (transformBi c currentAST)
-                    return b
-                else
-                    return False
+    -- run one thread for each batch 
+    changes <- liftIO . fmap concat . forM batches $ \batch -> do
 
-            return (c, secondResult)
+        -- within a thread check out all the changes
+        forM batch $ \c -> do
+            currentAST   <- transformBi c <$> atomically $ readTVar tAST
+            b  <- tryNewValue oldConf (oldState { _parsed = currentAST})
+            when b $ atomically $ writeTVar tAST currentAST
+
+            return (c, b)
 
     return changes
 
@@ -121,7 +125,6 @@ getInterestingChanges ast proposedChanges = do
 -- f: filtering and returning a valid expression again
 handleSubList :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
 handleSubList f p = map f . p
-
 
 minireduce :: Data a => (Located a -> R (Located a)) -> R ()
 minireduce pass = void . (transformBiM pass) =<< gets _parsed
@@ -179,10 +182,8 @@ overwriteAtLoc loc f oldValue@(L oldLoc a)
     | loc == oldLoc = L loc $ f a
     | otherwise = oldValue
 
-tryNewValue :: Data a => RConf -> RState -> ParsedSource -> (Located a -> Located a) -> IO Bool
-tryNewValue conf oldState ast f = do
-    let newSource = transformBi f ast
-    testAndUpdateStateFlex conf False True (oldState { _parsed = newSource })
+tryNewValue :: RConf -> RState -> IO Bool
+tryNewValue conf = testAndUpdateStateFlex conf False True
 
 testAndUpdateStateFlex :: RConf -> a -> a -> RState -> IO a
 testAndUpdateStateFlex conf a b newState =

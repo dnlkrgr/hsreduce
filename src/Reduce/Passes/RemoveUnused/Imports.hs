@@ -9,11 +9,10 @@ import GHC
 -- | run ghc with -Wunused-binds -ddump-json and delete imports that are mentioned there
 reduce :: R ()
 reduce = do
-    isTestStillFresh "Imports"
     oldState <- get
     liftIO $ putStrLn "\n***Removing Imports***"
     liftIO . putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-    void . runPass rmvImports $ _parsed oldState
+    runPass rmvImports
 
 rmvImports :: WaysToChange (HsModule GhcPs)
 rmvImports = handleSubList f (map getLoc . hsmodImports) 

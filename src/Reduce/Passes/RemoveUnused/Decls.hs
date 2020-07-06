@@ -17,7 +17,6 @@ import CoreSyn
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 reduce :: R ()
 reduce = do
-    isTestStillFresh "Decls"
     tchan      <- asks _tempDirs
     oldState   <- get
     sourceFile <- asks _sourceFile
@@ -27,16 +26,14 @@ reduce = do
 
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
 
-    void . allActions mUnusedBinds . _parsed =<< get
+    allActions mUnusedBinds
 
 
-allActions :: Maybe [T.Text] -> ParsedSource -> R ParsedSource
-allActions mUnusedBinds a = do
-    b <- (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds)) a
-    isTestStillFresh "rmvSigs"
-    c <- (traceShow ("simplifyHsDecl"    :: String) $ runPass (simplifyHsDecl mUnusedBinds)) b
-    isTestStillFresh "simplifyHsDecl"
-    (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds)) c
+allActions :: Maybe [T.Text] -> R ()
+allActions mUnusedBinds = do
+    (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds))
+    (traceShow ("simplifyHsDecl"    :: String) $ runPass (simplifyHsDecl mUnusedBinds))
+    (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds))
 
 
 -- ***************************************************************************
