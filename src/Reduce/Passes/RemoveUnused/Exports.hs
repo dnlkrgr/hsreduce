@@ -6,23 +6,23 @@ import Path
 import Util.Types
 import Util.Util
 import Control.Monad.Reader
-import qualified Data.Text as T
 import GHC
 
 
 reduce :: R ()
 reduce = do
+    printInfo "Removing Exports"
     oldState <- get
-    liftIO $ putStrLn "\n***Removing Exports***"
-    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
   
-    let L l oldModule = _parsed oldState
+    let 
+        L l oldModule = _parsed oldState
         maybeModName  = hsmodName oldModule
         allDecls      = hsmodDecls . unLoc . _parsed $ oldState
         maybeExports  = hsmodExports oldModule
   
     case maybeExports of
         Nothing -> do
+            liftIO $ putStrLn "making exports explicit"
             isTestStillFresh "Exports.reduce_1"
 
             modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
@@ -46,7 +46,7 @@ reduce = do
 
 
 removeExports :: WaysToChange [LIE GhcPs]
-removeExports = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc) 
+removeExports = handleSubList (\e -> filter ((/= e) . oshow)) (map oshow) 
 
 
 -- | turn decl into a fitting export, somehow type synonyms and 

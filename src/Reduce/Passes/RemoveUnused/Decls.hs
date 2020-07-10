@@ -14,34 +14,32 @@ import BasicTypes
 import TcEvidence
 import CoreSyn
 
--- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-reduce :: R ()
-reduce = do
+fast :: R ()
+fast = do
     tchan      <- asks _tempDirs
-    oldState   <- get
     sourceFile <- asks _sourceFile
-
-    liftIO $ putStrLn "\n***Removing unused declarations***"
-    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
+    printInfo "Removing unused declarations"
 
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
-
-    allActions mUnusedBinds
-
-
-allActions :: Maybe [T.Text] -> R ()
-allActions mUnusedBinds = do
     (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds))
-    (traceShow ("simplifyHsDecl"    :: String) $ runPass (simplifyHsDecl mUnusedBinds))
     (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds))
+
+slow :: R ()
+slow = do
+    tchan      <- asks _tempDirs
+    sourceFile <- asks _sourceFile
+    printInfo "Removing unused declarations"
+
+    mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
+    (traceShow ("simplifyDecl"      :: String) $ runPass (simplifyDecl mUnusedBinds))
 
 
 -- ***************************************************************************
 -- SIGNATURES
 -- ***************************************************************************
 rmvSigs :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
-rmvSigs Nothing             = handleSubList rmvOneDecl (getDeclLocs (filter isSig))
-rmvSigs (Just unusedBinds)  = handleSubList rmvOneDecl (getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))))
+rmvSigs Nothing            = handleSubList rmvOneDecl (getDeclLocs (filter isSig))
+rmvSigs (Just unusedBinds) = handleSubList rmvOneDecl (getDeclLocs (filter (isSig <&&> (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName))))
 
 isSig :: LHsDecl GhcPs -> Bool
 isSig (L _ (SigD _ _))  = True
@@ -57,7 +55,7 @@ rmvDecls (Just [])          = defaultBehavior
 rmvDecls (Just unusedBinds) = handleSubList rmvOneDecl (getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
 
 defaultBehavior :: WaysToChange (HsModule GhcPs)
-defaultBehavior = handleSubList rmvOneDecl (map getLoc . hsmodDecls) 
+defaultBehavior = handleSubList rmvOneDecl (map getLoc . hsmodDecls)
 
 getDeclLocs :: ([LHsDecl GhcPs] -> [Located e]) -> HsModule GhcPs -> [SrcSpan]
 getDeclLocs f = map getLoc . f .  hsmodDecls
@@ -72,39 +70,36 @@ getName (L _ (SimplFunP funId)) = Just . unLoc $ funId
 getName (L _ (SimplSigP funId)) = Just . unLoc $ funId
 getName _ = Nothing
 
+
 -- ***************************************************************************
 -- HsDecls
 -- ***************************************************************************
-simplifyHsDecl :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
-simplifyHsDecl (Just bns) (TypeSigDeclP ids swt) =
+simplifyDecl :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
+simplifyDecl (Just bns) (TypeSigDeclP ids swt) =
     let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
     in [const (TypeSigDeclX newFunIds swt)]
-simplifyHsDecl _ (FunDeclP fid loc mtchs mo fw ft) =
+simplifyDecl _ (FunDeclP fid loc mtchs mo fw ft) =
     let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
     in [const (FunDeclP fid loc nMtchs mo fw ft)]
-simplifyHsDecl _ t@(TypeSigDeclP{}) = 
+simplifyDecl _ t@(TypeSigDeclP{}) = 
     handleSubList transformTypeSig typeSig2Ids t
-    where
-        typeSig2Ids = \case
-            TypeSigDeclP ids _ -> ids
-            _ -> []
-        transformTypeSig e = \case
-            TypeSigDeclP ids swt ->
-              let newIds = filter (/= e) ids -- L l . flip TypeSigDeclX swt
-              in TypeSigDeclX newIds swt
-            d -> d
-simplifyHsDecl _ t@(TyClD {}) = 
+  where
+      typeSig2Ids = \case
+          TypeSigDeclP ids _      -> ids
+          _                       -> []
+      transformTypeSig e = \case
+          TypeSigDeclP ids swt    -> TypeSigDeclX (filter (/= e) ids) swt
+          d                       -> d
+simplifyDecl _ t@(TyClD {}) = 
     handleSubList delCons decl2ConsStrings t
-    where
-        decl2ConsStrings = \case
-            (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
-            _ -> []
-        delCons loc = \case
-            (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) ->
-                let newCons = dd_cons oldDataDefn
-                in TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) newCons}}
-            d -> d
-simplifyHsDecl _ _ = []
+  where
+      decl2ConsStrings = \case
+          (TyClD _ (DataDecl _ _ _ _ oldDataDefn))  -> map getLoc $ dd_cons oldDataDefn
+          _                                         -> []
+      delCons loc = \case
+          (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) -> TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) (dd_cons oldDataDefn)}}
+          d                                            -> d
+simplifyDecl _ _ = []
 
 
 -- ***************************************************************************

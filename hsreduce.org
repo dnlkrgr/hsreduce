@@ -1,10 +1,30 @@
-* Top
-** try hs-all-in-one on projects with cpp dependencies
-** hs-all-in-one 
-*** make list of all src files, best would be just the dependencies of main file
-*** merge them with hs-all-in-one 
-*** find and clean up main function
-*** clean up cabal file, comment out other src files
+* Test-Cases
+** 14827
+*** das originale Repo gibt es leider nicht mehr
+*** String ordentlich reduzieren
+** 8763
+*** was ist da der richtige Test-Case?
+** 15164 / parser-calledarity
+*** lives now in /home/daniel/workspace/hsreduce-test-cases/parser-calledarityanalysis
+*** best thing is to probably binary search reduce the string
+** 16979
+** containers
+*** warum hört das bei 9000kb auf?
+*** irgendwie kann es da nicht die Exports reduzieren?
+*** Mergen: Testfall aus Mark Karpovs Mini Repo erstellen
+** protocol-buffers
+*** Abhängigkeit "runterladen" vor dem Mergen 
+** pandoc
+*** geht noch nicht zu mergen
+** 15176
+*** I think there was something hard about reproducing that repo?
+** 15753
+*** GHC prints type operator wrong :)
+* hs-all-in-one
+** make list of all src files, best would be just the dependencies of main file
+** merge them with hs-all-in-one
+** find and clean up main function
+** clean up cabal file, comment out other src files
 * Mergen / hsAllInOne.hs
 ** Modulnamen ohne Aufruf von GHC rausfinden
 ** Util.hs/getQual

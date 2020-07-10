@@ -17,10 +17,10 @@ import Data.Time
 import Util.Util
 import Util.Types
 import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
-import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (reduce)
+import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
 import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Reduce.Passes.Stubbing as Stubbing (reduce)
+import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow)
 import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
@@ -44,7 +44,7 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
-    -- 3. copy all necessary files into the temp dir 
+    -- 3. copy all necessary files into the temp dir
     -- 4. write the temp dir name into the channel
     tChan <- atomically newTChan
     forM_ [1 .. numberOfThreads] $ \_ ->  do
@@ -56,7 +56,7 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
             iterFile    <- parseRelFile f
             let oldPath = fromAbsFile $ sourceDir </> iterFile
             status      <- getFileStatus oldPath
-  
+
             if isDirectory status
             then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
             else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
@@ -65,27 +65,28 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
 
     -- run the reducing functions
     newState <- snd <$> runR (RConf test filePath numberOfThreads tChan tAST) beginState allActions
-  
+
     -- handling of the result and outputting useful information
     let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
         newSize  = T.length . showState $ newState
         ratio    = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
-  
+
     putStrLn $ "Old size: " ++ show oldSize
     putStrLn $ "Reduced file size: " ++ show newSize
     putStrLn $ "Reduced file by " ++ show ratio ++ "%"
-  
+
     TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
-  
+
     endTime <- utctDayTime <$> getCurrentTime
     print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
 
 allActions :: R ()
 allActions = do
-    largestFixpoint fast
-    liftIO $ putStrLn "*** Increasing granularity ***"
-    largestFixpoint slow
+    forM_ passes $ \pass -> do
+        liftIO $ putStrLn "\n\n*** Increasing granularity ***"
+        largestFixpoint pass
+  where passes = [fast, medium, slow, slowest]
 
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
@@ -94,12 +95,23 @@ fast = do
     Imports.reduce
     Pragmas.reduce
     Exports.reduce
-    Decls.reduce
+    Decls.fast
+
+medium :: R ()
+medium = do
+    Stubbing.fast
+    fast
+    Decls.slow
 
 slow :: R ()
 slow = do
-    Stubbing.reduce
-    fast
+    Stubbing.medium
+    fast 
+
+slowest :: R ()
+slowest = do
+    Stubbing.slow
+    fast 
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
 -- 2. set alive variable to false
@@ -108,14 +120,13 @@ slow = do
 largestFixpoint :: R () -> R ()
 largestFixpoint f =
     go
-    where
+  where
       go = do
-          liftIO $ putStrLn "\n***NEW ITERATION***"
+          liftIO $ putStrLn "\n\n\n***NEW ITERATION***"
 
           isTestStillFresh "largestFixpoint"
   
           modify $ \s -> s { _isAlive = False }
           f
-          isAlive <- gets _isAlive
   
-          when isAlive go
+          gets _isAlive >>= flip when go

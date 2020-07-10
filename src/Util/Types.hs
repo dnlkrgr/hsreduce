@@ -11,7 +11,7 @@ import Control.Monad.State.Strict
 import Data.Aeson
 import GHC.Generics (Generic)
 import GHC
-import Outputable
+import Outputable hiding ((<>))
 
 runR :: RConf -> RState -> R a -> IO (a, RState)
 runR c st (R a) = runStateT (runReaderT a c) st
@@ -33,13 +33,15 @@ data RState = RState
     , _renamed      :: Maybe RenamedSource
     , _typechecked  :: Maybe TypecheckedSource
     , _isAlive      :: Bool
+    , _numSuccess   :: Int
     }
 
 showState :: RState -> T.Text
-showState (RState prags ps _ _ _)  =
+showState (RState []    ps _ _  _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _ _)   =
     T.unlines
-    $ map (T.pack . show) prags
-    ++ [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
+    $ ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
+    : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
 
 
 data Span = Span

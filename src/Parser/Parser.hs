@@ -85,56 +85,8 @@ parse justParse includeDirs srcDirs fileName = do
     prags <- getPragmas fileName
   
     case et of
-      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False
-      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
-
--- -- TODO: collect and return all pragmas
--- parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
--- parse justParse includeDirs srcDirs fileName = do
---   banner ("Parsing: " <> fromAbsFile fileName)
--- 
---   modName <-
---     (\case
---       Left _ -> "Main"
---       Right t -> t)
---     . getModName
---     <$> TIO.readFile (fromAbsFile fileName)
--- 
---   print $ "Parser.Parser.parse: modName - " <> modName
--- 
---   prags <- getPragmas fileName
---   let extensions = map fromJust . filter isJust . map pragma2Extension $ prags
--- 
---   (p, et) <- runGhc (Just libdir) $ do
---     dflags          <- getSessionDynFlags
---     (dflags1, _, _) <- parseDynamicFlags dflags []
---     let includeDirStrings = map fromAbsDir includeDirs
---         srcDirStrings     = map fromAbsDir srcDirs
---     let dflags2 = L.foldl' xopt_set dflags1 extensions
---     void $ setSessionDynFlags dflags2 { includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings }
--- 
--- 
---     target <- guessTarget (fromAbsFile fileName) Nothing
---     setTargets [target]
--- 
---     load LoadAllTargets >>= \case
---       Succeeded -> do
--- 
---         modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
--- 
---         p <- parseModule modSum
---         -- TODO: catch and handle exceptions that could be thrown by typechecking
---         t <- if justParse then return $ Left () else Right <$> typecheckModule p
--- 
--- 
---         return (p, t)
--- 
---       _ -> error "Parser.Parser.parse: loading of all targets didn't succeed"
--- 
--- 
---   case et of
---     Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False
---     Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False
+      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False 0
+      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False 0
 
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum

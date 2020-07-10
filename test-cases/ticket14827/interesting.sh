@@ -7,7 +7,4 @@ B=$({ time ./Bug ; } |& grep real | cut -f2 | sed -r 's/0m([0-9]*)\..*/\1/')
 RATIO=$(expr $B / $A)
 
 
-if [ $RATIO -ge 3 ];
-then exit 0;
-else exit 1;
-fi 
+[[ $RATIO -ge 2 ]]

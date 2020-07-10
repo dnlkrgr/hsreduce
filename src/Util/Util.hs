@@ -1,7 +1,7 @@
 module Util.Util where
 
 import Control.Concurrent.STM
-import GHC (ParsedSource)
+import GHC hiding (GhcMode, ghcMode)
 import Data.Void
 import Data.Generics.Aliases (extQ)
 import Parser.Parser
@@ -32,11 +32,16 @@ import qualified Text.Megaparsec.Char as MC
 import System.Directory
 import System.Posix.Files
 import Data.List.Split
-import Control.Concurrent.Async
 
+printInfo :: String -> R ()
+printInfo context = do
+    oldState  <- get
+
+    liftIO . putStrLn $ "\n***" <> context <> "***"
+    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
 
 isTestStillFresh :: String -> R ()
-isTestStillFresh context = do 
+isTestStillFresh context = do
     conf     <- ask
     newState <- get
     liftIO $ testAndUpdateStateFlex conf False True newState >>= \case
@@ -45,41 +50,49 @@ isTestStillFresh context = do
             error $ "Test case is broken at >>>" <> context <> "<<<"
         True  -> putStrLn $ context <> ": Test case is still fresh :-)"
 
+
 type WaysToChange a = a -> [a -> a]
 
+
 runPass :: Data a => WaysToChange a -> R ()
-runPass pass = do 
+runPass pass = do
     conf     <- ask
     oldState <- get
 
-    let 
-        ast = _parsed oldState
-        proposedChanges =  getProposedChanges ast pass
+    let
+        ast             = _parsed oldState
+        proposedChanges = getProposedChanges ast pass
+
+    modify $ \s -> s { _numSuccess = 0 }
 
     -- 1. fold
     -- take the current AST and the next proposed change
     -- apply the change
     -- call testAndUpdateStateFlex conf oldAST newAST currentState
-
     void $ foldM (\oldAST c -> do
         let newAST = transformBi c oldAST
 
-        b <- liftIO $ tryNewValue conf oldState { _parsed = newAST }
-        if b then do
-            liftIO $ putStr "+"
-            modify $ \s -> s { 
-                  _parsed  = newAST
-                , _isAlive = _isAlive s || oshow oldAST /= oshow newAST 
-                }
-            return newAST
-        else return oldAST
+        liftIO (tryNewValue conf oldState { _parsed = newAST }) >>= \case
+            True  -> do
+                modify $ \s -> s {
+                      _parsed       = newAST
+                    , _isAlive      = _isAlive s || oshow oldAST /= oshow newAST
+                    , _numSuccess   = _numSuccess s + 1
+                    }
 
-        ) ast (concat proposedChanges)
+                return newAST
+
+            False -> return oldAST
+
+        ) ast $ proposedChanges
+
+    n <- gets _numSuccess
+    liftIO . putStrLn $ "Worked " <> show n <> "/" <> show (length proposedChanges) <> " times."
 
 
 
-getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [[Located a -> Located a]]
-getProposedChanges ast pass = [map (overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
+getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [Located a -> Located a]
+getProposedChanges ast pass = concat [map (overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
 
 
 getInterestingChanges :: Data a => [[Located a -> Located a]] -> R [(Located a -> Located a, Bool)]
@@ -89,23 +102,21 @@ getInterestingChanges proposedChanges = do
     numberOfThreads <- asks _numberOfThreads
     tAST            <- asks _tAST
 
-    let 
-        -- list of changes, grouped by location
-        -- groupedChanges  = map snd . concat $ groupBy (\a b -> fst a == fst b) proposedChanges
+    let
         chunkSize       = div (length proposedChanges) numberOfThreads
         -- number of proposedChanges might be smaller than number of threads which might result in chunkSize of 0, so we need to check for that!
         batches         = case chunkSize of
             0 -> proposedChanges
-            _ -> let 
+            _ -> let
                     temp = map concat . chunksOf chunkSize $ proposedChanges
                  in case reverse temp of
-                     (x:y:xs) -> 
+                     (x:y:xs) ->
                          if length temp > numberOfThreads
                          then (x ++ y) : xs
                          else temp
                      _ -> temp
 
-    -- run one thread for each batch 
+    -- run one thread for each batch
     changes <- liftIO . fmap concat . forM batches $ \batch -> do
 
         -- within a thread check out all the changes
@@ -355,7 +366,6 @@ isInProduction :: Bool
 isInProduction = False
 
 -- default duration: 30 seconds
--- currently so high, because in big files we have up to 8000 errors
 defaultDuration :: Word
 defaultDuration = 30 * 1000 * 1000
 
