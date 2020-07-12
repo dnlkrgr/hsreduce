@@ -247,3 +247,4 @@ instance
   fromN :: forall x. a -> RepN a x
   fromN = coerce (from :: a -> Rep a x)
   {-# INLINE fromN #-}
+

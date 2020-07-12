@@ -1,5 +1,5 @@
 #!/run/current-system/sw/bin/bash
-TICKET=Ticket16979
+TICKET=Bug
 GHC_VERSION=ghc822
 RELEASE_OR_COMMIT=18.09
 ERROR=error.txt
@@ -11,6 +11,7 @@ COMMAND="ghc -O -dcore-lint -g -c ${TICKET}.hs"
 nix-shell $GHC_VERSION.nix --run "${COMMAND}" > $OUTPUT 2> $ERROR
 
 grep "Compilation had errors" $ERROR &&
-grep "*** Core Lint errors : in result of Simplifier ***" $OUTPUT
+grep "*** Core Lint errors : in result of Simplifier ***" $OUTPUT &&
+grep "no location info>: warning:" $OUTPUT && 
+grep "In the expression: " $OUTPUT
 
-rm $OUTPUT $ERROR $GHC_VERSION.nix

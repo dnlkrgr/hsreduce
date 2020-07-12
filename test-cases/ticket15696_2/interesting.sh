@@ -1,5 +1,5 @@
 #!/run/current-system/sw/bin/bash
-TICKET=Ticket15696_2
+TICKET=Bug
 GHC_843=ghc843
 GHC_861=ghc861
 RELEASE_OR_COMMIT=18.09

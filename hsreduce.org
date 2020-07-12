@@ -1,0 +1,188 @@
+* Test-Cases
+** 14827
+*** das originale Repo gibt es leider nicht mehr
+*** String ordentlich reduzieren
+** 8763
+*** was ist da der richtige Test-Case?
+** 15164 / parser-calledarity
+*** lives now in /home/daniel/workspace/hsreduce-test-cases/parser-calledarityanalysis
+*** best thing is to probably binary search reduce the string
+** 16979
+** containers
+*** warum hört das bei 9000kb auf?
+*** irgendwie kann es da nicht die Exports reduzieren?
+*** Mergen: Testfall aus Mark Karpovs Mini Repo erstellen
+** protocol-buffers
+*** Abhängigkeit "runterladen" vor dem Mergen 
+** pandoc
+*** geht noch nicht zu mergen
+** 15176
+*** I think there was something hard about reproducing that repo?
+** 15753
+*** GHC prints type operator wrong :)
+* hs-all-in-one
+** make list of all src files, best would be just the dependencies of main file
+** merge them with hs-all-in-one
+** find and clean up main function
+** clean up cabal file, comment out other src files
+* Mergen / hsAllInOne.hs
+** Modulnamen ohne Aufruf von GHC rausfinden
+** Util.hs/getQual
+*** da wirklich auch alles behandeln
+** operators richtig behandeln
+** RdrName
+*** die auch alle behandeln
+** [#A] Typsynonyme / use the module names from the import decls and match them with the module name here!
+*** bei getGhcOutput den Ersatz holen
+*** und dann einfach den Text an der Stelle austauschen
+*** use the import module name to qualify and use module name here to find out importdecl
+*** die Modulnamen aus den imports zum Qualifizieren nehmen
+** Record field selectors werden nicht richtig ersetzt
+** [#A] default declarations
+** [#A] DataKinds / Pragmas
+*** warum wird das nicht gefunden oder geprintet?
+*** UndecidableInstances
+*** FlexibleContexts
+** [#C] BUG: cannot handle COMPLETE pragmas for now (TODO: also handle this via getGhcOutput)
+** [#C] does this work for alternative Preludes?
+** [#C] get the file paths for the Haskell files from the main Haskell file
+** [#C] `isOperator`: use operator syntax from Haskell2010 report
+** DONE Preludes aus qualified names raus
+   CLOSED: [2020-04-15 Wed 11:40]
+** DONE Prelude aus imports raus
+   CLOSED: [2020-04-15 Wed 11:40]
+* Refactoring
+** Stubbing
+*** RecordCon wieder hinzufügen
+** error handling für das Parsing
+** error handling in GHC Monad
+* Interessante Tickets
+** 18018
+** 17722
+** 17684
+** 16127
+** 17516
+* Reduction Passes 
+** Function Inlining
+*** ab wann lohnt sich Inlining?
+*** Inlining, selbst wenn shadowings entstehen
+** Template haskell
+*** [ ] TH: splices dumpen, gedumpte einfügen in HS-Datei und dann weiter reduzieren
+** On the Project Level
+*** [ ] Module mergen
+*** [ ] Dependencies vendorn: nicht mehr als separate Dependency
+*** [ ] cabal file: dependencies entfernen
+** Bangtypes: Bang weg
+** Typen vereinfachen / Typaliase
+*** [ ] unnötige Typaliase weg
+*** [ ] Typ mit 1 Konstruktor: kann gleich Typalias sein, oder?
+*** [ ] Typaliase reduzieren / minimieren
+*** [ ] Typaliase inlinen
+*** [ ] deriving-Clause minimieren
+*** [ ] Produkttypen minimieren
+** forall
+*** Beta-Reduktion anwenden
+*** polymorphe Funktion: Typen konkretisieren (vllt. von Verwendungen inferieren?)
+*** [ ] Variablen aus forall entfernen
+*** [x] forall weg
+** Kontexte / Constraints
+*** [ ] Variablen aus Kontext entfernen
+*** [x] Kontexte / Constraints entfernen
+** Typsignaturen vereinfachen
+*** Unit / ()
+**** [ ] Typparameter durch Unit / () ersetzen + Benutzungen löschen
+**** [x] Typparameter durch Unit / () ersetzen
+** Parameter
+*** [ ] unbenutzte Parameter zu `_` abändern oder gleich löschen
+**** [ ] -Wunused-params benutzen
+*** `_` kommt anstatt Parameter vor
+**** [ ] Parameter entfernen
+**** [ ] aus Signatur löschen
+**** [ ] aus Matches löschen
+**** [ ] aus Verwendungen löschen
+** Remove Unused
+*** Decls
+**** [ ] iwie das Filtern von Decls schöner machen, einmal filter und für alle Decls kurz den Check implementieren oder iwie "Inversion of Control" hinkriegen
+**** GADTs
+***** [ ] Typvariablen durch () ersetzen
+***** [x] forall weg
+***** [x] Typkontext / Constraints weg
+**** [x] Datendeklarationen
+***** [x] unbenutzte Konstruktoren löschen
+***** [x] Data Decls ohne Konstruktoren löschen
+**** [x] unbenutzte Function Bindings
+***** Schwierigkeiten: wenn die Signatur nicht mitgelöscht wird, macht es keinen Sinn, nur das FunBind zu löschen
+***** wegen der nicht-funktionierenden Löschung sind dann andere decls noch lebendig
+**** [x] sonstige Decls versuchen zu entfernen
+*** Imports
+**** [ ] Anzahl importierter Funktionen minimieren
+***** sollte mit "-Wunused-imports" nicht so schwer sein, das kann es so fein erkennen
+**** explizites import all
+***** [ ] Konvertieren zu explizitem import all
+**** [ ] alle imports qualified machen
+**** [x] unused imports entfernen
+*** Exports
+**** Handling von impliziten export all
+***** [x] Konvertieren zu explizitem export all
+**** [x] unused exports entfernen
+**** Beobachtung: alle Exports entfernen ist nicht beste Strategie, siehe #14270
+*** Pragmas
+**** die befinden sich bei SigD!
+**** [ ] UNPACK Pragmas
+**** [ ] INLINE Pragmas
+**** [ ] other Pragmas
+**** [x] LANGUAGE Pragmas
+** Misc
+*** [ ] Datei formattieren
+*** [ ] case-Ausdrücke minimieren
+***** [ ] Matches entfernen und ein `_ -> ...` Match einführen
+*** [ ] arithmetische, boolesche Ausdrücke vereinfachen
+** Normalization
+*** [ ] renaming functions
+*** [ ] renaming parameters
+*** [ ] renaming constants
+*** [ ] renaming data declarations / types
+** Stubbing
+*** [ ] Matches mit RHS == "undefined" weg
+*** [ ] LGRHS: guards einzeln entfernen
+*** [x] Matches mit GRHS == "undefined" entfernen
+*** [x] LGRHS: guards entfernen
+*** [x] HsExpr: place undefined into every possible HsExpr
+*** [x] HsType durch () ersetzen
+*** [x] where-Klauseln löschen
+*** [x] GADTs: forall und Kontext löschen
+*** [x] Case-Expressions mit nur einem Fall
+*** [x] if-then-else mit einem Fall == "undefined"
+* Misc
+** MUST
+*** [ ] *uniplate statt syb benutzen*
+*** [ ] *paths lib benutzen*
+*** [ ] *ExceptT benutzen*
+*** [ ] *Testen mit QuickCheck, hedgehog, tasty, usw.*
+*** [ ] *performante Datentypen benutzen (Text, strikte ByteStrings, usw.)*
+*** [ ] Haskell Source Plugins anschauen
+*** [ ] Structureshrink Zum Laufen Bringen
+*** [ ] Automatisiert Test-Cases Hinzufügen + Laufen Lassen Können
+**** wahrsch. am besten repo dazu einrichten
+*** erfassen, welche Herausforderungen es bei den Pässen gibt
+**** gleich immer aufschreiben
+**** was hat man wissenschaftlich rausgefunden?
+**** was ist alles mit Herausforderungen gemeint?
+***** z.B., wie effektiv die Pässe sind?
+*** grobe Transformationen zuerst
+**** z.B. imports
+***** erst versuchen, alle zu löschen
+***** dann 1/2, 1/4, 1/8, ...
+***** dann nur unused
+***** dann nur Anzahl der Funktionen minimieren
+*** 24 days of GHC extensions durchlesen
+**** GADTs, Type Families anschauen
+*** [ ] #14270 mit git repo reproduzieren
+*** ocharles/weeder benutzen
+*** [x] Ticket mit Container Bug reproduzieren
+** SHOULD
+*** [ ] Ausgabe schöner machen
+*** [ ] Am Anfang überprüfen, ob Test-Case überhaupt interessant
+**** eigentlich ist User selbst dafür verantwortlich
+*** Code weiter runterbrechen in one-line-Funktionen
+*** reduce-loop: BFS
