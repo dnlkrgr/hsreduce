@@ -7,7 +7,8 @@ import GHC
 reduce :: R ()
 reduce = do
     printInfo "Removing Imports"
-    runPass rmvImports
+    isTestStillFresh "Imports"
+    runPass "rmvImports" rmvImports
 
 rmvImports :: WaysToChange (HsModule GhcPs)
 rmvImports = handleSubList f (map getLoc . hsmodImports) 

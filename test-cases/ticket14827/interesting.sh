@@ -1,10 +1,18 @@
 #!/run/current-system/sw/bin/bash
-A=$({ time nix-shell ghc822.nix --run "echo main | ghci Bug.hs" ; } |& grep real | cut -f2 | sed -r 's/0m([0-9]*)\..*/\1/')
+START1=$(date +"%s")
+echo main | ghci Bug.hs > /dev/null
+END1=$(date +"%s")
+A=$(expr $END1 - $START1)
+ 
 
-nix-shell ghc822.nix --run "ghc -O1 Bug.hs"
-B=$({ time ./Bug ; } |& grep real | cut -f2 | sed -r 's/0m([0-9]*)\..*/\1/')
+ghc -O1 Bug.hs
+START2=$(date +"%s")
+./Bug > /dev/null
+END2=$(date +"%s")
+B=$(expr $END2 - $START2)
 
 RATIO=$(expr $B / $A)
 
 
-[[ $RATIO -ge 2 ]]
+
+[[ $RATIO -ge 7 ]]

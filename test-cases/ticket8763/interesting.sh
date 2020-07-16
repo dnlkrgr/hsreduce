@@ -1,18 +1,12 @@
 #!/run/current-system/sw/bin/bash
 
-nix-shell ghc881.nix --run "ghc -O Bug.hs"
-A=$({ time --format=%e ./Bug ; } |& grep real | cut -f2)
-# A=$({ time ./Bug ; } |& grep real | cut -f2 | sed -r 's/0m([0-9]*)\..*/\1/')
+ghc -O Bug.hs -rtsopts > /dev/null
+A=$(./Bug +RTS -t --machine-readable -RTS 2>&1 | grep -oP 'bytes allocated\", \"\K[0-9]*')
 
-nix-shell ghc881.nix --run "ghc -O2 Bug.hs"
-B=$({ time --format=%e ./Bug ; } |& grep real | cut -f2)
+ghc -O2 Bug.hs -rtsopts > /dev/null
+B=$(./Bug +RTS -t --machine-readable -RTS 2>&1 | grep -oP 'bytes allocated\", \"\K[0-9]*')
 
-echo $A
-echo $B
-# RATIO=$(expr $B / $A)
-# echo $RATIO
+RATIO=$(python -c "print ($A * 1.0/ $B)")
+echo $RATIO
 
-# if [ $RATIO -ge 3 ];
-# then exit 0;
-# else exit 1;
-# fi 
+[[ $RATIO > 3.0 ]]

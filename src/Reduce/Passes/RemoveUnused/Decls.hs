@@ -1,6 +1,5 @@
-module Reduce.Passes.RemoveUnused.Decls where
+module Reduce.Passes.RemoveUnused.Decls (fast, slow) where
 
-import Debug.Trace
 import Path 
 import Data.Either
 import Control.Monad.State.Strict
@@ -21,8 +20,8 @@ fast = do
     printInfo "Removing unused declarations"
 
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
-    (traceShow ("rmvSigs"           :: String) $ runPass (rmvSigs mUnusedBinds))
-    (traceShow ("rmvDecls"          :: String) $ runPass (rmvDecls mUnusedBinds))
+    runPass "rmvSigs"  (rmvSigs mUnusedBinds)
+    runPass "rmvDecls" (rmvDecls mUnusedBinds)
 
 slow :: R ()
 slow = do
@@ -31,7 +30,7 @@ slow = do
     printInfo "Removing unused declarations"
 
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
-    (traceShow ("simplifyDecl"      :: String) $ runPass (simplifyDecl mUnusedBinds))
+    runPass "simplifyDecl" (simplifyDecl mUnusedBinds)
 
 
 -- ***************************************************************************

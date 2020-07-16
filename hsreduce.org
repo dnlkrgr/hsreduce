@@ -20,48 +20,15 @@
 *** I think there was something hard about reproducing that repo?
 ** 15753
 *** GHC prints type operator wrong :)
-* hs-all-in-one
-** make list of all src files, best would be just the dependencies of main file
-** merge them with hs-all-in-one
-** find and clean up main function
-** clean up cabal file, comment out other src files
-* Mergen / hsAllInOne.hs
-** Modulnamen ohne Aufruf von GHC rausfinden
-** Util.hs/getQual
-*** da wirklich auch alles behandeln
-** operators richtig behandeln
-** RdrName
-*** die auch alle behandeln
-** [#A] Typsynonyme / use the module names from the import decls and match them with the module name here!
-*** bei getGhcOutput den Ersatz holen
-*** und dann einfach den Text an der Stelle austauschen
-*** use the import module name to qualify and use module name here to find out importdecl
-*** die Modulnamen aus den imports zum Qualifizieren nehmen
-** Record field selectors werden nicht richtig ersetzt
-** [#A] default declarations
-** [#A] DataKinds / Pragmas
-*** warum wird das nicht gefunden oder geprintet?
-*** UndecidableInstances
-*** FlexibleContexts
-** [#C] BUG: cannot handle COMPLETE pragmas for now (TODO: also handle this via getGhcOutput)
-** [#C] does this work for alternative Preludes?
-** [#C] get the file paths for the Haskell files from the main Haskell file
-** [#C] `isOperator`: use operator syntax from Haskell2010 report
-** DONE Preludes aus qualified names raus
-   CLOSED: [2020-04-15 Wed 11:40]
-** DONE Prelude aus imports raus
-   CLOSED: [2020-04-15 Wed 11:40]
-* Refactoring
-** Stubbing
-*** RecordCon wieder hinzufügen
-** error handling für das Parsing
-** error handling in GHC Monad
-* Interessante Tickets
 ** 18018
 ** 17722
 ** 17684
 ** 16127
 ** 17516
+* Mergen / hsAllInOne.hs
+** operators richtig behandeln
+** [#A] default declarations
+** [#C] `isOperator`: use operator syntax from Haskell2010 report
 * Reduction Passes 
 ** Function Inlining
 *** ab wann lohnt sich Inlining?
@@ -155,34 +122,12 @@
 *** [x] if-then-else mit einem Fall == "undefined"
 * Misc
 ** MUST
-*** [ ] *uniplate statt syb benutzen*
-*** [ ] *paths lib benutzen*
 *** [ ] *ExceptT benutzen*
 *** [ ] *Testen mit QuickCheck, hedgehog, tasty, usw.*
-*** [ ] *performante Datentypen benutzen (Text, strikte ByteStrings, usw.)*
-*** [ ] Haskell Source Plugins anschauen
 *** [ ] Structureshrink Zum Laufen Bringen
 *** [ ] Automatisiert Test-Cases Hinzufügen + Laufen Lassen Können
 **** wahrsch. am besten repo dazu einrichten
-*** erfassen, welche Herausforderungen es bei den Pässen gibt
-**** gleich immer aufschreiben
-**** was hat man wissenschaftlich rausgefunden?
-**** was ist alles mit Herausforderungen gemeint?
-***** z.B., wie effektiv die Pässe sind?
-*** grobe Transformationen zuerst
-**** z.B. imports
-***** erst versuchen, alle zu löschen
-***** dann 1/2, 1/4, 1/8, ...
-***** dann nur unused
-***** dann nur Anzahl der Funktionen minimieren
-*** 24 days of GHC extensions durchlesen
-**** GADTs, Type Families anschauen
 *** [ ] #14270 mit git repo reproduzieren
-*** ocharles/weeder benutzen
-*** [x] Ticket mit Container Bug reproduzieren
-** SHOULD
-*** [ ] Ausgabe schöner machen
-*** [ ] Am Anfang überprüfen, ob Test-Case überhaupt interessant
-**** eigentlich ist User selbst dafür verantwortlich
-*** Code weiter runterbrechen in one-line-Funktionen
-*** reduce-loop: BFS
+* Refactoring
+** error handling für das Parsing
+** error handling in GHC Monad

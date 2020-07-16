@@ -1,5 +1,6 @@
 module Util.Util where
 
+import qualified Data.Map as M
 import Control.Concurrent.STM
 import GHC hiding (GhcMode, ghcMode)
 import Data.Void
@@ -54,8 +55,10 @@ isTestStillFresh context = do
 type WaysToChange a = a -> [a -> a]
 
 
-runPass :: Data a => WaysToChange a -> R ()
-runPass pass = do
+runPass :: Data a => String -> WaysToChange a -> R ()
+runPass passName pass = do
+    liftIO $ putStrLn passName
+
     conf     <- ask
     oldState <- get
 
@@ -63,32 +66,43 @@ runPass pass = do
         ast             = _parsed oldState
         proposedChanges = getProposedChanges ast pass
 
-    modify $ \s -> s { _numSuccess = 0 }
-
     -- 1. fold
     -- take the current AST and the next proposed change
     -- apply the change
     -- call testAndUpdateStateFlex conf oldAST newAST currentState
     void $ foldM (\oldAST c -> do
-        let newAST = transformBi c oldAST
+        let 
+            newAST = transformBi c oldAST
+            sizeDifference = length (lshow oldAST) - length (lshow newAST)
 
         liftIO (tryNewValue conf oldState { _parsed = newAST }) >>= \case
             True  -> do
                 modify $ \s -> s {
                       _parsed       = newAST
                     , _isAlive      = _isAlive s || oshow oldAST /= oshow newAST
-                    , _numSuccess   = _numSuccess s + 1
+                    , _statistics   = updateStatistics True passName s sizeDifference
                     }
 
                 return newAST
 
-            False -> return oldAST
+            False -> do
+                modify $ \s -> s { _statistics = updateStatistics False passName s 0 }
+                return oldAST
 
         ) ast $ proposedChanges
 
-    n <- gets _numSuccess
-    liftIO . putStrLn $ "Worked " <> show n <> "/" <> show (length proposedChanges) <> " times."
 
+updateStatistics :: Bool -> String -> RState -> Int -> M.Map String Statistics
+updateStatistics success passName s dR =
+    let m = (_statistics s) 
+        i = if success
+            then 1
+            else 0
+    in case M.lookup passName m  of
+        Nothing                     -> M.insert passName (Statistics i 1 dR) m
+        Just (Statistics n d r)  -> 
+            let newStatistics = Statistics (n + i) (d + 1) (r + dR)
+            in  M.insert passName newStatistics m
 
 
 getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [Located a -> Located a]
@@ -104,7 +118,8 @@ getInterestingChanges proposedChanges = do
 
     let
         chunkSize       = div (length proposedChanges) numberOfThreads
-        -- number of proposedChanges might be smaller than number of threads which might result in chunkSize of 0, so we need to check for that!
+        -- number of proposedChanges might be smaller than number of threads which might 
+        -- result in chunkSize of 0, so we need to check for that!
         batches         = case chunkSize of
             0 -> proposedChanges
             _ -> let

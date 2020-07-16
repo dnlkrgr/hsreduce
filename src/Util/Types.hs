@@ -1,5 +1,7 @@
 module Util.Types where
 
+import Data.List
+import qualified Data.Map as M
 import Control.Concurrent.STM
 import GHC.LanguageExtensions.Type
 import Data.Void
@@ -33,11 +35,32 @@ data RState = RState
     , _renamed      :: Maybe RenamedSource
     , _typechecked  :: Maybe TypecheckedSource
     , _isAlive      :: Bool
-    , _numSuccess   :: Int
+    , _statistics   :: M.Map String Statistics
     }
 
+
+data Statistics = Statistics 
+    { _successfulAttempts   :: Int
+    , _totalAttempts        :: Int
+    , _removedBytes         :: Int 
+    }
+
+printStatistics :: M.Map String Statistics -> String
+printStatistics statistics =
+--        "\n\n*** Statistics ***" 
+    unlines $ flip map (reverse . sortOn (_removedBytes . snd) $ M.toList statistics) $ \(k, Statistics n d r) ->
+    let 
+        snr = show n
+        sdr = show d
+        sr  = show r
+    in 
+        k <> ": " 
+        <> map (const ' ') [1 .. 30 - length k - length snr] 
+        <> snr <> " / " <> map (const ' ') [1 .. 3 - length sdr] <> sdr 
+        <> map (const ' ') [1 .. 5 - length sr] <> sr
+
 showState :: RState -> T.Text
-showState (RState []    ps _ _  _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState []    ps _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
 showState (RState prags ps _ _ _ _)   =
     T.unlines
     $ ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")

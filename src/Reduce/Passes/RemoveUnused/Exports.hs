@@ -42,7 +42,7 @@ reduce = do
 
         Just _ -> return ()
   
-    runPass removeExports 
+    runPass "removeExports" removeExports 
 
 
 removeExports :: WaysToChange [LIE GhcPs]

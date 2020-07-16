@@ -1,5 +1,6 @@
 module Parser.Parser (getPragmas, parse)  where
 
+import qualified Data.Map as M
 import qualified Data.List as L
 import Data.Maybe
 import Data.Void
@@ -11,7 +12,7 @@ import Data.Functor
 import Control.Applicative
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import GHC hiding (extensions)
 import Util.Types
@@ -25,7 +26,7 @@ getPragmas f =
     . fromRight []
     . sequence
     . filter isRight
-    . map (M.parse pragmas (fromAbsFile f))
+    . map (MP.parse pragmas (fromAbsFile f))
     . T.lines
     <$> TIO.readFile (fromAbsFile f)
 
@@ -85,13 +86,13 @@ parse justParse includeDirs srcDirs fileName = do
     prags <- getPragmas fileName
   
     case et of
-      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False 0
-      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False 0
+      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False M.empty
+      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False M.empty
 
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum
-getModName :: T.Text -> Either (M.ParseErrorBundle T.Text Void) T.Text
-getModName = fmap T.concat . sequence . filter isRight . map (M.parse getModName' "") . T.lines
+getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
+getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines
 
 getModName' :: Parser T.Text
 getModName' = do

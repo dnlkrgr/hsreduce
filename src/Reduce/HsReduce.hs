@@ -71,6 +71,7 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
         newSize  = T.length . showState $ newState
         ratio    = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
 
+    putStrLn $ "\n\nFinished."
     putStrLn $ "Old size: " ++ show oldSize
     putStrLn $ "Reduced file size: " ++ show newSize
     putStrLn $ "Reduced file by " ++ show ratio ++ "%"
@@ -78,8 +79,10 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
     TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
 
     endTime <- utctDayTime <$> getCurrentTime
-    print $ "Execution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
+    print $ "\n\nExecution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
 
+    putStrLn . printStatistics $ _statistics newState
+    -- writeFile "hsreduce.statistics" . printStatistics $ _statistics newState
 
 allActions :: R ()
 allActions = do

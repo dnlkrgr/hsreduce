@@ -1,47 +1,42 @@
-module Reduce.Passes.Stubbing where
+module Reduce.Passes.Stubbing (fast, medium, slow) where
 
 import Bag
-import Debug.Trace
-import Data.Ratio
-import qualified Data.ByteString as BS
 import Data.List
-import BasicTypes
 import GHC
 import Outputable hiding ((<>))
 import OccName
-import Data.Generics.Uniplate.Data
 
 import Util.Types
 import Util.Util
 
+printStubbingInfo :: R ()
+printStubbingInfo = printInfo "Stubbing Expressions"
+
 fast :: R ()
 fast = do
     printStubbingInfo
-    traceShow ("expr2Undefined" :: String) $ runPass expr2Undefined
+    runPass "expr2Undefined" expr2Undefined
 
 
 medium :: R ()
 medium = do
-    printStubbingInfo
-    traceShow ("expr2Undefined" :: String) $ runPass expr2Undefined
-    traceShow ("type2Unit"      :: String) $ runPass type2Unit
+    fast
+    runPass "type2Unit"      type2Unit
 
 
 slow :: R ()
 slow = do
-    printStubbingInfo
-    (traceShow ("expr2Undefined"    :: String) $ runPass expr2Undefined)
-    (traceShow ("simplifyExpr"      :: String) $ runPass simplifyExpr)
-    (traceShow ("simplifyConDecl"   :: String) $ runPass simplifyConDecl)
-    (traceShow ("simplifyMatches"   :: String) $ runPass simplifyMatches)
-    (traceShow ("simplifyMatch"     :: String) $ runPass simplifyMatch)
-    (traceShow ("simplifyLGRHS"     :: String) $ runPass simplifyLGRHS)
-    (traceShow ("familyResultSig"   :: String) $ runPass familyResultSig)
-    (traceShow ("tyVarBndr"         :: String) $ runPass tyVarBndr)
-    (traceShow ("type2Unit"         :: String) $ runPass type2Unit)
-    (traceShow ("simplifyType"      :: String) $ runPass simplifyType)
-    (traceShow ("localBinds"        :: String) $ runPass localBinds)
-    (traceShow ("pat2Wildcard"      :: String) $ runPass pat2Wildcard)
+    medium
+    runPass "simplifyExpr"   simplifyExpr
+    runPass "simplifyConDecl"simplifyConDecl
+    runPass "simplifyMatches"simplifyMatches
+    runPass "simplifyMatch"  simplifyMatch
+    runPass "simplifyLGRHS"  simplifyLGRHS
+    runPass "familyResultSig"familyResultSig
+    runPass "tyVarBndr"      tyVarBndr
+    runPass "simplifyType"   simplifyType
+    runPass "localBinds"     localBinds
+    runPass "pat2Wildcard"   pat2Wildcard
 
 
 -- ***************************************************************************
@@ -56,7 +51,7 @@ pat2Wildcard _          = [const (WildPat NoExt)]
 -- TYPES
 -- ***************************************************************************
 type2Unit :: WaysToChange (HsType GhcPs)
-type2Unit UnitTypeP                                                         = []
+type2Unit UnitTypeP                                                      = []
 type2Unit _                                                              = map const [UnitTypeP]
 
 simplifyType :: WaysToChange (HsType GhcPs)
@@ -182,17 +177,6 @@ simplifyLGRHS g@(GRHS _ _ body) = [const (GRHS NoExt [] body)] <> handleSubList 
 simplifyLGRHS _ = []
 
 
-changeMatchContext :: HsMatchContext RdrName -> LMatch GhcPs (LHsExpr GhcPs) -> LMatch GhcPs (LHsExpr GhcPs)
-changeMatchContext ctxt (L l (Match _ _ p g)) = L l $ Match NoExt ctxt p g
-changeMatchContext _ m = m
-
-getFunBinds :: ParsedSource -> [HsBindLR GhcPs GhcPs]
-getFunBinds p = [ f | f@FunBind {} <- universeBi p ]
-
-getNameAndMatchGroup :: HsBindLR idL idR -> Maybe (IdP idL, MatchGroup idR (LHsExpr idR))
-getNameAndMatchGroup (FunBind _ (L _ n) mg _ _) = Just (n, mg)
-getNameAndMatchGroup _ = Nothing
-
 
 -- ***************************************************************************
 -- EXPRESSSIONS
@@ -239,29 +223,6 @@ fExpr loc = \case
     (ExplicitList _ se es)      -> ExplicitList NoExt se $ filter ((/= loc) . getLoc) es 
     e                           -> e
 
--- ***************************************************************************
--- LITERALS
--- ***************************************************************************
-
--- are there more interesting things we can do here?
-srcText :: SourceText
-srcText = SourceText ""
-
-simplifyLit :: HsLit GhcPs -> HsLit GhcPs
-simplifyLit (HsChar _ _)       = HsChar srcText 'a'
-simplifyLit (HsCharPrim _ _)   = HsCharPrim srcText 'a'
-simplifyLit (HsString _ _)     = HsString srcText ""
-simplifyLit (HsStringPrim _ _) = HsStringPrim srcText BS.empty
-simplifyLit (HsInt _ _)        = HsInt NoExt $ IL srcText False 0
-simplifyLit (HsIntPrim _ _)    = HsIntPrim srcText 0
-simplifyLit (HsWordPrim _ _)   = HsWordPrim srcText 0
-simplifyLit (HsInt64Prim _ _)  = HsInt64Prim srcText 0
-simplifyLit (HsWord64Prim _ _) = HsWord64Prim srcText 0
-simplifyLit (HsInteger _ _ t)  = HsInteger srcText 0 t
-simplifyLit (HsRat _ _ t)      = HsRat NoExt (FL srcText False (0 % 1)) t
-simplifyLit (HsFloatPrim _ _ ) = HsFloatPrim NoExt (FL srcText False (0 % 1))
-simplifyLit (HsDoublePrim _ _) = HsDoublePrim NoExt (FL srcText False (0 % 1))
-simplifyLit l                  = l
 
 -- ***************************************************************************
 -- MISC
@@ -309,5 +270,3 @@ pattern SingleCase body <-
                                    (L _ (EmptyLocalBinds _))))])
                _)
   
-printStubbingInfo :: R ()
-printStubbingInfo = printInfo "Stubbing Expressions"

@@ -9,7 +9,8 @@ main =  getArgs >>= \case
         hsmerge x
         dieForGhcSins
     _       -> putStrLn $ unlines [
-                      "1. Call hsmerge in the cabal project directory you want to merge"
+                      "Example Usage:" 
+                    , "1. Call hsmerge in the cabal project directory you want to merge"
                     , "2. hsmerge expects an hie.yaml file"
                     , "3. Example usage: \"hsmerge src/Text/Docx.hs\""
                     ]

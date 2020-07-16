@@ -19,6 +19,16 @@ reduce = do
 tryToRemovePragma :: Pragma -> R ()
 tryToRemovePragma pragmaToTry = do
     liftIO $ putStrLn $ "trying pragma: " ++ show pragmaToTry
-    newState <- gets $ \s -> s { _pragmas = filter (/= pragmaToTry) (_pragmas s)}
     conf     <- ask
-    liftIO (testAndUpdateStateFlex conf False True newState) >>= flip when (put newState)
+    oldState <- get
+
+    let 
+        newState = oldState { _pragmas = filter (/= pragmaToTry) (_pragmas oldState)}
+
+    liftIO (testAndUpdateStateFlex conf False True newState) >>= \case
+        False -> put oldState { _statistics = updateStatistics False "pragmas" oldState 0 }
+        True  -> 
+            put oldState { 
+                _statistics = updateStatistics True "pragmas" oldState (T.length (showState oldState) - T.length (showState newState)) 
+                }
+        
