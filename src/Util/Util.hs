@@ -1,6 +1,6 @@
 module Util.Util where
 
-import qualified Data.Map as M
+import Lens.Micro.Platform
 import Control.Concurrent.STM
 import GHC hiding (GhcMode, ghcMode)
 import Data.Void
@@ -72,37 +72,46 @@ runPass passName pass = do
     -- call testAndUpdateStateFlex conf oldAST newAST currentState
     void $ foldM (\oldAST c -> do
         let 
-            newAST = transformBi c oldAST
-            sizeDifference = length (lshow oldAST) - length (lshow newAST)
+            newAST      = transformBi c oldAST
+            sizeDiff    = length (lshow oldAST) - length (lshow newAST)
+            newState    = oldState & parsed .~ newAST
 
-        liftIO (tryNewValue conf oldState { _parsed = newAST }) >>= \case
+        liftIO (tryNewValue conf newState) >>= \case
             True  -> do
-                modify $ \s -> s {
-                      _parsed       = newAST
-                    , _isAlive      = _isAlive s || oshow oldAST /= oshow newAST
-                    , _statistics   = updateStatistics True passName s sizeDifference
-                    }
+                parsed  .= newAST
+                isAlive %= (|| oshow oldAST /= oshow newAST)
+
+                updateStatistics passName True sizeDiff
 
                 return newAST
 
             False -> do
-                modify $ \s -> s { _statistics = updateStatistics False passName s 0 }
+                updateStatistics passName False 0
                 return oldAST
 
         ) ast $ proposedChanges
 
 
-updateStatistics :: Bool -> String -> RState -> Int -> M.Map String Statistics
-updateStatistics success passName s dR =
-    let m = (_statistics s) 
-        i = if success
-            then 1
+-- 1. if the interestingness test was successful:
+--      a) increment number of successful invocations
+--      b) increment number of total invocations
+--      c) add current number of removed bytes to the total 
+--         number of removed bytes of this pass
+-- 2. if the interestingness test failed:
+--      a) increment number of total invocations
+updateStatistics :: String -> Bool -> Int -> R ()
+updateStatistics passName success dB = do
+    let 
+        i = if success 
+            then 1 
             else 0
-    in case M.lookup passName m  of
-        Nothing                     -> M.insert passName (Statistics i 1 dR) m
-        Just (Statistics n d r)  -> 
-            let newStatistics = Statistics (n + i) (d + 1) (r + dR)
-            in  M.insert passName newStatistics m
+        bytesRemoved = if success
+            then dB
+            else 0
+
+    statistics . passStats %= (at passName %~ \case
+        Nothing                 -> Just $ PassStats i 1 bytesRemoved
+        Just (PassStats n d r)  -> Just $ PassStats (n + i) (d + 1) (r + bytesRemoved))
 
 
 getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [Located a -> Located a]
@@ -250,12 +259,12 @@ withTempDir tChan action = do
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
 getGhcOutput :: Tool -> GhcMode -> Path Abs File -> IO (Maybe [(Either (M.ParseErrorBundle T.Text Void) T.Text, SL.RealSrcSpan)])
 getGhcOutput tool ghcMode sourcePath = do
-    pragmas <- getPragmas sourcePath
+    allPragmas <- getPragmas sourcePath
 
     let dirName  = parent sourcePath
         fileName = filename sourcePath
         command = case tool of
-            Ghc   -> "ghc " ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) . T.unpack . showExtension <$> pragmas) ++ " " ++ fromRelFile fileName
+            Ghc   -> "ghc " ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) . T.unpack . showExtension <$> allPragmas) ++ " " ++ fromRelFile fileName
             Cabal -> "nix-shell --run 'cabal new-build'"
 
     (_, stdout, _) <- 

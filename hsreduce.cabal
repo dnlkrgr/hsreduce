@@ -49,6 +49,7 @@ executable hsmerge
         , uniplate
         , unix
         , word8
+        , microlens-platform
     hs-source-dirs:      
         src
         src/Merge
@@ -66,6 +67,7 @@ executable hsmerge
         OverloadedStrings 
         ScopedTypeVariables
         ViewPatterns
+        TemplateHaskell
     ghc-options:       
         -Wall
     
@@ -119,6 +121,7 @@ executable hsreduce
         , uniplate
         , unix
         , word8
+        , microlens-platform
     hs-source-dirs:    
         src
         src/Reduce
@@ -136,6 +139,7 @@ executable hsreduce
         OverloadedStrings 
         ScopedTypeVariables
         ViewPatterns
+        TemplateHaskell
     ghc-options:       
         -Wall 
         -O2 

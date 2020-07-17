@@ -20,7 +20,7 @@ import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
 import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow)
+import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
 import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
@@ -38,7 +38,7 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
     beginState          <- parse True [] [] fullFilePath
     let oldSize         =  T.length fileContent
     files               <- listDirectory (fromAbsDir sourceDir)
-    startTime           <- utctDayTime <$> getCurrentTime
+    t1                  <- utctDayTime <$> getCurrentTime
     tAST                <- atomically . newTVar $ _parsed beginState
     let numberOfThreads = 1
 
@@ -71,17 +71,18 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
         newSize  = T.length . showState $ newState
         ratio    = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
 
+    putStrLn "*******************************************************"
     putStrLn $ "\n\nFinished."
-    putStrLn $ "Old size: " ++ show oldSize
-    putStrLn $ "Reduced file size: " ++ show newSize
-    putStrLn $ "Reduced file by " ++ show ratio ++ "%"
+    putStrLn $ "Old size:        " ++ show oldSize
+    putStrLn $ "Reduced size:    " ++ show newSize
+    putStrLn $ "Reduced file by: " ++ show ratio ++ "%"
 
     TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
 
-    endTime <- utctDayTime <$> getCurrentTime
-    print $ "\n\nExecution took " ++ show (round (endTime - startTime) `div` 60 :: Int) ++ " minutes."
+    t2 <- utctDayTime <$> getCurrentTime
+    putStrLn $ "\n\nExecution took " ++ show (flip div (60 * 10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " minutes."
 
-    putStrLn . printStatistics $ _statistics newState
+    putStrLn . show $ _statistics newState
     -- writeFile "hsreduce.statistics" . printStatistics $ _statistics newState
 
 allActions :: R ()
@@ -89,7 +90,7 @@ allActions = do
     forM_ passes $ \pass -> do
         liftIO $ putStrLn "\n\n*** Increasing granularity ***"
         largestFixpoint pass
-  where passes = [fast, medium, slow, slowest]
+  where passes = [fast, medium, slow, slowest, snail]
 
 
 -- TODO: add information to passes (name, # successfully applied called + on a more granular level)
@@ -115,6 +116,11 @@ slowest :: R ()
 slowest = do
     Stubbing.slow
     fast 
+
+snail :: R ()
+snail = do
+    Stubbing.slowest
+    fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
 -- 2. set alive variable to false

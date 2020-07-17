@@ -1,6 +1,5 @@
 module Parser.Parser (getPragmas, parse)  where
 
-import qualified Data.Map as M
 import qualified Data.List as L
 import Data.Maybe
 import Data.Void
@@ -26,12 +25,12 @@ getPragmas f =
     . fromRight []
     . sequence
     . filter isRight
-    . map (MP.parse pragmas (fromAbsFile f))
+    . map (MP.parse pragmasP (fromAbsFile f))
     . T.lines
     <$> TIO.readFile (fromAbsFile f)
 
-pragmas :: Parser [Pragma]
-pragmas = do
+pragmasP :: Parser [Pragma]
+pragmasP = do
     void $ string "{-#"
     space
     f <- pragmaType
@@ -86,8 +85,8 @@ parse justParse includeDirs srcDirs fileName = do
     prags <- getPragmas fileName
   
     case et of
-      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False M.empty
-      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False M.empty
+      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False emptyStats
+      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False emptyStats
 
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum

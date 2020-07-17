@@ -1,9 +1,9 @@
-module Reduce.Passes.Stubbing (fast, medium, slow) where
+module Reduce.Passes.Stubbing (fast, medium, slow, slowest) where
 
+import Data.Generics.Uniplate.Data
+import Control.Monad.State
 import Bag
-import Data.List
 import GHC
-import Outputable hiding ((<>))
 import OccName
 
 import Util.Types
@@ -18,29 +18,99 @@ fast = do
     runPass "expr2Undefined" expr2Undefined
 
 
+
 medium :: R ()
 medium = do
     fast
-    runPass "type2Unit"      type2Unit
+    runPass "type2Unit" type2Unit
 
 
 slow :: R ()
 slow = do
     medium
-    runPass "simplifyExpr"   simplifyExpr
-    runPass "simplifyConDecl"simplifyConDecl
-    runPass "simplifyMatches"simplifyMatches
-    runPass "simplifyMatch"  simplifyMatch
-    runPass "simplifyLGRHS"  simplifyLGRHS
-    runPass "familyResultSig"familyResultSig
-    runPass "tyVarBndr"      tyVarBndr
-    runPass "simplifyType"   simplifyType
-    runPass "localBinds"     localBinds
-    runPass "pat2Wildcard"   pat2Wildcard
+    runPass "filterExprSubList"     filterExprSubList
+    runPass "simplifyConDecl"       simplifyConDecl
+    runPass "simplifyMatches"       simplifyMatches
+    runPass "simplifyMatch"         simplifyMatch
+    runPass "simplifyLGRHS"         simplifyLGRHS
+    runPass "localBinds"            localBinds
+    runPass "familyResultSig"       familyResultSig
+    runPass "tyVarBndr"             tyVarBndr
+
+slowest :: R ()
+slowest = do
+    slow
+    runPass "simplifyType"          simplifyType
+    runPass "simplifyExpr"          simplifyExpr
+    runPass "pat2Wildcard"          pat2Wildcard
+
+
+-- this should prob. live in its own module
+-- *** BEGINNING OF NEW STUFF
+-- arst :: HsBindLR GhcPs GhcPs
+arst :: R ()
+arst = do
+    ast <- gets _parsed
+
+    foldM f ast [ (funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast]
+
+    return ()
+
+f :: ParsedSource -> (RdrName,  MatchGroup GhcPs (LHsExpr GhcPs)) -> R ParsedSource
+f oldAST (funId, funMG) = do
+            case matchgroup2WildPatPositions funMG of
+                Nothing        -> return ()
+                Just (n, is)   -> do
+                    let brst = [ exprContainsFunId funId e | e <- universeBi oldAST]
+                    return ()
+            return oldAST
+
+-- TODO: matches auch noch filtern
+
+exprContainsFunId :: RdrName -> HsExpr GhcPs -> Bool
+exprContainsFunId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
+exprContainsFunId n (HsApp _ (L _ e) _)                 = exprContainsFunId n e
+exprContainsFunId _ _                                   = False
+
+matchgroup2WildPatPositions :: MatchGroup  GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
+matchgroup2WildPatPositions mg 
+    | not (null pats) && all (== head pats) pats    = Just $ head pats
+    | otherwise                                     = Nothing
+  where
+    pats = map (match2WildPatPositions . unLoc) . unLoc $ mg_alts mg
+
+match2WildPatPositions :: Match GhcPs (LHsExpr GhcPs) -> (Int, [Int])
+match2WildPatPositions m = (length pats, map fst . filter (p . unLoc . snd) $ zip [1..] pats)
+  where 
+    pats = m_pats m
+    p (WildPat _)   = True
+    p _             = False
+
+-- simplifyTySigs
+rmvWildPatTypes :: [Int] -> HsType GhcPs -> HsType GhcPs
+rmvWildPatTypes [] t = t
+rmvWildPatTypes (0:is) (HsFunTy _ _ (L _ t))   = rmvWildPatTypes is t
+rmvWildPatTypes (_:is) (HsFunTy x a lt)        = HsFunTy x a (rmvWildPatTypes (map (\n -> n - 1) is) <$> lt)
+
+-- simplifyFunctionCalls
+-- here the pat indexes need to be reversed
+-- we also need the total number of pats
+rmvWidPatExpr :: Int -> [Int] -> HsExpr GhcPs -> HsExpr GhcPs
+rmvWidPatExpr _ [] e                           = e
+rmvWidPatExpr n (i:is) (HsApp x la@(L _ a) b)
+    | n == i    = rmvWidPatExpr (n-1) is a
+    | otherwise = HsApp x (rmvWidPatExpr (n-1) is <$> la) b
+-- *** END OF NEW STUFF
+
+
+
+
+
+
 
 
 -- ***************************************************************************
--- REAL STUBBINGS
+-- PATTERNS
 -- ***************************************************************************
 pat2Wildcard :: WaysToChange (Pat GhcPs)
 pat2Wildcard WildPat{}  = []
@@ -58,16 +128,15 @@ simplifyType :: WaysToChange (HsType GhcPs)
 simplifyType UnitTypeP                                                         = []
 simplifyType t@(ForallTypeP body)                                              = handleSubList fType pType t <> map const [body]
 simplifyType t@(QualTypeP body)                                                = handleSubList fType pType t <> map const [body]
-simplifyType (HsOpTy _ (L _ l) _ (L _ r))                                      = map const [l, r] -- doesn't work so far :-/
 simplifyType (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = map const [t1]
 simplifyType (HsAppTy _ (L l _)  u@(L _ (HsTupleTy _ _ [])))                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
+simplifyType (HsOpTy _ (L _ l) _ (L _ r))                                      = map const [l, r]
 simplifyType (HsKindSig _ (L _ t) _)                                           = map const [t]
 simplifyType _                                                                 = []
 
 pattern UnitTypeP :: HsType GhcPs
 pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
 
--- TODO: make this more local
 pType :: HsType p -> [SrcSpan]
 pType = \case
     (HsForAllTy _ bndrs _) -> map getLoc bndrs
@@ -143,7 +212,8 @@ localBinds _                    = [const (EmptyLocalBinds NoExt)]
 -- MATCHES
 -- ***************************************************************************
 simplifyMatch :: WaysToChange (Match GhcPs (LHsExpr GhcPs))
-simplifyMatch = handleSubList f p
+simplifyMatch (Match _ _ _ (GRHSs _ [] _)) = []
+simplifyMatch mm = handleSubList f p mm
   where
     p = \case
         -- reverse because the lower have to be tried first
@@ -158,16 +228,15 @@ simplifyMatch = handleSubList f p
         m -> m
 
 
--- TODO: this doesn't fit, this deletes the WHOLE match if only one grhs is undefined
 simplifyMatches :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
-simplifyMatches m = 
-    handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc) m
-    <> [ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
-    ,  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> not (all ( ("undefined" `isSubsequenceOf`) . showSDocUnsafe . pprGRHS LambdaExpr . unLoc) grhs))]
+simplifyMatches m = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc) m
+    -- <> [ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
+    -- ,  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> not (all ( ("undefined" `isSubsequenceOf`) . showSDocUnsafe . pprGRHS LambdaExpr . unLoc) grhs))]
 
 
 simplifyLGRHS :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
-simplifyLGRHS g@(GRHS _ _ body) = [const (GRHS NoExt [] body)] <> handleSubList f p g
+simplifyLGRHS (GRHS _ [] _) = []
+simplifyLGRHS g@(GRHS _ _  body) = [const (GRHS NoExt [] body)] <> handleSubList f p g
     where 
         p (GRHS _ stmts _)  = map getLoc stmts
         p _                 = []
@@ -183,23 +252,20 @@ simplifyLGRHS _ = []
 -- ***************************************************************************
 expr2Undefined :: WaysToChange (HsExpr GhcPs)
 expr2Undefined e
-    | oshow e /= "undefined"    = [const undefExpr]
+    | oshow e /= "undefined"    = [const (HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined")]
     | otherwise                 = []
 
-simplifyExpr :: WaysToChange (HsExpr GhcPs)
-simplifyExpr (SingleCase body)              = map const [body]
-simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs)) = map const [ls, rs]
-simplifyExpr e@RecordUpd{}                  = handleSubList fExpr pExpr e
-simplifyExpr e@RecordCon{}                  = handleSubList fExpr pExpr e
-simplifyExpr e@ExplicitTuple{}              = handleSubList fExpr pExpr e
-simplifyExpr e@HsCase{}                     = handleSubList fExpr pExpr e
-simplifyExpr e@HsMultiIf{}                  = handleSubList fExpr pExpr e
-simplifyExpr e@HsDo{}                       = handleSubList fExpr pExpr e
-simplifyExpr e@ExplicitList{}               = handleSubList fExpr pExpr e
-simplifyExpr _                              = []
-
-undefExpr :: HsExpr GhcPs
-undefExpr = HsVar NoExt . noLoc . Unqual . mkOccName varName $ "undefined"
+filterExprSubList :: WaysToChange (HsExpr GhcPs)
+filterExprSubList (SingleCase body)                  = map const [body]
+filterExprSubList (HsIf _ _ _ (L _ ls) (L _ rs))     = map const [ls, rs]
+filterExprSubList e@RecordUpd{}                      = handleSubList fExpr pExpr e
+filterExprSubList e@RecordCon{}                      = handleSubList fExpr pExpr e
+filterExprSubList e@ExplicitTuple{}                  = handleSubList fExpr pExpr e
+filterExprSubList e@HsCase{}                         = handleSubList fExpr pExpr e
+filterExprSubList e@HsMultiIf{}                      = handleSubList fExpr pExpr e
+filterExprSubList e@HsDo{}                           = handleSubList fExpr pExpr e
+filterExprSubList e@ExplicitList{}                   = handleSubList fExpr pExpr e
+filterExprSubList _                                  = []
 
 pExpr :: HsExpr p -> [SrcSpan]
 pExpr = \case
@@ -210,6 +276,7 @@ pExpr = \case
     (HsMultiIf _ es)            -> map getLoc es
     (HsDo _ _ (L _ stmts))      -> map getLoc stmts
     (ExplicitList _ _ es)       -> map getLoc es
+    (HsArrForm _ _ _ cmds)      -> map getLoc cmds
     _                           -> []
 
 fExpr :: SrcSpan -> HsExpr GhcPs -> HsExpr GhcPs
@@ -221,8 +288,25 @@ fExpr loc = \case
     (HsMultiIf _ es)            -> HsMultiIf NoExt $ filter ((/= loc) . getLoc) es
     (HsDo _ ctxt (L l stmts))   -> HsDo NoExt ctxt $ L l $ filter ((/= loc) . getLoc) stmts
     (ExplicitList _ se es)      -> ExplicitList NoExt se $ filter ((/= loc) . getLoc) es 
+    (HsArrForm x e f cmds)      -> HsArrForm x e f (filter ((/= loc) . getLoc) cmds)
     e                           -> e
 
+
+simplifyExpr :: WaysToChange (HsExpr GhcPs)
+simplifyExpr (HsApp _ (L _ l) (L _ r))          = map const [l, r]
+simplifyExpr (HsAppType _ (L _ e))              = [const e]
+simplifyExpr (OpApp _ _ (L _ l) (L _ r))        = map const [l, r]
+simplifyExpr (HsLet _ _ (L _ e))                = [const e]
+simplifyExpr (ExprWithTySig _ (L _ e))          = [const e]
+simplifyExpr (HsStatic _ (L _ e))               = [const e]
+simplifyExpr (HsArrApp _ (L _ l) (L _ r) _ _)   = map const [l, r]
+simplifyExpr (HsTick _ _ (L _ e))               = [const e]
+simplifyExpr (HsBinTick _ _ _ (L _ e))          = [const e]
+simplifyExpr (EAsPat _ _ (L _ e))               = [const e]
+simplifyExpr (EViewPat _ _ (L _ e))             = [const e]
+simplifyExpr (ELazyPat _ (L _ e))               = [const e]
+simplifyExpr (HsWrap _ _ e)                     = [const e]
+simplifyExpr _                                  = []
 
 -- ***************************************************************************
 -- MISC
@@ -236,7 +320,6 @@ familyResultSig _                       = [const (NoSig NoExt)]
 tyVarBndr :: WaysToChange (HsTyVarBndr GhcPs)
 tyVarBndr (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
 tyVarBndr _                     = []
-
 
 
 
