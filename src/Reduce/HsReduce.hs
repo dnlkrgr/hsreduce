@@ -20,7 +20,7 @@ import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
 import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
+import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest, rmvUnusedParams)
 import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
@@ -100,6 +100,7 @@ fast = do
     Pragmas.reduce
     Exports.reduce
     Decls.fast
+    Stubbing.rmvUnusedParams
 
 medium :: R ()
 medium = do

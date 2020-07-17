@@ -1,7 +1,9 @@
-module Reduce.Passes.Stubbing (fast, medium, slow, slowest) where
+module Reduce.Passes.Stubbing (fast, medium, slow, slowest, rmvUnusedParams) where
 
+import Lens.Micro.Platform
 import Data.Generics.Uniplate.Data
 import Control.Monad.State
+import Control.Monad.Reader
 import Bag
 import GHC
 import OccName
@@ -48,29 +50,73 @@ slowest = do
 -- this should prob. live in its own module
 -- *** BEGINNING OF NEW STUFF
 -- arst :: HsBindLR GhcPs GhcPs
-arst :: R ()
-arst = do
+rmvUnusedParams :: R ()
+rmvUnusedParams = do
+    printInfo "rmvUnusedParams"
+
     ast <- gets _parsed
 
-    foldM f ast [ (funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast]
+    forM_ [ (funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast] rmvUnusedParams_
 
-    return ()
+rmvUnusedParams_ :: (RdrName,  MatchGroup GhcPs (LHsExpr GhcPs)) -> R ()
+rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) = do
+    case matchgroup2WildPatPositions funMG of
+        Nothing        -> return ()
+        Just (n, is)   -> do
+            conf     <- ask
+            oldState <- get
+            let oldAST = oldState ^. parsed
 
-f :: ParsedSource -> (RdrName,  MatchGroup GhcPs (LHsExpr GhcPs)) -> R ParsedSource
-f oldAST (funId, funMG) = do
-            case matchgroup2WildPatPositions funMG of
-                Nothing        -> return ()
-                Just (n, is)   -> do
-                    let brst = [ exprContainsFunId funId e | e <- universeBi oldAST]
-                    return ()
-            return oldAST
+            let 
+                proposedChanges :: [ParsedSource -> ParsedSource]
+                proposedChanges = 
+                       [ transformBi $ overwriteAtLoc l (rmvWildPatExpr n is) 
+                       | L l e <- universeBi oldAST, exprContainsFunId funId e ]
+                    <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes is) 
+                       | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST
+                       , sigContainsFunId funId s ]
+                    <> [ transformBi (overwriteAtLoc matchesLoc rmvWildPatMatches)]
 
--- TODO: matches auch noch filtern
+                newAST = foldr ($) oldAST proposedChanges
 
-exprContainsFunId :: RdrName -> HsExpr GhcPs -> Bool
-exprContainsFunId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
-exprContainsFunId n (HsApp _ (L _ e) _)                 = exprContainsFunId n e
-exprContainsFunId _ _                                   = False
+            let 
+                sizeDiff    = length (lshow oldAST) - length (lshow newAST)
+                newState    = oldState & parsed .~ newAST
+ 
+            liftIO (tryNewValue conf newState) >>= \case
+                True  -> do
+                    parsed  .= newAST
+                    isAlive %= (|| oshow oldAST /= oshow newAST)
+ 
+                    updateStatistics "rmvUnusedParams" True sizeDiff
+
+                False -> do
+                    updateStatistics "rmvUnusedParams" False 0
+ 
+rmvUnusedParams_ _ = return ()
+
+-- simplifyTySigs
+rmvWildPatTypes :: [Int] -> HsType GhcPs -> HsType GhcPs
+rmvWildPatTypes [] t = t
+rmvWildPatTypes (0:is) (HsFunTy _ _ (L _ t))   = rmvWildPatTypes is t
+rmvWildPatTypes (_:is) (HsFunTy x a lt)        = HsFunTy x a (rmvWildPatTypes (map (\n -> n - 1) is) <$> lt)
+rmvWildPatTypes _ t = t
+
+-- simplifyFunctionCalls
+-- here the pat indexes need to be reversed
+-- we also need the total number of pats
+rmvWildPatExpr :: Int -> [Int] -> HsExpr GhcPs -> HsExpr GhcPs
+rmvWildPatExpr _ [] e                           = e
+rmvWildPatExpr n (i:is) (HsApp x la@(L _ a) b)
+    | n == i    = rmvWildPatExpr (n-1) is a
+    | otherwise = HsApp x (rmvWildPatExpr (n-1) is <$> la) b
+rmvWildPatExpr _ _ e                           = e
+
+rmvWildPatMatches :: [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
+rmvWildPatMatches mg = [ L l (Match NoExt ctxt (filter (p . unLoc) pats) grhss) | L l (Match _ ctxt pats grhss) <- mg ]
+  where
+    p (WildPat _) = True
+    p _ = False
 
 matchgroup2WildPatPositions :: MatchGroup  GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
 matchgroup2WildPatPositions mg 
@@ -86,20 +132,14 @@ match2WildPatPositions m = (length pats, map fst . filter (p . unLoc . snd) $ zi
     p (WildPat _)   = True
     p _             = False
 
--- simplifyTySigs
-rmvWildPatTypes :: [Int] -> HsType GhcPs -> HsType GhcPs
-rmvWildPatTypes [] t = t
-rmvWildPatTypes (0:is) (HsFunTy _ _ (L _ t))   = rmvWildPatTypes is t
-rmvWildPatTypes (_:is) (HsFunTy x a lt)        = HsFunTy x a (rmvWildPatTypes (map (\n -> n - 1) is) <$> lt)
+sigContainsFunId :: RdrName -> Sig GhcPs -> Bool
+sigContainsFunId n (TypeSig _ ids _)    = n `elem` (map unLoc ids)
+sigContainsFunId _ _                    = False
 
--- simplifyFunctionCalls
--- here the pat indexes need to be reversed
--- we also need the total number of pats
-rmvWidPatExpr :: Int -> [Int] -> HsExpr GhcPs -> HsExpr GhcPs
-rmvWidPatExpr _ [] e                           = e
-rmvWidPatExpr n (i:is) (HsApp x la@(L _ a) b)
-    | n == i    = rmvWidPatExpr (n-1) is a
-    | otherwise = HsApp x (rmvWidPatExpr (n-1) is <$> la) b
+exprContainsFunId :: RdrName -> HsExpr GhcPs -> Bool
+exprContainsFunId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
+exprContainsFunId n (HsApp _ (L _ e) _)                 = exprContainsFunId n e
+exprContainsFunId _ _                                   = False
 -- *** END OF NEW STUFF
 
 
