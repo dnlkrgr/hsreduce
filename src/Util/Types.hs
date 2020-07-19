@@ -17,6 +17,9 @@ import GHC.Generics (Generic)
 import GHC
 import Outputable hiding ((<>))
 
+type WaysToChange a = a -> [a -> a]
+
+data Pass = Pass String (ParsedSource -> ParsedSource)
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving Eq
@@ -27,6 +30,7 @@ data RConf = RConf
     , _numberOfThreads :: Int
     , _tempDirs        :: TChan (Path Abs Dir)
     , _tAST            :: TVar ParsedSource
+    , _tAlive          :: TVar Bool
     }
 
 data PassStats = PassStats 

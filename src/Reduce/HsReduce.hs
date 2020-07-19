@@ -3,29 +3,28 @@ module Reduce.HsReduce
   )
 where
 
-import Data.Maybe
-import System.Posix.Files
-import Path
-import System.Directory
+import "temporary" System.IO.Temp (createTempDirectory)
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
-import Control.Monad.State.Strict
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import "temporary" System.IO.Temp (createTempDirectory)
+import Data.Maybe
 import Data.Time
-import Util.Util
-import Util.Types
-import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
-import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
-import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
-import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest, rmvUnusedParams)
-import Parser.Parser
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
-import Control.Concurrent.STM
-
+import GHC.Conc
+import Parser.Parser
+import Path
+import System.Directory
+import System.Posix.Files
+import Util.Types
+import Util.Util
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
+import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
+import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
+import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
+import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
 
 hsreduce :: FilePath -> FilePath -> FilePath -> IO ()
 hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
@@ -40,7 +39,8 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
     files               <- listDirectory (fromAbsDir sourceDir)
     t1                  <- utctDayTime <$> getCurrentTime
     tAST                <- atomically . newTVar $ _parsed beginState
-    let numberOfThreads = 1
+    tAlive              <- atomically $ newTVar False
+    numberOfThreads     <- getNumProcessors
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -64,7 +64,7 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
         atomically $ writeTChan tChan tempDir
 
     -- run the reducing functions
-    newState <- snd <$> runR (RConf test filePath numberOfThreads tChan tAST) beginState allActions
+    newState <- snd <$> runR (RConf test filePath numberOfThreads tChan tAST tAlive) beginState allActions
 
     -- handling of the result and outputting useful information
     let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
@@ -80,7 +80,7 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
     TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
 
     t2 <- utctDayTime <$> getCurrentTime
-    putStrLn $ "\n\nExecution took " ++ show (flip div (60 * 10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " minutes."
+    putStrLn $ "\n\nExecution took " ++ show (flip div (10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " seconds."
 
     putStrLn . show $ _statistics newState
     -- writeFile "hsreduce.statistics" . printStatistics $ _statistics newState
@@ -100,7 +100,6 @@ fast = do
     Pragmas.reduce
     Exports.reduce
     Decls.fast
-    Stubbing.rmvUnusedParams
 
 medium :: R ()
 medium = do
@@ -128,15 +127,15 @@ snail = do
 -- 3. run reducing function f
 -- 4. check if something interesting happened; if yes, continue
 largestFixpoint :: R () -> R ()
-largestFixpoint f =
-    go
+largestFixpoint f = do
+    tAlive <- asks _tAlive
+    go tAlive
   where
-      go = do
+      go tAlive = do
           liftIO $ putStrLn "\n\n\n***NEW ITERATION***"
-
           isTestStillFresh "largestFixpoint"
   
-          modify $ \s -> s { _isAlive = False }
+          -- modify $ \s -> s { _isAlive = False }
+          liftIO . atomically $ writeTVar tAlive False
           f
-  
-          gets _isAlive >>= flip when go
+          liftIO (atomically $ readTVar tAlive) >>= flip when (go tAlive)

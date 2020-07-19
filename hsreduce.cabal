@@ -144,3 +144,4 @@ executable hsreduce
         -Wall 
         -O2 
         -threaded 
+        -rtsopts

@@ -1,58 +1,39 @@
 module Util.Util where
 
-import Lens.Micro.Platform
-import Control.Concurrent.STM
-import GHC hiding (GhcMode, ghcMode)
-import Data.Void
-import Data.Generics.Aliases (extQ)
-import Parser.Parser
-import qualified Control.Exception  as CE
-import qualified Data.Text.Encoding as TE
-import Path
 import Control.Applicative
-import Text.RE.TDFA.Text
-import qualified Data.Text.IO as TIO
-import qualified Data.Text as T
-import SrcLoc as SL
-import Outputable hiding ((<>))
-import FastString
+import Control.Concurrent.Async
+import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Aeson (decode)
-import qualified Data.ByteString.Lazy as LBS
 import Data.Data
+import Data.Generics.Aliases (extQ)
+import Data.Generics.Uniplate.Data
+import Data.List.Split
 import Data.Maybe
+import Data.Void
 import Debug.Trace
+import FastString
+import GHC hiding (GhcMode, ghcMode, Pass)
+import Lens.Micro.Platform
+import Outputable hiding ((<>))
+import Parser.Parser
+import Path
+import SrcLoc as SL
+import System.Directory
 import System.Exit
+import System.Posix.Files
 import System.Process
 import System.Timeout
+import Text.RE.TDFA.Text
 import Util.Types as UT
-import Data.Generics.Uniplate.Data
+import qualified Control.Exception  as CE
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.IO as TIO
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
-import System.Directory
-import System.Posix.Files
-import Data.List.Split
-
-printInfo :: String -> R ()
-printInfo context = do
-    oldState  <- get
-
-    liftIO . putStrLn $ "\n***" <> context <> "***"
-    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
-
-isTestStillFresh :: String -> R ()
-isTestStillFresh context = do
-    conf     <- ask
-    newState <- get
-    liftIO $ testAndUpdateStateFlex conf False True newState >>= \case
-        False -> do
-            liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
-            error $ "Test case is broken at >>>" <> context <> "<<<"
-        True  -> putStrLn $ context <> ": Test case is still fresh :-)"
-
-
-type WaysToChange a = a -> [a -> a]
 
 
 runPass :: Data a => String -> WaysToChange a -> R ()
@@ -66,31 +47,71 @@ runPass passName pass = do
         ast             = _parsed oldState
         proposedChanges = getProposedChanges ast pass
 
-    -- 1. fold
-    -- take the current AST and the next proposed change
-    -- apply the change
-    -- call testAndUpdateStateFlex conf oldAST newAST currentState
-    void $ foldM (\oldAST c -> do
-        let 
-            newAST      = transformBi c oldAST
-            sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-            newState    = oldState & parsed .~ newAST
+    getInterestingChanges proposedChanges
+    newAST <- liftIO . atomically . readTVar $ _tAST conf
+    parsed .= newAST
 
-        liftIO (tryNewValue conf newState) >>= \case
-            True  -> do
-                parsed  .= newAST
-                isAlive %= (|| oshow oldAST /= oshow newAST)
 
-                updateStatistics passName True sizeDiff
+getInterestingChanges :: Data a => [Located a -> Located a] -> R ()
+getInterestingChanges proposedChanges = do
+    oldState        <- get
+    oldConf         <- ask
+    numberOfThreads <- asks _numberOfThreads
+    tAST            <- asks _tAST
+    tAlive          <- asks _tAlive
 
-                return newAST
+    let
+        chunkSize       = div (length proposedChanges) numberOfThreads
+        -- number of proposedChanges might be smaller than number of threads which might 
+        -- result in chunkSize of 0, so we need to check for that!
+        batches         = case chunkSize of
+            0 -> [proposedChanges]
+            _ -> let
+                    temp = chunksOf chunkSize proposedChanges
+                 in case reverse temp of
+                     (x:y:xs) ->
+                         if length temp > numberOfThreads
+                         then (x ++ y) : xs
+                         else temp
+                     _ -> temp
 
-            False -> do
-                updateStatistics passName False 0
-                return oldAST
+    -- run one thread for each batch
+    void . liftIO . fmap concat . forConcurrently batches $ \batch -> do
 
-        ) ast $ proposedChanges
+        -- within a thread check out all the changes
+        forM batch $ \c -> do
+            oldAST      <- atomically $ readTVar tAST
 
+            -- b  <- tryNewValue oldConf (oldState { _parsed = newAST})
+
+            -- newB <- if b 
+            --     then tryToApplyChange tAST oldAST newAST oldConf oldState
+            --     else return False
+            tryToApplyChange tAlive tAST oldAST c oldConf oldState
+  where
+    tryToApplyChange tAlive tAST oldAST c oldConf oldState = do
+        let newAST = transformBi c oldAST
+        b  <- tryNewValue oldConf (oldState { _parsed = newAST})
+
+        if (oshow oldAST /= oshow newAST) && b
+        then do
+            (success, currentCommonAST) <- atomically $ do
+                writeTVar tAlive True
+                currentCommonAST <- readTVar tAST
+
+                if (oshow oldAST == oshow currentCommonAST) 
+                    then do
+                        writeTVar tAST newAST
+                        return (True, currentCommonAST)
+                    else do
+                        return (False, currentCommonAST)
+
+            if success
+            then return True
+            else tryToApplyChange tAlive tAST currentCommonAST c oldConf oldState
+        else
+            return False
+       
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -114,45 +135,119 @@ updateStatistics passName success dB = do
         Just (PassStats n d r)  -> Just $ PassStats (n + i) (d + 1) (r + bytesRemoved))
 
 
+        -- check if common ast has changed
+        -- if not: write new ast
+        -- else: apply change to new common AST
+        -- if interesting: try again
+        -- else: fail
+--          b <- atomically $ do
+--              intermediateAST <- readTVar tAST
+--  
+--              if (oshow oldAST == oshow intermediateAST) 
+--                  then do
+--                      writeTVar tAST newAST
+--                      return True
+--                  else do
+--                      return False
+--  
+--          
+--          tryNewValue oldConf (oldState { _parsed = newAST}) >>= \case
+--              False -> return False
+--              True  -> tryToApplyChange tAST oldAST newAST
+
+
+overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
+overwriteAtLoc loc f oldValue@(L oldLoc a)
+    | loc == oldLoc = L loc $ f a
+    | otherwise = oldValue
+
+tryNewValue :: RConf -> RState -> IO Bool
+tryNewValue conf = testAndUpdateStateFlex conf False True
+
+testAndUpdateStateFlex :: RConf -> a -> a -> RState -> IO a
+testAndUpdateStateFlex conf a b newState =
+    withTempDir (_tempDirs conf) $ \tempDir -> do
+        let sourceFile = tempDir </> _sourceFile conf
+        let test       = tempDir </> _test conf
+
+        (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
+            Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
+            Right _ -> do
+                runTest test defaultDuration >>= return . \case
+                    Uninteresting -> a
+                    Interesting   -> b
+
+
+runTest :: Path Abs File -> Word -> IO Interesting
+runTest test duration = do
+    let dirName  = parent   test
+    let testName = filename test
+
+    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
+         Nothing -> do
+             errorPrint "runTest: timed out"
+             return Uninteresting
+         Just (exitCode,_,_) -> return $ case exitCode of
+             ExitFailure _ -> Uninteresting
+             ExitSuccess   -> Interesting
+
+printInfo :: String -> R ()
+printInfo context = do
+    oldState  <- get
+
+    liftIO . putStrLn $ "\n***" <> context <> "***"
+    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
+
+isTestStillFresh :: String -> R ()
+isTestStillFresh context = do
+    conf     <- ask
+    newState <- get
+    liftIO $ testAndUpdateStateFlex conf False True newState >>= \case
+        False -> do
+            liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
+            error $ "Test case is broken at >>>" <> context <> "<<<"
+        True  -> putStrLn $ context <> ": Test case is still fresh :-)"
+
 getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [Located a -> Located a]
 getProposedChanges ast pass = concat [map (overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
 
 
-getInterestingChanges :: Data a => [[Located a -> Located a]] -> R [(Located a -> Located a, Bool)]
-getInterestingChanges proposedChanges = do
-    oldState        <- get
-    oldConf         <- ask
-    numberOfThreads <- asks _numberOfThreads
-    tAST            <- asks _tAST
+mkPass :: Data a => ParsedSource -> String -> WaysToChange a -> [Pass]
+mkPass ast name pass = concat [map (Pass name . transformBi . overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
+
+
+-- 1. fold
+-- take the current AST and the next proposed change
+-- apply the change
+-- call testAndUpdateStateFlex conf oldAST newAST currentState
+runPasses :: [Pass] -> R ()
+runPasses passes = do
+    conf     <- ask
+    oldState <- get
 
     let
-        chunkSize       = div (length proposedChanges) numberOfThreads
-        -- number of proposedChanges might be smaller than number of threads which might 
-        -- result in chunkSize of 0, so we need to check for that!
-        batches         = case chunkSize of
-            0 -> proposedChanges
-            _ -> let
-                    temp = map concat . chunksOf chunkSize $ proposedChanges
-                 in case reverse temp of
-                     (x:y:xs) ->
-                         if length temp > numberOfThreads
-                         then (x ++ y) : xs
-                         else temp
-                     _ -> temp
+        ast = _parsed oldState
 
-    -- run one thread for each batch
-    changes <- liftIO . fmap concat . forM batches $ \batch -> do
+    void $ foldM (\oldAST (Pass passName c) -> do
+        let 
+            newAST      = c oldAST
+            sizeDiff    = length (lshow oldAST) - length (lshow newAST)
+            newState    = oldState & parsed .~ newAST
 
-        -- within a thread check out all the changes
-        forM batch $ \c -> do
-            currentAST   <- transformBi c <$> atomically $ readTVar tAST
-            b  <- tryNewValue oldConf (oldState { _parsed = currentAST})
-            when b $ atomically $ writeTVar tAST currentAST
+        liftIO (tryNewValue conf newState) >>= \case
+            True  -> do
+                parsed  .= newAST
+                isAlive %= (|| oshow oldAST /= oshow newAST)
 
-            return (c, b)
+                updateStatistics passName True sizeDiff
 
-    return changes
+                return newAST
 
+            False -> do
+                updateStatistics passName False 0
+                return oldAST
+
+        ) ast passes
 
 
 -- get ways to change an expression that contains a list as an subexpression
@@ -212,40 +307,6 @@ recListDirectory dir = listDirectory dir >>=
 trace'' :: String -> (a -> String) -> a -> a
 trace'' s f a = traceShow (s <> ": " <> f a) a
 
-overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
-overwriteAtLoc loc f oldValue@(L oldLoc a)
-    | loc == oldLoc = L loc $ f a
-    | otherwise = oldValue
-
-tryNewValue :: RConf -> RState -> IO Bool
-tryNewValue conf = testAndUpdateStateFlex conf False True
-
-testAndUpdateStateFlex :: RConf -> a -> a -> RState -> IO a
-testAndUpdateStateFlex conf a b newState =
-    withTempDir (_tempDirs conf) $ \tempDir -> do
-        let sourceFile = tempDir </> _sourceFile conf
-        let test       = tempDir </> _test conf
-
-        (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-            Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
-            Right _ -> do
-                runTest test defaultDuration >>= return . \case
-                    Uninteresting -> a
-                    Interesting   -> b
-
-
-runTest :: Path Abs File -> Word -> IO Interesting
-runTest test duration = do
-    let dirName  = parent   test
-    let testName = filename test
-
-    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
-         Nothing -> do
-             errorPrint "runTest: timed out"
-             return Uninteresting
-         Just (exitCode,_,_) -> return $ case exitCode of
-             ExitFailure _ -> Uninteresting
-             ExitSuccess   -> Interesting
 
 
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a

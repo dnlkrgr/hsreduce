@@ -1,4 +1,4 @@
-module Reduce.Passes.Stubbing (fast, medium, slow, slowest, rmvUnusedParams) where
+module Reduce.Passes.Stubbing (fast, medium, slow, slowest) where
 
 import Lens.Micro.Platform
 import Data.Generics.Uniplate.Data
@@ -30,21 +30,26 @@ medium = do
 slow :: R ()
 slow = do
     medium
-    runPass "filterExprSubList"     filterExprSubList
-    runPass "simplifyConDecl"       simplifyConDecl
-    runPass "simplifyMatches"       simplifyMatches
-    runPass "simplifyMatch"         simplifyMatch
-    runPass "simplifyLGRHS"         simplifyLGRHS
-    runPass "localBinds"            localBinds
-    runPass "familyResultSig"       familyResultSig
-    runPass "tyVarBndr"             tyVarBndr
+    runPass "filterExprSubList"      filterExprSubList
+    runPass "simplifyConDecl"        simplifyConDecl
+    runPass "simplifyMatches"        simplifyMatches
+    runPass "simplifyMatch"          simplifyMatch
+    runPass "simplifyLGRHS"          simplifyLGRHS
+    runPass "localBinds"             localBinds
+    runPass "familyResultSig"        familyResultSig
+    runPass "tyVarBndr"              tyVarBndr
 
 slowest :: R ()
 slowest = do
     slow
-    runPass "simplifyType"          simplifyType
-    runPass "simplifyExpr"          simplifyExpr
-    runPass "pat2Wildcard"          pat2Wildcard
+    runPass "simplifyType"           simplifyType
+    runPass "simplifyExpr"           simplifyExpr
+    runPass "pat2Wildcard"           pat2Wildcard
+    runPass "simplifyConDecl"        simplifyConDecl
+    runPass "simplifyDeriving"       simplifyDeriving
+    runPass "simplifyDerivingClause" simplifyDerivingClause
+    rmvUnusedParams
+    runPass "unqualNames"            unqualNames
 
 
 -- this should prob. live in its own module
@@ -70,7 +75,7 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) = do
             let 
                 proposedChanges :: [ParsedSource -> ParsedSource]
                 proposedChanges = 
-                       [ transformBi $ overwriteAtLoc l (rmvWildPatExpr n is) 
+                       [ transformBi $ overwriteAtLoc l (rmvWildPatExpr n (reverse is)) 
                        | L l e <- universeBi oldAST, exprContainsFunId funId e ]
                     <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes is) 
                        | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST
@@ -97,10 +102,10 @@ rmvUnusedParams_ _ = return ()
 
 -- simplifyTySigs
 rmvWildPatTypes :: [Int] -> HsType GhcPs -> HsType GhcPs
-rmvWildPatTypes [] t = t
-rmvWildPatTypes (0:is) (HsFunTy _ _ (L _ t))   = rmvWildPatTypes is t
-rmvWildPatTypes (_:is) (HsFunTy x a lt)        = HsFunTy x a (rmvWildPatTypes (map (\n -> n - 1) is) <$> lt)
-rmvWildPatTypes _ t = t
+rmvWildPatTypes [] t    = t
+rmvWildPatTypes (1:is) (HsFunTy _ _ (L _ t))    = rmvWildPatTypes (map (\n -> n - 1) is) t
+rmvWildPatTypes is (HsFunTy x a lt)       = HsFunTy x a (rmvWildPatTypes (map (\n -> n - 1) is) <$> lt)
+rmvWildPatTypes _ t     = t
 
 -- simplifyFunctionCalls
 -- here the pat indexes need to be reversed
@@ -115,8 +120,8 @@ rmvWildPatExpr _ _ e                           = e
 rmvWildPatMatches :: [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
 rmvWildPatMatches mg = [ L l (Match NoExt ctxt (filter (p . unLoc) pats) grhss) | L l (Match _ ctxt pats grhss) <- mg ]
   where
-    p (WildPat _) = True
-    p _ = False
+    p (WildPat _) = False
+    p _ = True
 
 matchgroup2WildPatPositions :: MatchGroup  GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
 matchgroup2WildPatPositions mg 
@@ -140,11 +145,27 @@ exprContainsFunId :: RdrName -> HsExpr GhcPs -> Bool
 exprContainsFunId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
 exprContainsFunId n (HsApp _ (L _ e) _)                 = exprContainsFunId n e
 exprContainsFunId _ _                                   = False
+
+simplifyDeriving :: WaysToChange ([LHsDerivingClause GhcPs])
+simplifyDeriving = handleSubList f p
+  where
+    p = map getLoc
+    f loc = filter ((/= loc) . getLoc)
+
+unIB :: HsImplicitBndrs pass thing -> thing
+unIB (HsIB _ b) = b
+unIB _ = error "Stubbing:unIB - trying to work with NoExt"
+
+simplifyDerivingClause :: WaysToChange (HsDerivingClause GhcPs)
+simplifyDerivingClause = handleSubList f p
+  where
+    p (HsDerivingClause _ _ t) = map (getLoc . unIB) $ unLoc t
+    p _ = []
+
+    -- f :: SrcSpan -> HsDerivingClause GhcPs -> HsDerivingClause GhcPs
+    f loc  (HsDerivingClause x s t)= HsDerivingClause x s (filter ((/= loc) . getLoc . unIB) <$> t)
+    f _  d = d
 -- *** END OF NEW STUFF
-
-
-
-
 
 
 
@@ -196,7 +217,7 @@ fType loc = \case
 simplifyConDecl :: WaysToChange (ConDecl GhcPs)
 simplifyConDecl gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) = map const [gadtDecl{ con_forall = L forallLoc False}, gadtDecl{ con_mb_cxt = Nothing}]
 simplifyConDecl d
-    | isRecCon d = handleSubList f p d
+    | isRecCon d = handleSubList f p d <> [const (d { con_args = recCon2Prefix $ con_args d})]
     | otherwise  = []
   where
     isRecCon    = (\case
@@ -215,6 +236,10 @@ simplifyConDecl d
             RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
             a                 -> a }
 
+recCon2Prefix :: HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs]) 
+              -> HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs])
+recCon2Prefix (RecCon rec) = PrefixCon . map (cd_fld_type . unLoc) $ unLoc rec
+recCon2Prefix c = c
 
 -- ***************************************************************************
 -- BINDS
@@ -361,6 +386,9 @@ tyVarBndr :: WaysToChange (HsTyVarBndr GhcPs)
 tyVarBndr (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
 tyVarBndr _                     = []
 
+unqualNames :: WaysToChange RdrName
+unqualNames (Qual _ on) = [const (Unqual on)]
+unqualNames _ = []
 
 
 -- ***************************************************************************

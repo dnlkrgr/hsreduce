@@ -15,6 +15,7 @@ reduce = do
     isTestStillFresh "Pragmas"
     oldState <- get
     liftIO . putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
+
     traverse_ tryToRemovePragma $ _pragmas oldState
 
 tryToRemovePragma :: Pragma -> R ()
@@ -28,5 +29,6 @@ tryToRemovePragma pragmaToTry = do
 
     liftIO (testAndUpdateStateFlex conf False True newState) >>= \case
         False -> updateStatistics "pragmas" False 0
-        True  -> updateStatistics "pragmas" True (T.length (showState oldState) - T.length (showState newState)) 
-        
+        True  -> do
+            updateStatistics "pragmas" True (T.length (showState oldState) - T.length (showState newState)) 
+            put newState
