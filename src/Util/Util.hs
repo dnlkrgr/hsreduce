@@ -4,7 +4,6 @@ import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Data.Aeson (decode)
 import Data.Data
 import Data.Generics.Aliases (extQ)
@@ -37,28 +36,28 @@ import qualified Text.Megaparsec.Char as MC
 
 
 runPass :: Data a => String -> WaysToChange a -> R ()
-runPass passName pass = do
-    liftIO $ putStrLn passName
+runPass name pass = do
+    liftIO $ putStrLn name
 
     conf     <- ask
-    oldState <- get
+    oldState <- liftIO . atomically . readTVar $ _tState conf
 
     let
         ast             = _parsed oldState
         proposedChanges = getProposedChanges ast pass
 
-    getInterestingChanges proposedChanges
-    newAST <- liftIO . atomically . readTVar $ _tAST conf
-    parsed .= newAST
+    applyInterestingChanges name proposedChanges
+    -- newAST <- liftIO . atomically $ readTVar $ _tAST conf
+    -- parsed .= newAST
 
 
-getInterestingChanges :: Data a => [Located a -> Located a] -> R ()
-getInterestingChanges proposedChanges = do
-    oldState        <- get
+applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
+applyInterestingChanges name proposedChanges = do
     oldConf         <- ask
+    oldState        <- liftIO . atomically . readTVar $ _tState oldConf
     numberOfThreads <- asks _numberOfThreads
-    tAST            <- asks _tAST
-    tAlive          <- asks _tAlive
+    -- tAST            <- asks _tAST
+    -- tAlive          <- asks _tAlive
 
     let
         chunkSize       = div (length proposedChanges) numberOfThreads
@@ -76,42 +75,35 @@ getInterestingChanges proposedChanges = do
                      _ -> temp
 
     -- run one thread for each batch
-    void . liftIO . fmap concat . forConcurrently batches $ \batch -> do
+    liftIO . forConcurrently_ batches $ \batch -> do
 
         -- within a thread check out all the changes
-        forM batch $ \c -> do
-            oldAST      <- atomically $ readTVar tAST
+        forM_ batch $ \c -> do
+            let oldAST = _parsed oldState
 
-            -- b  <- tryNewValue oldConf (oldState { _parsed = newAST})
+            tryToApplyChange name oldAST c oldConf oldState
 
-            -- newB <- if b 
-            --     then tryToApplyChange tAST oldAST newAST oldConf oldState
-            --     else return False
-            tryToApplyChange tAlive tAST oldAST c oldConf oldState
-  where
-    tryToApplyChange tAlive tAST oldAST c oldConf oldState = do
-        let newAST = transformBi c oldAST
-        b  <- tryNewValue oldConf (oldState { _parsed = newAST})
 
-        if (oshow oldAST /= oshow newAST) && b
-        then do
-            (success, currentCommonAST) <- atomically $ do
-                writeTVar tAlive True
-                currentCommonAST <- readTVar tAST
+tryToApplyChange :: Data a => String -> ParsedSource -> (Located a -> Located a) -> RConf -> RState -> IO ()
+tryToApplyChange name oldAST c oldConf oldState = do
+    let newAST = transformBi c oldAST
+    b  <- tryNewValue oldConf (oldState { _parsed = newAST})
+    let newB = ((oshow oldAST /= oshow newAST) && b )
+    when newB $ do
+        (success, currentCommonAST) <- atomically $ do
+            currentCommonAST <- _parsed <$> (readTVar $ _tState oldConf)
 
-                if (oshow oldAST == oshow currentCommonAST) 
-                    then do
-                        writeTVar tAST newAST
-                        return (True, currentCommonAST)
-                    else do
-                        return (False, currentCommonAST)
+            -- is the AST we worked still the same?
+            if (oshow oldAST == oshow currentCommonAST) 
+            then do
+                writeTVar (_tState oldConf) $ oldState { _isAlive = True, _parsed = newAST }
+                return (True, currentCommonAST)
+            else
+                return (False, currentCommonAST)
 
-            if success
-            then return True
-            else tryToApplyChange tAlive tAST currentCommonAST c oldConf oldState
-        else
-            return False
-       
+        unless success $ tryToApplyChange name currentCommonAST c oldConf oldState
+
+    updateStatistics oldConf name newB (length (oshow oldAST) - length (oshow newAST))
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -120,8 +112,8 @@ getInterestingChanges proposedChanges = do
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatistics :: String -> Bool -> Int -> R ()
-updateStatistics passName success dB = do
+updateStatistics :: RConf -> String -> Bool -> Int -> IO ()
+updateStatistics conf name success dB = do
     let 
         i = if success 
             then 1 
@@ -130,9 +122,10 @@ updateStatistics passName success dB = do
             then dB
             else 0
 
-    statistics . passStats %= (at passName %~ \case
-        Nothing                 -> Just $ PassStats i 1 bytesRemoved
-        Just (PassStats n d r)  -> Just $ PassStats (n + i) (d + 1) (r + bytesRemoved))
+    atomically $ modifyTVar (_tState conf) $ \s ->
+        s & statistics . passStats . at name %~ \case
+            Nothing                      -> Just $ PassStats name i 1 bytesRemoved
+            Just (PassStats _ n d r)  -> Just $ PassStats name (n + i) (d + 1) (r + bytesRemoved)
 
 
         -- check if common ast has changed
@@ -193,7 +186,8 @@ runTest test duration = do
 
 printInfo :: String -> R ()
 printInfo context = do
-    oldState  <- get
+    tState  <- asks _tState
+    oldState <- liftIO . atomically $ readTVar tState
 
     liftIO . putStrLn $ "\n***" <> context <> "***"
     liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
@@ -201,7 +195,7 @@ printInfo context = do
 isTestStillFresh :: String -> R ()
 isTestStillFresh context = do
     conf     <- ask
-    newState <- get
+    newState <- liftIO . atomically $ readTVar $ _tState conf
     liftIO $ testAndUpdateStateFlex conf False True newState >>= \case
         False -> do
             liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
@@ -221,33 +215,34 @@ mkPass ast name pass = concat [map (Pass name . transformBi . overwriteAtLoc l) 
 -- apply the change
 -- call testAndUpdateStateFlex conf oldAST newAST currentState
 runPasses :: [Pass] -> R ()
-runPasses passes = do
-    conf     <- ask
-    oldState <- get
+runPasses _ = do
+    -- conf     <- ask
+    -- oldState <- error "implement me"
 
-    let
-        ast = _parsed oldState
+    -- let
+    --     ast = _parsed oldState
 
-    void $ foldM (\oldAST (Pass passName c) -> do
-        let 
-            newAST      = c oldAST
-            sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-            newState    = oldState & parsed .~ newAST
+    error "implement me"
+    -- void $ foldM (\oldAST (Pass passName c) -> do
+    --     let 
+    --         newAST      = c oldAST
+    --         sizeDiff    = length (lshow oldAST) - length (lshow newAST)
+    --         newState    = oldState & parsed .~ newAST
 
-        liftIO (tryNewValue conf newState) >>= \case
-            True  -> do
-                parsed  .= newAST
-                isAlive %= (|| oshow oldAST /= oshow newAST)
+    --     liftIO (tryNewValue conf newState) >>= \case
+    --         True  -> do
+    --             parsed  .= newAST
+    --             isAlive %= (|| oshow oldAST /= oshow newAST)
 
-                updateStatistics passName True sizeDiff
+    --             updateStatistics passName True sizeDiff
 
-                return newAST
+    --             return newAST
 
-            False -> do
-                updateStatistics passName False 0
-                return oldAST
+    --         False -> do
+    --             updateStatistics passName False 0
+    --             return oldAST
 
-        ) ast passes
+    --     ) ast passes
 
 
 -- get ways to change an expression that contains a list as an subexpression
@@ -256,8 +251,8 @@ runPasses passes = do
 handleSubList :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
 handleSubList f p = map f . p
 
-minireduce :: Data a => (Located a -> R (Located a)) -> R ()
-minireduce pass = void . (transformBiM pass) =<< gets _parsed
+-- minireduce :: Data a => (Located a -> R (Located a)) -> R ()
+-- minireduce pass = void . (transformBiM pass) =<< gets _parsed
 
 modname2components :: T.Text -> [T.Text]
 modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)

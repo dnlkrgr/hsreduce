@@ -1,8 +1,8 @@
 module Reduce.Passes.RemoveUnused.Pragmas (reduce) where
 
+import Control.Concurrent.STM
 import Lens.Micro.Platform
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Data.Foldable
 import qualified Data.Text as T
 
@@ -11,24 +11,23 @@ import Util.Util
 
 reduce :: R ()
 reduce = do
-    liftIO $ putStrLn "\n***Performing RemovePragmas***"
+    printInfo "Removing Pragmas"
     isTestStillFresh "Pragmas"
-    oldState <- get
-    liftIO . putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
 
+    oldState <- liftIO . atomically . readTVar =<< asks _tState
     traverse_ tryToRemovePragma $ _pragmas oldState
 
 tryToRemovePragma :: Pragma -> R ()
 tryToRemovePragma pragmaToTry = do
     liftIO $ putStrLn $ "trying pragma: " ++ show pragmaToTry
     conf     <- ask
-    oldState <- get
+    oldState <- liftIO . atomically . readTVar $ _tState conf
 
     let 
         newState = oldState & pragmas %~ filter (/= pragmaToTry) 
 
     liftIO (testAndUpdateStateFlex conf False True newState) >>= \case
-        False -> updateStatistics "pragmas" False 0
+        False -> liftIO $ updateStatistics conf "pragmas" False 0
         True  -> do
-            updateStatistics "pragmas" True (T.length (showState oldState) - T.length (showState newState)) 
-            put newState
+            liftIO $ updateStatistics conf "pragmas" True (T.length (showState oldState) - T.length (showState newState)) 
+            liftIO . atomically $ writeTVar (_tState conf) newState

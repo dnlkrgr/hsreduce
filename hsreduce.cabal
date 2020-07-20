@@ -50,6 +50,7 @@ executable hsmerge
         , unix
         , word8
         , microlens-platform
+        , cassava
     hs-source-dirs:      
         src
         src/Merge
@@ -122,6 +123,7 @@ executable hsreduce
         , unix
         , word8
         , microlens-platform
+        , cassava
     hs-source-dirs:    
         src
         src/Reduce

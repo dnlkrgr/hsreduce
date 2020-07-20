@@ -1,5 +1,6 @@
 module Reduce.Passes.Stubbing (fast, medium, slow, slowest) where
 
+import Control.Concurrent.STM
 import Lens.Micro.Platform
 import Data.Generics.Uniplate.Data
 import Control.Monad.State
@@ -59,7 +60,8 @@ rmvUnusedParams :: R ()
 rmvUnusedParams = do
     printInfo "rmvUnusedParams"
 
-    ast <- gets _parsed
+    conf <- ask
+    ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
 
     forM_ [ (funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast] rmvUnusedParams_
 
@@ -69,7 +71,7 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) = do
         Nothing        -> return ()
         Just (n, is)   -> do
             conf     <- ask
-            oldState <- get
+            oldState <- liftIO . atomically . readTVar $ _tState conf
             let oldAST = oldState ^. parsed
 
             let 
@@ -86,17 +88,18 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) = do
 
             let 
                 sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-                newState    = oldState & parsed .~ newAST
+                newState    = oldState & parsed .~ newAST & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
  
             liftIO (tryNewValue conf newState) >>= \case
                 True  -> do
-                    parsed  .= newAST
-                    isAlive %= (|| oshow oldAST /= oshow newAST)
+                    -- parsed  .= newAST
+                    -- isAlive %= (|| oshow oldAST /= oshow newAST)
+                    liftIO . atomically $ writeTVar (_tState conf) newState
  
-                    updateStatistics "rmvUnusedParams" True sizeDiff
+                    liftIO $ updateStatistics conf "rmvUnusedParams" True sizeDiff
 
                 False -> do
-                    updateStatistics "rmvUnusedParams" False 0
+                    liftIO $ updateStatistics conf "rmvUnusedParams" False 0
  
 rmvUnusedParams_ _ = return ()
 
@@ -328,7 +331,7 @@ filterExprSubList e@RecordCon{}                      = handleSubList fExpr pExpr
 filterExprSubList e@ExplicitTuple{}                  = handleSubList fExpr pExpr e
 filterExprSubList e@HsCase{}                         = handleSubList fExpr pExpr e
 filterExprSubList e@HsMultiIf{}                      = handleSubList fExpr pExpr e
-filterExprSubList e@HsDo{}                           = handleSubList fExpr pExpr e
+-- filterExprSubList e@HsDo{}                           = handleSubList fExpr pExpr e       <-- this creates unprintable expressions
 filterExprSubList e@ExplicitList{}                   = handleSubList fExpr pExpr e
 filterExprSubList _                                  = []
 

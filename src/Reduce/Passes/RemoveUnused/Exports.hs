@@ -1,5 +1,6 @@
 module Reduce.Passes.RemoveUnused.Exports (reduce) where
 
+import Control.Concurrent.STM
 import Control.Monad.State.Strict
 import Data.Maybe
 import Path
@@ -12,8 +13,10 @@ import GHC
 reduce :: R ()
 reduce = do
     printInfo "Removing Exports"
-    oldState <- get
+    tState <- asks _tState
+    oldState <- liftIO . atomically $ readTVar tState
   
+
     let 
         L l oldModule = _parsed oldState
         maybeModName  = hsmodName oldModule
@@ -35,7 +38,8 @@ reduce = do
                 newModule = oldModule { hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName }
                 newState  = oldState { _parsed = L l newModule }
 
-            put newState
+            liftIO . atomically $ writeTVar tState newState
+            -- put newState
             -- TODO: if no exports were removed, turn it into Nothing again
   
             isTestStillFresh "Exports.reduce_2"

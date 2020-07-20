@@ -3,6 +3,9 @@ module Reduce.HsReduce
   )
 where
 
+import qualified Data.Map as M
+import qualified Data.ByteString.Lazy as LBS
+import Data.Csv
 import "temporary" System.IO.Temp (createTempDirectory)
 import Control.Concurrent.STM
 import Control.Monad
@@ -11,7 +14,6 @@ import Data.Maybe
 import Data.Time
 import Distribution.Simple.Utils (copyDirectoryRecursive)
 import Distribution.Verbosity
-import GHC.Conc
 import Parser.Parser
 import Path
 import System.Directory
@@ -26,8 +28,8 @@ import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
 
-hsreduce :: FilePath -> FilePath -> FilePath -> IO ()
-hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
+hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
+hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
     putStrLn "*******************************************************"
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
@@ -37,10 +39,11 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
     beginState          <- parse True [] [] fullFilePath
     let oldSize         =  T.length fileContent
     files               <- listDirectory (fromAbsDir sourceDir)
-    t1                  <- utctDayTime <$> getCurrentTime
-    tAST                <- atomically . newTVar $ _parsed beginState
-    tAlive              <- atomically $ newTVar False
-    numberOfThreads     <- getNumProcessors
+    t1                  <- getCurrentTime
+    tState              <- atomically $ newTVar beginState
+    -- tAlive              <- atomically $ newTVar False
+
+    print numberOfThreads
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -64,7 +67,8 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
         atomically $ writeTChan tChan tempDir
 
     -- run the reducing functions
-    newState <- snd <$> runR (RConf test filePath numberOfThreads tChan tAST tAlive) beginState allActions
+    void $ runR (RConf test filePath numberOfThreads tChan tState) allActions
+    newState <- atomically (readTVar tState)
 
     -- handling of the result and outputting useful information
     let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
@@ -79,11 +83,12 @@ hsreduce (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test)
 
     TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
 
-    t2 <- utctDayTime <$> getCurrentTime
-    putStrLn $ "\n\nExecution took " ++ show (flip div (10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " seconds."
+    t2 <- getCurrentTime
 
-    putStrLn . show $ _statistics newState
+    -- encode (_statistics newState) { _startTime = Just t1, _endTime = Just t2 }
+    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ (_statistics newState) { _startTime = Just t1, _endTime = Just t2 }
     -- writeFile "hsreduce.statistics" . printStatistics $ _statistics newState
+    return ()
 
 allActions :: R ()
 allActions = do
@@ -128,14 +133,14 @@ snail = do
 -- 4. check if something interesting happened; if yes, continue
 largestFixpoint :: R () -> R ()
 largestFixpoint f = do
-    tAlive <- asks _tAlive
-    go tAlive
+    tState <- asks _tState
+    go tState 
   where
-      go tAlive = do
+      go tState = do
           liftIO $ putStrLn "\n\n\n***NEW ITERATION***"
           isTestStillFresh "largestFixpoint"
   
-          -- modify $ \s -> s { _isAlive = False }
-          liftIO . atomically $ writeTVar tAlive False
+          liftIO . atomically $ modifyTVar tState $ \s -> s { _isAlive = False }
           f
-          liftIO (atomically $ readTVar tAlive) >>= flip when (go tAlive)
+          b <- liftIO (fmap _isAlive . atomically $ readTVar tState) 
+          when b (go tState)

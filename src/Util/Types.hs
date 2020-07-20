@@ -2,7 +2,6 @@ module Util.Types where
 
 import Lens.Micro.Platform
 import Data.Time
-import Data.List
 import qualified Data.Map as M
 import Control.Concurrent.STM
 import GHC.LanguageExtensions.Type
@@ -11,11 +10,11 @@ import qualified Text.Megaparsec as MP
 import Path
 import qualified Data.Text as T
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Data.Aeson
 import GHC.Generics (Generic)
 import GHC
 import Outputable hiding ((<>))
+import Data.Csv
 
 type WaysToChange a = a -> [a -> a]
 
@@ -24,27 +23,24 @@ data Pass = Pass String (ParsedSource -> ParsedSource)
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving Eq
 
-data RConf = RConf
-    { _test            :: Path Rel File
-    , _sourceFile      :: Path Rel File
-    , _numberOfThreads :: Int
-    , _tempDirs        :: TChan (Path Abs Dir)
-    , _tAST            :: TVar ParsedSource
-    , _tAlive          :: TVar Bool
-    }
-
 data PassStats = PassStats 
-    { _successfulAttempts   :: Int
+    { _passName             :: String
+    , _successfulAttempts   :: Int
     , _totalAttempts        :: Int
     , _removedBytes         :: Int 
     }
+    deriving (Generic, Show)
+instance FromNamedRecord PassStats
+instance ToNamedRecord   PassStats
+instance DefaultOrdered  PassStats
 makeLenses ''PassStats
 
 data Statistics = Statistics 
     { _passStats            :: M.Map String PassStats
-    , _startTime            :: Maybe DiffTime
-    , _endTime              :: Maybe DiffTime
+    , _startTime            :: Maybe UTCTime
+    , _endTime              :: Maybe UTCTime
     }
+    deriving (Generic, Show)
 makeLenses ''Statistics
 
 data RState = RState
@@ -57,31 +53,43 @@ data RState = RState
     }
 makeLenses ''RState
 
-runR :: RConf -> RState -> R a -> IO (a, RState)
-runR c st (R a) = runStateT (runReaderT a c) st
+data RConf = RConf
+    { _test            :: Path Rel File
+    , _sourceFile      :: Path Rel File
+    , _numberOfThreads :: Int
+    , _tempDirs        :: TChan (Path Abs Dir)
+    , _tState          :: TVar RState
+    -- , _tAST            :: TVar ParsedSource
+    -- , _tAlive          :: TVar Bool
+    }
 
-newtype R a = R (ReaderT RConf (StateT RState IO) a)
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadState RState)
+runR :: RConf -> R a -> IO a
+runR c (R a) = runReaderT a c
 
-instance Show Statistics where
-    show (_passStats -> stats) = unlines $
-        ("***Statistics***" :) $
-        flip map (reverse . sortOn (_removedBytes . snd) $ M.toList stats) $ \(k, p@(PassStats n _ _)) ->
-            k <> ": " <> map (const ' ') [1 .. 30 - length k - length (show n)] <> show p
+newtype R a = R (ReaderT RConf IO a)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf)
+
+-- instance Show Statistics where
+--     show stats = unlines $
+--         ("***Statistics***" :) $
+--         flip map (reverse . sortOn (_removedBytes . snd) . M.toList $ _passStats stats) $ \(k, p@(PassStats n _ _)) ->
+--             k <> ": " <> map (const ' ') [1 .. 30 - length k - length (show n)] <> show p
+-- 
+--         -- putStrLn $ "\n\nExecution took " ++ show (flip div (10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " seconds."
 
 emptyStats :: Statistics
 emptyStats = Statistics M.empty Nothing Nothing
 
 
-instance Show PassStats where
-    show (PassStats n d r) =
-        let 
-            snr = show n
-            sdr = show d
-            sr  = show r
-        in 
-            snr <> " /" <> map (const ' ') [1 .. 4 - length sdr] <> sdr 
-            <> map (const ' ') [1 .. 5 - length sr] <> sr
+-- instance Show PassStats where
+--     show (PassStats n d r) =
+--         let 
+--             snr = show n
+--             sdr = show d
+--             sr  = show r
+--         in 
+--             snr <> " /" <> map (const ' ') [1 .. 4 - length sdr] <> sdr 
+--             <> map (const ' ') [1 .. 5 - length sr] <> sr
 
 showState :: RState -> T.Text
 showState (RState []    ps _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
