@@ -89,7 +89,7 @@ tryToApplyChange name oldAST c oldConf oldState = do
     let newAST = transformBi c oldAST
     b  <- tryNewValue oldConf (oldState { _parsed = newAST})
     let newB = ((oshow oldAST /= oshow newAST) && b )
-    when newB $ do
+    if newB then do
         (success, currentCommonAST) <- atomically $ do
             currentCommonAST <- _parsed <$> (readTVar $ _tState oldConf)
 
@@ -97,13 +97,18 @@ tryToApplyChange name oldAST c oldConf oldState = do
             if (oshow oldAST == oshow currentCommonAST) 
             then do
                 writeTVar (_tState oldConf) $ oldState { _isAlive = True, _parsed = newAST }
+                updateStatistics_ oldConf name True (length (oshow oldAST) - length (oshow newAST))
                 return (True, currentCommonAST)
             else
                 return (False, currentCommonAST)
 
         unless success $ tryToApplyChange name currentCommonAST c oldConf oldState
+    else
+        updateStatistics oldConf name False 0        
 
-    updateStatistics oldConf name newB (length (oshow oldAST) - length (oshow newAST))
+
+updateStatistics :: RConf -> String -> Bool -> Int -> IO ()
+updateStatistics conf name success dB = atomically $ updateStatistics_ conf name success dB
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -112,8 +117,8 @@ tryToApplyChange name oldAST c oldConf oldState = do
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatistics :: RConf -> String -> Bool -> Int -> IO ()
-updateStatistics conf name success dB = do
+updateStatistics_ :: RConf -> String -> Bool -> Int -> STM ()
+updateStatistics_ conf name success dB = do
     let 
         i = if success 
             then 1 
@@ -122,9 +127,9 @@ updateStatistics conf name success dB = do
             then dB
             else 0
 
-    atomically $ modifyTVar (_tState conf) $ \s ->
+    modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
-            Nothing                      -> Just $ PassStats name i 1 bytesRemoved
+            Nothing                   -> Just $ PassStats name i 1 bytesRemoved
             Just (PassStats _ n d r)  -> Just $ PassStats name (n + i) (d + 1) (r + bytesRemoved)
 
 

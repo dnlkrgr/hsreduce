@@ -51,6 +51,7 @@ executable hsmerge
         , word8
         , microlens-platform
         , cassava
+        , ekg
     hs-source-dirs:      
         src
         src/Merge
@@ -81,10 +82,12 @@ executable hsreduce
         Util.Types
         Parser.Parser
         Reduce.Passes.Stubbing
+        Reduce.Passes.DataTypes
         Reduce.Passes.RemoveUnused.Decls
         Reduce.Passes.RemoveUnused.Imports
         Reduce.Passes.RemoveUnused.Exports
         Reduce.Passes.RemoveUnused.Pragmas
+        Reduce.Passes.RemoveUnused.Parameters
     build-depends:       
         base
         , Cabal
@@ -124,6 +127,7 @@ executable hsreduce
         , word8
         , microlens-platform
         , cassava
+        , ekg
     hs-source-dirs:    
         src
         src/Reduce
@@ -147,3 +151,4 @@ executable hsreduce
         -O2 
         -threaded 
         -rtsopts
+        -with-rtsopts=-T

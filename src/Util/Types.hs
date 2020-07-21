@@ -1,7 +1,6 @@
 module Util.Types where
 
 import Lens.Micro.Platform
-import Data.Time
 import qualified Data.Map as M
 import Control.Concurrent.STM
 import GHC.LanguageExtensions.Type
@@ -30,15 +29,12 @@ data PassStats = PassStats
     , _removedBytes         :: Int 
     }
     deriving (Generic, Show)
-instance FromNamedRecord PassStats
 instance ToNamedRecord   PassStats
 instance DefaultOrdered  PassStats
 makeLenses ''PassStats
 
 data Statistics = Statistics 
     { _passStats            :: M.Map String PassStats
-    , _startTime            :: Maybe UTCTime
-    , _endTime              :: Maybe UTCTime
     }
     deriving (Generic, Show)
 makeLenses ''Statistics
@@ -78,7 +74,7 @@ newtype R a = R (ReaderT RConf IO a)
 --         -- putStrLn $ "\n\nExecution took " ++ show (flip div (10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " seconds."
 
 emptyStats :: Statistics
-emptyStats = Statistics M.empty Nothing Nothing
+emptyStats = Statistics M.empty
 
 
 -- instance Show PassStats where

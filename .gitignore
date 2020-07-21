@@ -44,3 +44,5 @@ Undefined.hs
 Undefined.hi
 Undefined.o
 Bug
+hsreduce_timing.csv
+hsreduce_statistics.csv

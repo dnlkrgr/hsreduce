@@ -3,6 +3,7 @@ module Reduce.HsReduce
   )
 where
 
+import Data.List
 import qualified Data.Map as M
 import qualified Data.ByteString.Lazy as LBS
 import Data.Csv
@@ -26,6 +27,7 @@ import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
 import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
+import qualified Reduce.Passes.RemoveUnused.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
 
 hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
@@ -85,8 +87,14 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
 
     t2 <- getCurrentTime
 
+    let 
+        duration = 
+            if utctDayTime t2 < utctDayTime t1
+            then utctDayTime t2 + 86401 - utctDayTime t1
+            else utctDayTime t2 - utctDayTime t1
+    appendFile "hsreduce_timing.csv" $ intercalate "," [show (utctDay t1), init $ show (utctDayTime t1), init $ show (utctDayTime t2), init $ show duration] <> "\n"
     -- encode (_statistics newState) { _startTime = Just t1, _endTime = Just t2 }
-    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ (_statistics newState) { _startTime = Just t1, _endTime = Just t2 }
+    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ (_statistics newState) 
     -- writeFile "hsreduce.statistics" . printStatistics $ _statistics newState
     return ()
 
@@ -125,6 +133,7 @@ slowest = do
 snail :: R ()
 snail = do
     Stubbing.slowest
+    Parameters.reduce
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
