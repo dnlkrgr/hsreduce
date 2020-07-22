@@ -70,6 +70,7 @@ executable hsmerge
         ScopedTypeVariables
         ViewPatterns
         TemplateHaskell
+        RecordWildCards
     ghc-options:       
         -Wall
     
@@ -146,6 +147,7 @@ executable hsreduce
         ScopedTypeVariables
         ViewPatterns
         TemplateHaskell
+        RecordWildCards
     ghc-options:       
         -Wall 
         -O2 

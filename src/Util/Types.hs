@@ -1,19 +1,23 @@
 module Util.Types where
 
-import Lens.Micro.Platform
-import qualified Data.Map as M
+import Data.List
+import Control.Concurrent
 import Control.Concurrent.STM
-import GHC.LanguageExtensions.Type
-import Data.Void
-import qualified Text.Megaparsec as MP
-import Path
-import qualified Data.Text as T
 import Control.Monad.Reader
 import Data.Aeson
-import GHC.Generics (Generic)
-import GHC
-import Outputable hiding ((<>))
 import Data.Csv
+import Data.Time
+import Data.Void
+import GHC
+import GHC.Generics (Generic)
+import GHC.LanguageExtensions.Type
+import Lens.Micro.Platform
+import Outputable hiding ((<>))
+import Path
+import qualified Data.Map as M
+import qualified Data.Text as T
+import qualified Text.Megaparsec as MP
+
 
 type WaysToChange a = a -> [a -> a]
 
@@ -21,6 +25,44 @@ data Pass = Pass String (ParsedSource -> ParsedSource)
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving Eq
+
+
+data Performance = Performance
+    { _day              :: Day
+    , _origSize         :: Int
+    , _endSize          :: Int
+    , _ratio            :: Int
+    , _startTime        :: UTCTime
+    , _endTime          :: UTCTime
+    , _duration         :: DiffTime
+    , _capabilities     :: Int
+    , _threads          :: Int
+    }
+
+instance Show Performance where
+    show Performance{..} = 
+        intercalate "," 
+            [ show _day 
+            , init $ show _duration
+            , show _capabilities
+            , show _threads
+            , show _origSize
+            , show _endSize 
+            , show _ratio 
+            ] <> "\n"
+
+mkPerformance :: Int -> Int -> UTCTime -> UTCTime -> Int -> IO Performance
+mkPerformance oldSize newSize t1 t2 n = do
+    c <- getNumCapabilities
+    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
+  where 
+    ratio       = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
+    offset      = 
+        if utctDayTime t2 < utctDayTime t1
+        then 86401
+        else 0
+    duration    = utctDayTime t2 + offset - utctDayTime t1 
+
 
 data PassStats = PassStats 
     { _passName             :: String
@@ -33,11 +75,14 @@ instance ToNamedRecord   PassStats
 instance DefaultOrdered  PassStats
 makeLenses ''PassStats
 
-data Statistics = Statistics 
+newtype Statistics = Statistics 
     { _passStats            :: M.Map String PassStats
     }
     deriving (Generic, Show)
 makeLenses ''Statistics
+
+emptyStats :: Statistics
+emptyStats = Statistics M.empty
 
 data RState = RState
     { _pragmas      :: [Pragma]
@@ -65,27 +110,6 @@ runR c (R a) = runReaderT a c
 newtype R a = R (ReaderT RConf IO a)
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf)
 
--- instance Show Statistics where
---     show stats = unlines $
---         ("***Statistics***" :) $
---         flip map (reverse . sortOn (_removedBytes . snd) . M.toList $ _passStats stats) $ \(k, p@(PassStats n _ _)) ->
---             k <> ": " <> map (const ' ') [1 .. 30 - length k - length (show n)] <> show p
--- 
---         -- putStrLn $ "\n\nExecution took " ++ show (flip div (10^(12 :: Integer)) . diffTimeToPicoseconds $ t2 - t1) ++ " seconds."
-
-emptyStats :: Statistics
-emptyStats = Statistics M.empty
-
-
--- instance Show PassStats where
---     show (PassStats n d r) =
---         let 
---             snr = show n
---             sdr = show d
---             sr  = show r
---         in 
---             snr <> " /" <> map (const ' ') [1 .. 4 - length sdr] <> sdr 
---             <> map (const ' ') [1 .. 5 - length sr] <> sr
 
 showState :: RState -> T.Text
 showState (RState []    ps _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps

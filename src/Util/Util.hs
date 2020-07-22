@@ -47,8 +47,6 @@ runPass name pass = do
         proposedChanges = getProposedChanges ast pass
 
     applyInterestingChanges name proposedChanges
-    -- newAST <- liftIO . atomically $ readTVar $ _tAST conf
-    -- parsed .= newAST
 
 
 applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
@@ -56,8 +54,6 @@ applyInterestingChanges name proposedChanges = do
     oldConf         <- ask
     oldState        <- liftIO . atomically . readTVar $ _tState oldConf
     numberOfThreads <- asks _numberOfThreads
-    -- tAST            <- asks _tAST
-    -- tAlive          <- asks _tAlive
 
     let
         chunkSize       = div (length proposedChanges) numberOfThreads
@@ -78,29 +74,29 @@ applyInterestingChanges name proposedChanges = do
     liftIO . forConcurrently_ batches $ \batch -> do
 
         -- within a thread check out all the changes
-        forM_ batch $ \c -> do
-            let oldAST = _parsed oldState
-
-            tryToApplyChange name oldAST c oldConf oldState
+        forM_ batch $ \c -> tryToApplyChange name (_parsed oldState) c oldConf oldState
 
 
 tryToApplyChange :: Data a => String -> ParsedSource -> (Located a -> Located a) -> RConf -> RState -> IO ()
 tryToApplyChange name oldAST c oldConf oldState = do
     let newAST = transformBi c oldAST
+
     b  <- tryNewValue oldConf (oldState { _parsed = newAST})
+
     let newB = ((oshow oldAST /= oshow newAST) && b )
+
     if newB then do
         (success, currentCommonAST) <- atomically $ do
             currentCommonAST <- _parsed <$> (readTVar $ _tState oldConf)
 
             -- is the AST we worked still the same?
             if (oshow oldAST == oshow currentCommonAST) 
-            then do
-                writeTVar (_tState oldConf) $ oldState { _isAlive = True, _parsed = newAST }
-                updateStatistics_ oldConf name True (length (oshow oldAST) - length (oshow newAST))
-                return (True, currentCommonAST)
-            else
-                return (False, currentCommonAST)
+                then do
+                    writeTVar (_tState oldConf) $ oldState { _isAlive = True, _parsed = newAST }
+                    updateStatistics_ oldConf name True (length (oshow oldAST) - length (oshow newAST))
+                    return (True, currentCommonAST)
+                else
+                    return (False, currentCommonAST)
 
         unless success $ tryToApplyChange name currentCommonAST c oldConf oldState
     else
@@ -131,27 +127,6 @@ updateStatistics_ conf name success dB = do
         s & statistics . passStats . at name %~ \case
             Nothing                   -> Just $ PassStats name i 1 bytesRemoved
             Just (PassStats _ n d r)  -> Just $ PassStats name (n + i) (d + 1) (r + bytesRemoved)
-
-
-        -- check if common ast has changed
-        -- if not: write new ast
-        -- else: apply change to new common AST
-        -- if interesting: try again
-        -- else: fail
---          b <- atomically $ do
---              intermediateAST <- readTVar tAST
---  
---              if (oshow oldAST == oshow intermediateAST) 
---                  then do
---                      writeTVar tAST newAST
---                      return True
---                  else do
---                      return False
---  
---          
---          tryNewValue oldConf (oldState { _parsed = newAST}) >>= \case
---              False -> return False
---              True  -> tryToApplyChange tAST oldAST newAST
 
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
@@ -213,41 +188,6 @@ getProposedChanges ast pass = concat [map (overwriteAtLoc l) $ pass e| L l e <- 
 
 mkPass :: Data a => ParsedSource -> String -> WaysToChange a -> [Pass]
 mkPass ast name pass = concat [map (Pass name . transformBi . overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
-
-
--- 1. fold
--- take the current AST and the next proposed change
--- apply the change
--- call testAndUpdateStateFlex conf oldAST newAST currentState
-runPasses :: [Pass] -> R ()
-runPasses _ = do
-    -- conf     <- ask
-    -- oldState <- error "implement me"
-
-    -- let
-    --     ast = _parsed oldState
-
-    error "implement me"
-    -- void $ foldM (\oldAST (Pass passName c) -> do
-    --     let 
-    --         newAST      = c oldAST
-    --         sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-    --         newState    = oldState & parsed .~ newAST
-
-    --     liftIO (tryNewValue conf newState) >>= \case
-    --         True  -> do
-    --             parsed  .= newAST
-    --             isAlive %= (|| oshow oldAST /= oshow newAST)
-
-    --             updateStatistics passName True sizeDiff
-
-    --             return newAST
-
-    --         False -> do
-    --             updateStatistics passName False 0
-    --             return oldAST
-
-    --     ) ast passes
 
 
 -- get ways to change an expression that contains a list as an subexpression

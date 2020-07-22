@@ -1,4 +1,4 @@
-module Reduce.Passes.DataTypes (inlineNewType) where
+module Reduce.Passes.DataTypes (inlineTypeWithOneConstructor) where
 
 import Control.Concurrent.STM
 import Lens.Micro.Platform
@@ -10,24 +10,21 @@ import GHC
 import Util.Types
 import Util.Util
 
--- this should prob. live in its own module
--- *** BEGINNING OF NEW STUFF
-
-inlineNewType :: R ()
-inlineNewType = do
-    printInfo "inlineNewType"
+inlineTypeWithOneConstructor :: R ()
+inlineTypeWithOneConstructor = do
+    printInfo "inlineTypeWithOneConstructor"
 
     conf <- ask
     ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
 
-
     forM_ 
         [ (unLoc newtypeName, unLoc argName, unLoc constrName) 
         | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [L _ (ConDeclH98 _ constrName _ _ _ (PrefixCon [L _ (HsTyVar _ _ argName)]) _)] _ ) :: TyClDecl GhcPs <- universeBi ast]
-        inlineNewType_
+        inlineTypeWithOneConstructor_
 
-inlineNewType_ :: (RdrName, RdrName, RdrName) -> R ()
-inlineNewType_ (nn, an, cn) = do
+
+inlineTypeWithOneConstructor_ :: (RdrName, RdrName, RdrName) -> R ()
+inlineTypeWithOneConstructor_ (nn, an, cn) = do
     conf     <- ask
     oldState <- liftIO . readTVarIO $ _tState conf
 
@@ -47,13 +44,13 @@ inlineNewType_ (nn, an, cn) = do
  
 
 inlineAtType :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
-inlineAtType newtypeName argName (HsTyVar x p (L l tyvarName)) 
-    | newtypeName == tyvarName = HsTyVar x p (L l argName)
+inlineAtType newtypeName argName t@(HsTyVar x p (L l tyvarName)) 
+    | newtypeName == tyvarName  = HsTyVar x p (L l argName)
+    | otherwise                 = t
 inlineAtType _ _ t = t
 
--- look if name pops up, if yes, change it
 inlineAtPatterns :: RdrName -> Pat GhcPs -> Pat GhcPs
-inlineAtPatterns constrName (ConPatIn (L _ name) (PrefixCon [arg])) 
-    | constrName == name = unLoc arg
+inlineAtPatterns constrName p@(ConPatIn (L _ name) (PrefixCon [arg])) 
+    | constrName == name    = unLoc arg
+    | otherwise             = p
 inlineAtPatterns _ p = p
-

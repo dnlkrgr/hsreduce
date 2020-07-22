@@ -3,7 +3,6 @@ module Reduce.HsReduce
   )
 where
 
-import Data.List
 import qualified Data.Map as M
 import qualified Data.ByteString.Lazy as LBS
 import Data.Csv
@@ -29,6 +28,7 @@ import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.RemoveUnused.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
+import qualified Reduce.Passes.DataTypes as DataTypes (inlineTypeWithOneConstructor)
 
 hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
 hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
@@ -43,9 +43,7 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
     files               <- listDirectory (fromAbsDir sourceDir)
     t1                  <- getCurrentTime
     tState              <- atomically $ newTVar beginState
-    -- tAlive              <- atomically $ newTVar False
 
-    print numberOfThreads
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -70,36 +68,28 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
 
     -- run the reducing functions
     void $ runR (RConf test filePath numberOfThreads tChan tState) allActions
-    newState <- atomically (readTVar tState)
+    newState <- readTVarIO tState
 
     -- handling of the result and outputting useful information
     let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
         newSize  = T.length . showState $ newState
-        ratio    = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
 
     putStrLn "*******************************************************"
-    putStrLn $ "\n\nFinished."
+    putStrLn "\n\nFinished."
     putStrLn $ "Old size:        " ++ show oldSize
     putStrLn $ "Reduced size:    " ++ show newSize
-    putStrLn $ "Reduced file by: " ++ show ratio ++ "%"
 
     TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
 
     t2 <- getCurrentTime
+    
+    perfStats <- mkPerformance oldSize newSize t1 t2 numberOfThreads
 
-    let 
-        duration = 
-            if utctDayTime t2 < utctDayTime t1
-            then utctDayTime t2 + 86401 - utctDayTime t1
-            else utctDayTime t2 - utctDayTime t1
-    appendFile "hsreduce_timing.csv" $ intercalate "," [show (utctDay t1), init $ show (utctDayTime t1), init $ show (utctDayTime t2), init $ show duration] <> "\n"
-    -- encode (_statistics newState) { _startTime = Just t1, _endTime = Just t2 }
-    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ (_statistics newState) 
-    -- writeFile "hsreduce.statistics" . printStatistics $ _statistics newState
-    return ()
+    appendFile "hsreduce_performance.csv" $ show perfStats
+    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
 
 allActions :: R ()
-allActions = do
+allActions =
     forM_ passes $ \pass -> do
         liftIO $ putStrLn "\n\n*** Increasing granularity ***"
         largestFixpoint pass
@@ -134,6 +124,7 @@ snail :: R ()
 snail = do
     Stubbing.slowest
     Parameters.reduce
+    DataTypes.inlineTypeWithOneConstructor
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

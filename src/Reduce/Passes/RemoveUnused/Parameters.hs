@@ -10,75 +10,68 @@ import GHC
 import Util.Types
 import Util.Util
 
--- this should prob. live in its own module
--- *** BEGINNING OF NEW STUFF
--- arst :: HsBindLR GhcPs GhcPs
 reduce :: R ()
 reduce = do
     printInfo "rmvUnusedParams"
 
-    conf <- ask
-    ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
+    ast <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
 
     forM_ [ (funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast] rmvUnusedParams_
 
 rmvUnusedParams_ :: (RdrName,  MatchGroup GhcPs (LHsExpr GhcPs)) -> R ()
-rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) = do
+rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
     case matchgroup2WildPatPositions funMG of
         Nothing        -> return ()
         Just (n, is)   -> do
             conf     <- ask
-            oldState <- liftIO . atomically . readTVar $ _tState conf
+            oldState <- liftIO . readTVarIO $ _tState conf
             let oldAST = oldState ^. parsed
 
-            let 
-                proposedChanges :: [ParsedSource -> ParsedSource]
-                proposedChanges = 
-                       [ transformBi $ overwriteAtLoc l (rmvWildPatExpr n (reverse is)) 
-                       | L l e <- universeBi oldAST, exprContainsFunId funId e ]
-                    <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes is) 
-                       | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST
-                       , sigContainsFunId funId s ]
-                    <> [ transformBi (overwriteAtLoc matchesLoc rmvWildPatMatches)]
+            forM_ is $ \i -> do
+                let 
+                    proposedChanges :: [ParsedSource -> ParsedSource]
+                    proposedChanges = 
+                           [ transformBi $ overwriteAtLoc l (rmvWildPatExpr n i) 
+                           | L l e <- universeBi oldAST, exprContainsFunId funId e ]
+                        <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes i) 
+                           | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST
+                           , sigContainsFunId funId s ]
+                        <> [ transformBi (overwriteAtLoc matchesLoc (rmvWildPatMatch i))]
 
-                newAST = foldr ($) oldAST proposedChanges
+                    newAST = foldr ($) oldAST proposedChanges
 
-            let 
-                sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-                newState    = oldState & parsed .~ newAST & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
+                let 
+                    sizeDiff    = length (lshow oldAST) - length (lshow newAST)
+                    newState    = oldState & parsed .~ newAST & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
  
-            liftIO (tryNewValue conf newState) >>= \case
-                True  -> liftIO . atomically $ do
-                    writeTVar (_tState conf) newState
+                liftIO (tryNewValue conf newState) >>= \case
+                    True  -> liftIO . atomically $ do
+                        writeTVar (_tState conf) newState
  
-                    updateStatistics_ conf "rmvUnusedParams" True sizeDiff
+                        updateStatistics_ conf "rmvUnusedParams" True sizeDiff
 
-                False -> liftIO $ updateStatistics conf "rmvUnusedParams" False 0
+                    False -> liftIO $ updateStatistics conf "rmvUnusedParams" False 0
  
 rmvUnusedParams_ _ = return ()
 
 -- simplifyTySigs
-rmvWildPatTypes :: [Int] -> HsType GhcPs -> HsType GhcPs
-rmvWildPatTypes [] t    = t
-rmvWildPatTypes (1:is) (HsFunTy _ _ (L _ t))    = rmvWildPatTypes (map (\n -> n - 1) is) t
-rmvWildPatTypes is (HsFunTy x a lt)       = HsFunTy x a (rmvWildPatTypes (map (\n -> n - 1) is) <$> lt)
-rmvWildPatTypes _ t     = t
+rmvWildPatTypes :: Int -> HsType GhcPs -> HsType GhcPs
+rmvWildPatTypes 1 (HsFunTy _ _ (L _ t)) = t
+rmvWildPatTypes i (HsFunTy x a lt)      = HsFunTy x a (rmvWildPatTypes (i-1) <$> lt)
+rmvWildPatTypes _ t                     = t
 
--- simplifyFunctionCalls
--- here the pat indexes need to be reversed
--- we also need the total number of pats
-rmvWildPatExpr :: Int -> [Int] -> HsExpr GhcPs -> HsExpr GhcPs
-rmvWildPatExpr _ [] e                           = e
-rmvWildPatExpr n (i:is) (HsApp x la@(L _ a) b)
-    | n == i    = rmvWildPatExpr (n-1) is a
-    | otherwise = HsApp x (rmvWildPatExpr (n-1) is <$> la) b
-rmvWildPatExpr _ _ e                           = e
+-- n: total number of patterns
+-- i: index of pattern we wish to remove
+rmvWildPatExpr :: Int -> Int -> HsExpr GhcPs -> HsExpr GhcPs
+rmvWildPatExpr n i (HsApp x la@(L _ a) b)
+    | n == i            = a
+    | otherwise         = HsApp x (rmvWildPatExpr (n-1) i <$> la) b
+rmvWildPatExpr _ _ e    = e
 
-rmvWildPatMatches :: [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
-rmvWildPatMatches mg = [ L l (Match NoExt ctxt (filter (p . unLoc) pats) grhss) | L l (Match _ ctxt pats grhss) <- mg ]
+rmvWildPatMatch  :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
+rmvWildPatMatch  i mg = [ L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg ]
   where
-    p (WildPat _) = False
-    p _ = True
+    f = map snd . filter ((== i) . fst) . zip [1..]
 
 matchgroup2WildPatPositions :: MatchGroup  GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
 matchgroup2WildPatPositions mg 
@@ -95,13 +88,10 @@ match2WildPatPositions m = (length pats, map fst . filter (p . unLoc . snd) $ zi
     p _             = False
 
 sigContainsFunId :: RdrName -> Sig GhcPs -> Bool
-sigContainsFunId n (TypeSig _ ids _)    = n `elem` (map unLoc ids)
+sigContainsFunId n (TypeSig _ ids _)    = n `elem` map unLoc ids
 sigContainsFunId _ _                    = False
 
 exprContainsFunId :: RdrName -> HsExpr GhcPs -> Bool
 exprContainsFunId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
 exprContainsFunId n (HsApp _ (L _ e) _)                 = exprContainsFunId n e
 exprContainsFunId _ _                                   = False
-
-
-
