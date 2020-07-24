@@ -83,9 +83,7 @@ tryToApplyChange name oldAST c oldConf oldState = do
 
     b  <- tryNewValue oldConf (oldState { _parsed = newAST})
 
-    let newB = ((oshow oldAST /= oshow newAST) && b )
-
-    if newB then do
+    if (oshow oldAST /= oshow newAST) && b then do
         (success, currentCommonAST) <- atomically $ do
             currentCommonAST <- _parsed <$> (readTVar $ _tState oldConf)
 

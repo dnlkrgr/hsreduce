@@ -219,7 +219,7 @@ simplifyMatch mm = handleSubList f p mm
 
 
 simplifyMatches :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
-simplifyMatches m = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc) m
+simplifyMatches = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
     -- <> [ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
     -- ,  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> not (all ( ("undefined" `isSubsequenceOf`) . showSDocUnsafe . pprGRHS LambdaExpr . unLoc) grhs))]
 

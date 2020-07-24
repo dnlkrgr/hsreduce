@@ -28,7 +28,7 @@ import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.RemoveUnused.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
-import qualified Reduce.Passes.DataTypes as DataTypes (inlineTypeWithOneConstructor)
+import qualified Reduce.Passes.DataTypes as DataTypes (inlineType)
 
 hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
 hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
@@ -93,6 +93,7 @@ allActions =
     forM_ passes $ \pass -> do
         liftIO $ putStrLn "\n\n*** Increasing granularity ***"
         largestFixpoint pass
+  -- where passes = [snail]
   where passes = [fast, medium, slow, slowest, snail]
 
 
@@ -124,7 +125,7 @@ snail :: R ()
 snail = do
     Stubbing.slowest
     Parameters.reduce
-    DataTypes.inlineTypeWithOneConstructor
+    DataTypes.inlineType
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

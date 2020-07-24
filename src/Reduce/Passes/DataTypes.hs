@@ -1,4 +1,4 @@
-module Reduce.Passes.DataTypes (inlineTypeWithOneConstructor) where
+module Reduce.Passes.DataTypes (inlineType) where
 
 import Control.Concurrent.STM
 import Lens.Micro.Platform
@@ -10,27 +10,36 @@ import GHC
 import Util.Types
 import Util.Util
 
-inlineTypeWithOneConstructor :: R ()
-inlineTypeWithOneConstructor = do
-    printInfo "inlineTypeWithOneConstructor"
+inlineType :: R ()
+inlineType = do
+    printInfo "inlineType"
 
     conf <- ask
     ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
 
+    -- data decls / newtypes / type synonyms
     forM_ 
-        [ (unLoc newtypeName, unLoc argName, unLoc constrName) 
-        | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [L _ (ConDeclH98 _ constrName _ _ _ (PrefixCon [L _ (HsTyVar _ _ argName)]) _)] _ ) :: TyClDecl GhcPs <- universeBi ast]
-        inlineTypeWithOneConstructor_
+        ([ (unLoc newtypeName, argName, Just constrName) 
+        | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [ConDeclP constrName [TyVarP argName]] _ )   :: TyClDecl GhcPs <- universeBi ast]
+        <> [ (unLoc newtypeName, argName, Nothing) | SynDecl _ newtypeName _ _ (TyVarP argName)         :: TyClDecl GhcPs <- universeBi ast])
+        inlineTypeHelper
 
+pattern ConDeclP :: RdrName -> [LBangType GhcPs] -> LConDecl GhcPs
+pattern ConDeclP constrName args <- L _ (ConDeclH98 _ (L _ constrName) _ _ _ (PrefixCon args) _)
 
-inlineTypeWithOneConstructor_ :: (RdrName, RdrName, RdrName) -> R ()
-inlineTypeWithOneConstructor_ (nn, an, cn) = do
+pattern TyVarP :: RdrName -> LHsType GhcPs
+pattern TyVarP name <- L _ (HsTyVar _ _ (L _ name))
+
+inlineTypeHelper :: (RdrName, RdrName, Maybe RdrName) -> R ()
+inlineTypeHelper (nn, argName, mConstrName) = do
     conf     <- ask
     oldState <- liftIO . readTVarIO $ _tState conf
 
     let 
         oldAST      = oldState ^. parsed
-        newAST      = transformBi (inlineAtPatterns cn) $ transformBi (inlineAtType nn an) oldAST
+        newAST      = (case mConstrName of
+            Nothing             -> id
+            Just constrName     -> transformBi (handlePatterns constrName)) $ transformBi (handleTypes nn argName) oldAST
         sizeDiff    = length (lshow oldAST) - length (lshow newAST)
         newState    = oldState & parsed .~ newAST & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
  
@@ -43,14 +52,14 @@ inlineTypeWithOneConstructor_ (nn, an, cn) = do
         False -> liftIO $ updateStatistics conf "rmvUnusedParams" False 0
  
 
-inlineAtType :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
-inlineAtType newtypeName argName t@(HsTyVar x p (L l tyvarName)) 
+handleTypes :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
+handleTypes newtypeName argName t@(HsTyVar x p (L l tyvarName)) 
     | newtypeName == tyvarName  = HsTyVar x p (L l argName)
     | otherwise                 = t
-inlineAtType _ _ t = t
+handleTypes _ _ t = t
 
-inlineAtPatterns :: RdrName -> Pat GhcPs -> Pat GhcPs
-inlineAtPatterns constrName p@(ConPatIn (L _ name) (PrefixCon [arg])) 
+handlePatterns :: RdrName -> Pat GhcPs -> Pat GhcPs
+handlePatterns constrName p@(ConPatIn (L _ name) (PrefixCon [arg])) 
     | constrName == name    = unLoc arg
     | otherwise             = p
-inlineAtPatterns _ p = p
+handlePatterns _ p = p
