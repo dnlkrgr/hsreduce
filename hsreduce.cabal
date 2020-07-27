@@ -52,12 +52,14 @@ executable hsmerge
         , microlens-platform
         , cassava
         , ekg
+        , edit-distance
     hs-source-dirs:      
         src
         src/Merge
     default-language:    
         Haskell2010
     default-extensions:  
+        FlexibleInstances
         DeriveGeneric
         LambdaCase
         PatternSynonyms

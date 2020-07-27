@@ -1,5 +1,6 @@
 module Merge.HsAllInOne (dieForGhcSins, hsmerge) where
 
+import Digraph 
 import System.Directory
 import Debug.Trace
 import qualified Data.Text.IO as TIO
@@ -38,7 +39,7 @@ dieForGhcSins = do
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
     cradle <- loadCradle . fromMaybe (error "cradle could not be found!") =<< findCradle filePath
-    putStrLn . ("cradle: " <> ) . show $ cradle
+    putStrLn . ("cradle: " <> ) $ show cradle
     
     getCompilerOptions filePath (cradle :: Cradle Void) >>= \case
         CradleSuccess opts -> do
@@ -46,7 +47,9 @@ hsmerge filePath = do
                 initSession opts >>= setTargets 
                 void $ load LoadAllTargets
 
-                modSums <- mgModSummaries <$> getModuleGraph 
+                mg <- getModuleGraph 
+                let modSums = concatMap flattenSCC $ topSortModuleGraph False mg Nothing 
+
                 let ours = map (moduleName . ms_mod) modSums
 
                 missingImportsAndAnnotatedAST <- flip traverse modSums $ \modSum -> do
@@ -54,7 +57,7 @@ hsmerge filePath = do
                     t <- parseModule modSum >>= typecheckModule
                     
                     let 
-                        myParsedSource        = unLoc . pm_parsed_source $ tm_parsed_module t
+                        myParsedSource        = (if (oshow . moduleName . ms_mod) modSum == "Text.Pandoc.Extensions" then transformBi grst else id) . unLoc . pm_parsed_source $ tm_parsed_module t
                         importsModuleNames    = map (unLoc . ideclName . unLoc) $ hsmodImports myParsedSource
                         (renamedGroups,_,_,_) = fromMaybe (error "HsAllInOne->hsmerge: no renamed source!") $ tm_renamed_source t
 
@@ -65,17 +68,31 @@ hsmerge filePath = do
                     let proposedImportsToAdd  = 
                             map (\mn -> noLoc $ ImportDecl NoExt NoSourceText (noLoc mn) Nothing False False True False Nothing Nothing)
                             . catMaybes
-                            $ map (fst . snd) proposedNameChanges
+                            $ map (arst . snd) proposedNameChanges
 
 
                     proposedChanges       <- liftIO $ do
                         temp1 <- forM (universeBi renamedGroups) $ ambiguousField2ProposedChanged importsModuleNames ours
                         temp2 <- forM (universeBi renamedGroups) $ field2ProposedChange importsModuleNames ours
-                        return . M.fromList $  (map (fmap snd) $ proposedNameChanges) <> temp1 <> temp2
+                        return . M.fromList $ (map (fmap crst) $ proposedNameChanges) <> temp1 <> temp2
+                    
                        
-                    let newParsedSource = transformBi unqualFamEqn . transformBi unqualSig . transformBi unqualBinds . transformBi (applyChange proposedChanges) $ myParsedSource
+                    let 
+                        drst = M.fromList $ map ((\Temp{..} -> (oshow $ fromJust brst, crst $ fromJust brst)) . snd) $ filter (isJust . brst . snd) proposedNameChanges
+
+                    
+                    if 
+                        (oshow . moduleName . ms_mod) modSum `elem` ["Text.Pandoc.Extensions", "Text.Pandoc.Data"]
+                    then do
+                        liftIO $ print $ oshow $ M.lookup ("Extension") drst
+                        liftIO $ print $ oshow $ M.lookup ("T.Text") drst
+                        liftIO $ print $ oshow drst
+                    else return ()
+
+                    let newParsedSource = transformBi unqualFamEqn . transformBi unqualSig . transformBi unqualBinds . transformBi (applyChange drst) $ myParsedSource
 
                     return (proposedImportsToAdd, newParsedSource)
+
                     
                 d <- liftIO getCurrentDirectory
                 let crd = cradleRootDir cradle 
@@ -83,7 +100,7 @@ hsmerge filePath = do
 
                 extensions <- 
                     liftIO 
-                    . fmap (unlines . map show) 
+                    . fmap (unlines . map show . nub) 
                     . getAllPragmas 
                     . catMaybes 
                     . map (fmap (\f -> if f == filePath then root <> "/" <> f else f) . ml_hs_file . ms_location) 
@@ -93,7 +110,7 @@ hsmerge filePath = do
                     annASTs      = map snd missingImportsAndAnnotatedAST
                     modName      = Just . noLoc $ mkModuleName "AllInOne"
                     importsToAdd = concatMap fst missingImportsAndAnnotatedAST
-                    imports      = concatMap (qualImports . removeImports ours . hsmodImports) annASTs <> importsToAdd
+                    imports      = nub $ concatMap (qualImports . removeImports ours . hsmodImports) annASTs <> importsToAdd
                     decls        = concatMap hsmodDecls annASTs
                     mergedMod    = HsModule modName Nothing imports decls Nothing Nothing
 
@@ -102,40 +119,53 @@ hsmerge filePath = do
         CradleFail err  -> error $ show err
         _               -> error "Cradle wasn't loaded successfully! Maybe you're missing a hie.yaml file?"
 
-name2ProposedChange :: [ModuleName] -> [ModuleName] -> Name -> IO (Maybe ModuleName, (RdrName -> RdrName))
+grst :: HsSplice GhcPs -> HsSplice GhcPs
+grst s = traceShow (gshow s) $ traceShow (oshow s) $ s
+
+instance Eq (ImportDecl GhcPs) where
+    i1 == i2 = oshow i1 == oshow i2
+
+data Temp = Temp {
+      arst :: Maybe ModuleName
+    , brst :: Maybe RdrName
+    , crst :: RdrName -> RdrName
+    }
+
+name2ProposedChange :: [ModuleName] -> [ModuleName] -> Name -> IO Temp
 name2ProposedChange imports ours n
     -- don't rename things from the Main module to avoid making the test case print uninteresting output
     -- example: data cons renamed from T2 to T2_Main
     --   doesn't match in interestingness test matching on `fromList [T2, T2]`
-    | showSDocUnsafe (pprNameUnqualified n) == "main" = return (Nothing, id)
+    | showSDocUnsafe (pprNameUnqualified n) == "main" = return $ Temp Nothing Nothing id
   
     -- built-in things
-    | isSystemName    n = return (Nothing, id)
-    | isBuiltInSyntax n = return (Nothing, id)
-    | isDataConName   n, isOperator $ tail os = return (Nothing, id)
-    | isWiredInName   n, isOperator . oshow $ getRdrName n = return (Nothing, id)
+    | isSystemName    n                                     = return $ Temp Nothing Nothing id
+    | isBuiltInSyntax n                                     = return $ Temp Nothing Nothing id
+    | isDataConName   n, isOperator $ tail os               = return $ Temp Nothing Nothing id
+    | isWiredInName   n, isOperator . oshow $ getRdrName n  = return $ Temp Nothing Nothing id
   
     -- not our operator, leave unmodified
-    | isOperator . oshow $ getRdrName n, Just mn <- getModuleName n, mn `notElem` ours = return (Nothing, id)
+    | isOperator . oshow $ getRdrName n, Just mn <- getModuleName n, mn `notElem` ours = return $ Temp Nothing Nothing id
 
     -- our operator
     | Just mn <- getModuleName n, isOperator . oshow $ getRdrName n, mn `elem` ours 
-    = return (Nothing, (const (Unqual . mkOccName ns . renameOperator $ (os ++ filter (/= '.') (moduleNameString mn)))))
+    = return $ Temp Nothing (Just $ (Unqual . mkOccName ns . renameOperator $ (os ++ filter (/= '.') (moduleNameString mn)))) (const (Unqual . mkOccName ns . renameOperator $ (os ++ filter (/= '.') (moduleNameString mn))))
   
     -- our function / variable
-    | Just mn <- getModuleName n, mn `elem` ours = return (Nothing, (const (Unqual $ mangle mn on)))
+    | Just mn <- getModuleName n, mn `elem` ours = return $ Temp Nothing (Just . Unqual $ mangle mn on) (const (Unqual $ mangle mn on))
 
     -- something external
     | Just mn <- getModuleName n, mn `notElem` stuffFromBase = findBestMatchingImport imports mn on >>= \case
-        Left  newMN  -> return (Just newMN, const (Qual newMN on))
-        Right newMN  -> return (Nothing, const (Qual newMN on))
+        Left  newMN  -> return $ Temp (Just newMN) (Just $ Qual newMN on) (const (Qual newMN on))
+        Right newMN  -> return $ Temp Nothing (Just $ Qual newMN on) (const (Qual newMN on))
 
     -- qualifying things from base to avoid people importing those modules aliased
-    | Just mn <- getModuleName n, mn `elem` stuffFromBase = return (Just mn, const (Qual mn on))
+    | Just mn <- getModuleName n, mn `elem` stuffFromBase = return $ Temp (Just mn) (Just $ Qual mn on) (const (Qual mn on))
 
-    | otherwise = return (Nothing, id)
+    | otherwise = return $ Temp Nothing Nothing id
   where
       on = occName n
+      rn = getRdrName n
       ns = occNameSpace on
       os = occNameString on
       stuffFromBase = 
@@ -166,7 +196,14 @@ findBestMatchingImport imports mn _
     | mn `elem` imports                              = return $ Right mn
     | Just shortMN <- tryShortenedModName imports mn = return $ Right shortMN
     | otherwise                                      = return $ Left mn -- getMyHoogleOn imports mn on
+    -- | otherwise = return . Right $ tryShortenedModName imports mn 
 
+
+-- tryShortenedModName :: [ModuleName] -> ModuleName -> ModuleName
+-- tryShortenedModName imports mn = imports !! i
+--   where
+--     mnString = moduleNameString mn
+--     i = fst . head . sortOn snd . zip [0..] $ map ((levenshteinDistance defaultEditCosts mnString) . moduleNameString) imports
 
 tryShortenedModName :: [ModuleName] -> ModuleName -> Maybe ModuleName
 tryShortenedModName imports mn = 
@@ -179,7 +216,6 @@ tryShortenedModName imports mn =
             | (init $ modname2components goMN) /= []          = Just . T.intercalate "." . init $ modname2components goMN
             | otherwise = Nothing
         go _ _ Nothing  = Nothing
-
 
 ambiguousField2ProposedChanged :: [ModuleName] -> [ModuleName] -> AmbiguousFieldOcc GhcRn -> IO (SrcSpan, RdrName -> RdrName)
 ambiguousField2ProposedChanged imports ours (Unambiguous n (L l rn))
@@ -209,9 +245,19 @@ field2ProposedChange imports ours (FieldOcc n (L l rn))
 field2ProposedChange _ _ _ = error "field2ProposedChange: incomplete pattern match"
 
 
-applyChange :: M.Map SrcSpan (RdrName -> RdrName) -> Located RdrName -> Located RdrName
-applyChange m (L l r) = 
-    L l . maybe r ($ r) $ M.lookup l m
+applyChange :: M.Map String RdrName -> RdrName -> RdrName
+applyChange drst r = 
+    case M.lookup (oshow r) drst of
+        Nothing -> r
+        Just g  -> g
+
+-- applyChange :: M.Map SrcSpan (RdrName -> RdrName) -> M.Map String RdrName -> Located RdrName -> Located RdrName
+-- applyChange m drst (L l r) = 
+--     L l $ case M.lookup l m of
+--         Nothing -> case M.lookup (oshow r) drst of
+--             Nothing -> r
+--             Just g  -> g
+--         Just f  -> f r
 
           
 mangle :: ModuleName -> OccName -> OccName

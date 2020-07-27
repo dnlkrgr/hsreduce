@@ -16,11 +16,12 @@ import Text.Megaparsec.Char
 import GHC hiding (extensions)
 import Util.Types
 import GHC.Paths
+import Data.List
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]
 getPragmas f =
-      filter ((/= "Safe") . showExtension)
+    filter ((/= "Safe") . showExtension)
     . concat
     . fromRight []
     . sequence

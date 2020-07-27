@@ -5,12 +5,12 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, aeson, async, base, bytestring, Cabal
-      , cassava, containers, directory, ekg, extra, filepath
-      , generic-deriving, ghc, ghc-boot-th, ghc-paths, hashable, hie-bios
-      , hse-cpp, hspec, megaparsec, microlens-platform, monad-par
-      , MonadRandom, mtl, path, process, QuickCheck, random, regex, split
-      , stdenv, stm, syb, temporary, text, time, transformers, uniplate
-      , unix, word8
+      , cassava, containers, directory, edit-distance, ekg, extra
+      , filepath, generic-deriving, ghc, ghc-boot-th, ghc-paths, hashable
+      , hie-bios, hse-cpp, hspec, megaparsec, microlens-platform
+      , monad-par, MonadRandom, mtl, path, process, QuickCheck, random
+      , regex, split, stdenv, stm, syb, temporary, text, time
+      , transformers, uniplate, unix, word8
       }:
       mkDerivation {
         pname = "hsreduce";
@@ -19,11 +19,12 @@ let
         isLibrary = false;
         isExecutable = true;
         executableHaskellDepends = [
-          aeson async base bytestring Cabal cassava containers directory ekg
-          extra filepath generic-deriving ghc ghc-boot-th ghc-paths hashable
-          hie-bios hse-cpp hspec megaparsec microlens-platform monad-par
-          MonadRandom mtl path process QuickCheck random regex split stm syb
-          temporary text time transformers uniplate unix word8
+          aeson async base bytestring Cabal cassava containers directory
+          edit-distance ekg extra filepath generic-deriving ghc ghc-boot-th
+          ghc-paths hashable hie-bios hse-cpp hspec megaparsec
+          microlens-platform monad-par MonadRandom mtl path process
+          QuickCheck random regex split stm syb temporary text time
+          transformers uniplate unix word8
         ];
         license = stdenv.lib.licenses.bsd3;
       };
