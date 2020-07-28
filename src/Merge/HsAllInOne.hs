@@ -1,6 +1,5 @@
 module Merge.HsAllInOne (dieForGhcSins, hsmerge) where
 
-import Data.Bifunctor
 import Digraph 
 import System.Directory
 import Debug.Trace
@@ -73,14 +72,15 @@ hsmerge filePath = do
 
 
                     proposedChanges       <- liftIO $ do
-                        temp1 <- forM (universeBi renamedGroups) $ ambiguousField2ProposedChanged importsModuleNames ours
-                        temp2 <- forM (universeBi renamedGroups) $ field2ProposedChange importsModuleNames ours
+                        temp1 <- map (fmap snd) <$> (forM (universeBi renamedGroups) $ ambiguousField2ProposedChanged importsModuleNames ours)
+                        temp2 <- map (fmap snd) <$> (forM (universeBi renamedGroups) $ field2ProposedChange importsModuleNames ours)
 
-                        let drst = map ((fromJust . fromTo) . snd) $ filter (isJust . fromTo . snd) proposedNameChanges
+                        let drst = map (fmap (snd . fromJust . fromTo)) $ filter (isJust . fromTo . snd) proposedNameChanges
                         -- liftIO $ print $ oshow $ M.lookup "TextType" $ M.fromList $ map (first oshow) drst
                         -- liftIO $ print $ oshow $ M.lookup "P'.TextType" $ M.fromList $ map (first oshow) drst
 
-                        return . M.fromList . map (first oshow)$ drst <> temp1 <> temp2
+                        return . M.fromList $ drst <> temp1 <> temp2
+
                     
                     -- if 
                     --     (oshow . moduleName . ms_mod) modSum `elem` ["Text.Pandoc.Extensions", "Text.Pandoc.Data"]
@@ -216,37 +216,37 @@ tryShortenedModName imports mn =
             | otherwise = Nothing
         go _ _ Nothing  = Nothing
 
-ambiguousField2ProposedChanged :: [ModuleName] -> [ModuleName] -> AmbiguousFieldOcc GhcRn -> IO (RdrName, RdrName)
-ambiguousField2ProposedChanged imports ours (Unambiguous n (L _ rn))
-    | Just mn <- moduleName <$> nameModule_maybe n , mn `elem` ours = return (rn, Unqual $ mangle mn on)
+ambiguousField2ProposedChanged :: [ModuleName] -> [ModuleName] -> AmbiguousFieldOcc GhcRn -> IO (SrcSpan, (RdrName, RdrName))
+ambiguousField2ProposedChanged imports ours (Unambiguous n (L l rn))
+    | Just mn <- moduleName <$> nameModule_maybe n , mn `elem` ours = return (l, (rn, Unqual $ mangle mn on))
   
     | Just mn <- moduleName <$> nameModule_maybe n = do
         temp <- fromRight mn <$> findBestMatchingImport imports mn on
-        return (rn, Qual temp on)
+        return (l, (rn, Qual temp on))
   
     -- this seems to not be used for now
     -- | otherwise = Unambiguous n $ L l $ Unqual $ undefined
   where on = rdrNameOcc rn
-ambiguousField2ProposedChanged _ ours (Ambiguous _ (L _ rn@(Qual mn on)))
-    | mn `elem` ours = return (rn, Unqual $ mangle mn on)
+ambiguousField2ProposedChanged _ ours (Ambiguous _ (L l rn@(Qual mn on)))
+    | mn `elem` ours = return (l, (rn, Unqual $ mangle mn on))
 -- don't know what to do otherwise yet, let it crash for now
 ambiguousField2ProposedChanged _ _ _ = error "ambiguousField2ProposedChanged: incomplete pattern match"
 
 
-field2ProposedChange :: [ModuleName] -> [ModuleName] -> FieldOcc GhcRn -> IO (RdrName, RdrName)
-field2ProposedChange imports ours (FieldOcc n (L _ rn))
-    | Just mn <- moduleName <$> nameModule_maybe n , mn `elem` ours = return (rn, Unqual $ mangle mn on)
+field2ProposedChange :: [ModuleName] -> [ModuleName] -> FieldOcc GhcRn -> IO (SrcSpan, (RdrName, RdrName))
+field2ProposedChange imports ours (FieldOcc n (L l rn))
+    | Just mn <- moduleName <$> nameModule_maybe n , mn `elem` ours = return (l, (rn, Unqual $ mangle mn on))
     | Just mn <- moduleName <$> nameModule_maybe n = do
         temp <- fromRight mn <$> findBestMatchingImport imports mn on
-        return (rn, Qual temp on)
+        return (l, (rn, Qual temp on))
   where 
       on = rdrNameOcc rn
 field2ProposedChange _ _ _ = error "field2ProposedChange: incomplete pattern match"
 
 
-applyChange :: M.Map String RdrName -> RdrName -> RdrName
-applyChange m r = 
-    case M.lookup (oshow r) m of
+applyChange :: M.Map SrcSpan RdrName -> Located RdrName -> Located RdrName
+applyChange m (L l r) = 
+    L l $ case M.lookup l m of
         Nothing -> r
         Just g  -> g
 
