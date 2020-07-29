@@ -1,5 +1,7 @@
 module Merge.HsAllInOne (dieForGhcSins, hsmerge) where
 
+import Text.EditDistance
+import System.Process
 import Digraph 
 import System.Directory
 import Debug.Trace
@@ -191,12 +193,94 @@ name2ProposedChange imports ours n
 
 -- *** START OF CRAP CODE
 findBestMatchingImport :: [ModuleName] -> ModuleName -> OccName -> IO (Either ModuleName ModuleName)
-findBestMatchingImport imports mn _
-    | mn `elem` imports                              = return $ Right mn
-    | Just shortMN <- tryShortenedModName imports mn = return $ Right shortMN
-    | otherwise                                      = return $ Left mn -- getMyHoogleOn imports mn on
+findBestMatchingImport imports mn on
+    | mn `elem` imports     = return $ Right mn
+    | otherwise             = getMyHoogleOn imports mn on
+    -- | otherwise                                      = return . Left . mkModuleName . hiddenModule2KnownModule $ moduleNameString mn -- getMyHoogleOn imports mn on
+
     -- | otherwise = return . Right $ tryShortenedModName imports mn 
 
+-- | blessed be Neill Mitchell
+getMyHoogleOn :: [ModuleName] -> ModuleName -> OccName -> IO (Either ModuleName ModuleName)
+getMyHoogleOn imports defaultMN on = do
+    (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ (shell $ "hoogle --count=100 " <> oshow on)
+
+    let 
+        proposedMN              = map mkModuleName . map handleLines $ lines stdout
+        proposedMNinImports     = map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (moduleNameString defaultMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
+        shortenedName           = tryShortenedModName proposedMN defaultMN
+
+
+    marst <- hoogleModuleName imports (T.pack $ oshow defaultMN)
+
+    -- when (stdout == "No results found" && marst == Nothing) $ do
+    --     putStrLn ""
+    --     putStrLn ""
+    --     print $ oshow imports
+    --     print $ oshow defaultMN
+    --     print $ oshow on
+    --     print $ oshow proposedMN
+    --     print $ oshow proposedMNinImports 
+
+    return $ case () of 
+        _   
+            | stdout == "No results found", Just mn <- marst    -> Right mn
+            | stdout == "No results found"                      -> Left defaultMN
+            | not $ null proposedMNinImports                    -> Right $ head proposedMNinImports
+            | Just mn <- shortenedName                          -> Left mn
+            | otherwise                                         -> Left defaultMN
+
+handleLines = head . filter (`notElem` ["module", "class", "newtype"]) . words 
+
+hoogleModuleName :: [ModuleName] -> T.Text -> IO (Maybe ModuleName)
+hoogleModuleName imports goMN = do
+    (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ (shell $ "hoogle --count=100 " <> T.unpack goMN)
+
+
+    let 
+        proposedMN              = map mkModuleName . map handleLines $ lines stdout
+        proposedMNinImports     = map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (T.unpack goMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
+        goComponents            = modname2components goMN
+
+    -- putStrLn ""
+    -- putStrLn ""
+    -- print $ oshow imports
+    -- print $ goMN
+    -- print $ oshow proposedMN
+    -- print $ oshow proposedMNinImports 
+
+    case () of
+        _   
+            | stdout == "No results found"      -> return Nothing
+            | not $ null proposedMNinImports    -> return . Just $ head proposedMNinImports
+            | init goComponents /= []           -> hoogleModuleName imports (T.intercalate "." $ init goComponents)
+            | otherwise                         -> return Nothing
+
+tryShortenedModName :: [ModuleName] -> ModuleName -> Maybe ModuleName
+tryShortenedModName imports mn = 
+    fmap (mkModuleName . T.unpack) . foldr (go imports) (Just mnString) $ modname2components mnString
+  where 
+    mnString = T.pack $ moduleNameString mn
+
+    go goImports _ (Just goMN)
+        | (mkModuleName $ T.unpack goMN) `elem` goImports = Just goMN
+        | (init $ modname2components goMN) /= []          = Just . T.intercalate "." . init $ modname2components goMN
+        | otherwise = Nothing
+    go _ _ Nothing  = Nothing
+
+hiddenModule2KnownModule :: String -> String
+hiddenModule2KnownModule "Data.OldList"         = "Data.List"
+hiddenModule2KnownModule "Data.HashMap.Base"    = "Data.HashMap.Strict"
+-- hiddenModule2KnownModule "Data.Aeson.Types.ToJSON" = "Data.Aeson.Types"
+-- hiddenModule2KnownModule "Data.Aeson.Types.FromJSON" = "Data.Aeson.Types"
+-- hiddenModule2KnownModule "Data.Aeson.Types.Internal" = "Data.Aeson.Types"
+-- hiddenModule2KnownModule "Data.Semigroup.Internal" = "Data.Semigroup"
+-- hiddenModule2KnownModule "Data.Attoparsec.ByteString.Internal" = "Data.Attoparsec.ByteString"
+-- hiddenModule2KnownModule "GHC.Integer.Type" = "GHC.Integer"
+-- hiddenModule2KnownModule "Data.Typeable.Internal" = "Data.Typeable"
+hiddenModule2KnownModule s = s
+
+-- keep list of hidden module names and do automatic subsitution here
 
 -- tryShortenedModName :: [ModuleName] -> ModuleName -> ModuleName
 -- tryShortenedModName imports mn = imports !! i
@@ -204,17 +288,6 @@ findBestMatchingImport imports mn _
 --     mnString = moduleNameString mn
 --     i = fst . head . sortOn snd . zip [0..] $ map ((levenshteinDistance defaultEditCosts mnString) . moduleNameString) imports
 
-tryShortenedModName :: [ModuleName] -> ModuleName -> Maybe ModuleName
-tryShortenedModName imports mn = 
-    fmap (mkModuleName . T.unpack) . foldr (go imports) (Just mnString) $ modname2components mnString
-  where 
-        mnString = T.pack $ moduleNameString mn
-
-        go goImports _ (Just goMN)
-            | (mkModuleName $ T.unpack goMN) `elem` goImports = Just goMN
-            | (init $ modname2components goMN) /= []          = Just . T.intercalate "." . init $ modname2components goMN
-            | otherwise = Nothing
-        go _ _ Nothing  = Nothing
 
 ambiguousField2ProposedChanged :: [ModuleName] -> [ModuleName] -> AmbiguousFieldOcc GhcRn -> IO (SrcSpan, (RdrName, RdrName))
 ambiguousField2ProposedChanged imports ours (Unambiguous n (L l rn))
@@ -275,8 +348,8 @@ getModuleName = fmap moduleName . nameModule_maybe
 -- ***************************************************************************
 
 unqualFamEqn :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) -> FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs)
-unqualFamEqn (FamEqn _ n pats fixity rhs) 
-    | isQual (T.pack . oshow $ unLoc n) = FamEqn NoExt (unqualName <$> n) pats fixity rhs
+unqualFamEqn (FamEqn _ n bndrs pats fixity rhs) 
+    | isQual (T.pack . oshow $ unLoc n) = FamEqn NoExt (unqualName <$> n) bndrs pats fixity rhs
 unqualFamEqn f = f
 
 
