@@ -1,5 +1,6 @@
 module Reduce.Passes.Stubbing (fast, medium, slow, slowest) where
 
+import BasicTypes
 import GHC
 import Bag (bagToList, listToBag)
 import OccName (mkVarOcc, mkOccName, varName)
@@ -115,7 +116,10 @@ simplifyType UnitTypeP                                                         =
 simplifyType t@(ForallTypeP body)                                              = handleSubList fType pType t <> map const [body]
 simplifyType t@(QualTypeP body)                                                = handleSubList fType pType t <> map const [body]
 simplifyType (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = map const [t1]
+
+-- simplifyType at@HsAppTy{}                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
 simplifyType (HsAppTy _ (L l _)  u@(L _ (HsTupleTy _ _ [])))                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
+
 simplifyType (HsOpTy _ (L _ l) _ (L _ r))                                      = map const [l, r]
 simplifyType (HsKindSig _ (L _ t) _)                                           = map const [t]
 simplifyType _                                                                 = []
@@ -284,10 +288,10 @@ fExpr loc = \case
 
 simplifyExpr :: WaysToChange (HsExpr GhcPs)
 simplifyExpr (HsApp _ (L _ l) (L _ r))          = map const [l, r]
-simplifyExpr (HsAppType _ (L _ e))              = [const e]
+simplifyExpr (HsAppType _ (L _ e) _)              = [const e]
 simplifyExpr (OpApp _ _ (L _ l) (L _ r))        = map const [l, r]
 simplifyExpr (HsLet _ _ (L _ e))                = [const e]
-simplifyExpr (ExprWithTySig _ (L _ e))          = [const e]
+simplifyExpr (ExprWithTySig _ (L _ e) _)          = [const e]
 simplifyExpr (HsStatic _ (L _ e))               = [const e]
 simplifyExpr (HsArrApp _ (L _ l) (L _ r) _ _)   = map const [l, r]
 simplifyExpr (HsTick _ _ (L _ e))               = [const e]

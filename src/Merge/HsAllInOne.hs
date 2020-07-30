@@ -1,5 +1,7 @@
-module Merge.HsAllInOne (dieForGhcSins, hsmerge) where
+module Merge.HsAllInOne where
 
+import Control.Applicative
+import Data.Traversable
 import Text.EditDistance
 import System.Process
 import Digraph 
@@ -44,17 +46,18 @@ hsmerge filePath = do
     putStrLn . ("cradle: " <> ) $ show cradle
     
     getCompilerOptions filePath (cradle :: Cradle Void) >>= \case
-        CradleSuccess opts -> do
+        CradleSuccess opts ->
             void . runGhc (Just libdir) $ do
                 initSession opts >>= setTargets 
                 void $ load LoadAllTargets
 
                 mg <- getModuleGraph 
-                let modSums = concatMap flattenSCC $ topSortModuleGraph False mg Nothing 
 
-                let ours = map (moduleName . ms_mod) modSums
+                let 
+                    modSums     = concatMap flattenSCC $ topSortModuleGraph False mg Nothing 
+                    ours        = map (moduleName . ms_mod) modSums
 
-                missingImportsAndAnnotatedAST <- flip traverse modSums $ \modSum -> do
+                missingImportsAndAnnotatedAST <- for modSums $ \modSum -> do
 
                     t <- parseModule modSum >>= typecheckModule
                     
@@ -67,17 +70,20 @@ hsmerge filePath = do
                         temp <- name2ProposedChange importsModuleNames ours n
                         return (l, temp)
 
-                    let proposedImportsToAdd  = 
+                    let 
+                        proposedImportsToAdd  = 
                             map (\mn -> noLoc $ ImportDecl NoExt NoSourceText (noLoc mn) Nothing False False True False Nothing Nothing)
                             . catMaybes
                             $ map (importToAdd . snd) proposedNameChanges
 
 
                     proposedChanges       <- liftIO $ do
-                        temp1 <- map (fmap snd) <$> (forM (universeBi renamedGroups) $ ambiguousField2ProposedChanged importsModuleNames ours)
-                        temp2 <- map (fmap snd) <$> (forM (universeBi renamedGroups) $ field2ProposedChange importsModuleNames ours)
+                        temp1 <- map (fmap snd) <$> forM (universeBi renamedGroups) (ambiguousField2ProposedChanged importsModuleNames ours)
+                        temp2 <- map (fmap snd) <$> forM (universeBi renamedGroups) (field2ProposedChange importsModuleNames ours)
 
-                        let drst = map (fmap (snd . fromJust . fromTo)) $ filter (isJust . fromTo . snd) proposedNameChanges
+                        let 
+                            drst = map (fmap (snd . fromJust . fromTo)) $ filter (isJust . fromTo . snd) proposedNameChanges
+
                         -- liftIO $ print $ oshow $ M.lookup "TextType" $ M.fromList $ map (first oshow) drst
                         -- liftIO $ print $ oshow $ M.lookup "P'.TextType" $ M.fromList $ map (first oshow) drst
 
@@ -105,8 +111,7 @@ hsmerge filePath = do
                     liftIO 
                     . fmap (unlines . map show . nub) 
                     . getAllPragmas 
-                    . catMaybes 
-                    . map (fmap (\f -> if f == filePath then root <> "/" <> f else f) . ml_hs_file . ms_location) 
+                    . mapMaybe (fmap (\f -> if f == filePath then root <> "/" <> f else f) . ml_hs_file . ms_location) 
                     $ modSums
 
                 let 
@@ -136,20 +141,21 @@ name2ProposedChange imports ours n
     -- example: data cons renamed from T2 to T2_Main
     --   doesn't match in interestingness test matching on `fromList [T2, T2]`
     -- | (if "Text" `isInfixOf` oshow n then traceShow (oshow $ getModuleName n) . traceShow (oshow rn) . traceShow (os) . traceShow (oshow on) else id) $ showSDocUnsafe (pprNameUnqualified n) == "main"       = return $ Change Nothing Nothing 
-    | (if "TextType" `isInfixOf` oshow n then traceShow (oshow n) . traceShow (oshow rn) else id) $ showSDocUnsafe (pprNameUnqualified n) == "main"       = return $ Change Nothing Nothing 
+    | showSDocUnsafe (pprNameUnqualified n) == "main"       = return $ Change Nothing Nothing 
   
     -- built-in things
     | isSystemName    n                                     = return $ Change Nothing Nothing 
     | isBuiltInSyntax n                                     = return $ Change Nothing Nothing 
-    | isDataConName   n, isOperator $ tail os               = return $ Change Nothing Nothing 
+    -- | isDataConName   n, isOperator $ tail os         = return $ Change Nothing Nothing 
     | isWiredInName   n, isOperator . oshow $ getRdrName n  = return $ Change Nothing Nothing 
   
-    -- not our operator, leave unmodified
-    | isOperator . oshow $ getRdrName n, Just mn <- getModuleName n, mn `notElem` ours = return $ Change Nothing Nothing 
+    -- External operators should just be qualified 
+    -- -- not our operator, leave unmodified
+    -- | isOperator . oshow $ getRdrName n, Just mn <- getModuleName n, mn `notElem` ours = return $ Change Nothing Nothing 
 
     -- our operator
     | Just mn <- getModuleName n, isOperator . oshow $ getRdrName n, mn `elem` ours 
-    = return $ Change Nothing $ Just (rn, Unqual . mkOccName ns . renameOperator $ (os ++ filter (/= '.') (moduleNameString mn)))
+    = return $ Change Nothing $ Just (rn, Unqual . mkOccName ns $ head os : renameOperator (os ++ filter (/= '.') (moduleNameString mn)))
   
     -- our function / variable
     | Just mn <- getModuleName n, mn `elem` ours 
@@ -203,10 +209,10 @@ findBestMatchingImport imports mn on
 -- | blessed be Neill Mitchell
 getMyHoogleOn :: [ModuleName] -> ModuleName -> OccName -> IO (Either ModuleName ModuleName)
 getMyHoogleOn imports defaultMN on = do
-    (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ (shell $ "hoogle --count=100 " <> oshow on)
+    (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ shell $ "hoogle --count=100 " <> oshow on
 
     let 
-        proposedMN              = map mkModuleName . map handleLines $ lines stdout
+        proposedMN              = map mkModuleName $ handleLines (oshow on) stdout
         proposedMNinImports     = map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (moduleNameString defaultMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
         shortenedName           = tryShortenedModName proposedMN defaultMN
 
@@ -214,6 +220,7 @@ getMyHoogleOn imports defaultMN on = do
     marst <- hoogleModuleName imports (T.pack $ oshow defaultMN)
 
     -- when (stdout == "No results found" && marst == Nothing) $ do
+    -- when (oshow on == "Const") $ do
     --     putStrLn ""
     --     putStrLn ""
     --     print $ oshow imports
@@ -225,20 +232,35 @@ getMyHoogleOn imports defaultMN on = do
     return $ case () of 
         _   
             | stdout == "No results found", Just mn <- marst    -> Right mn
-            | stdout == "No results found"                      -> Left defaultMN
+            | stdout == "No results found"                      -> brst imports defaultMN on defaultMN
             | not $ null proposedMNinImports                    -> Right $ head proposedMNinImports
-            | Just mn <- shortenedName                          -> Left mn
-            | otherwise                                         -> Left defaultMN
+            | Just mn <- shortenedName                          -> brst imports defaultMN on mn
+            | otherwise                                         -> brst imports defaultMN on defaultMN
 
-handleLines = head . filter (`notElem` ["module", "class", "newtype"]) . words 
+brst imports defaultMN on mn
+    | oshow mn `elem` ["Data.Aeson.Types.FromJSON", "Data.Sequence.Internal", "Prelude.Compat"]  = traceShow (oshow imports) $ traceShow (oshow defaultMN) $ traceShow (oshow on) $ Left mn
+    | otherwise = Left mn
+
+-- convert the output from hoogle
+-- check all lines if the second or third word matches the search term
+handleLines :: String -> String -> [String]
+handleLines name s = 
+    map (head . filter (`notElem` ["module", "class", "newtype"]) . words) . nub $ secondWordMatches ls <> thirdWordMatches ls
+  where
+    ls                  = filter (/= "") $ lines s
+    secondWordMatches   = nthWordMatches name 2
+    thirdWordMatches    = nthWordMatches name 3
+
+nthWordMatches name n    = filter (liftA2 (&&) ((>= n) . length) ((== name) . (!! (n - 1))) . words)
+-- data Matches = MNothing | SecondMatches ModuleName | ThirdMatches ModuleName
 
 hoogleModuleName :: [ModuleName] -> T.Text -> IO (Maybe ModuleName)
 hoogleModuleName imports goMN = do
-    (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ (shell $ "hoogle --count=100 " <> T.unpack goMN)
+    (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ shell $ "hoogle --count=100 " <> T.unpack goMN
 
 
     let 
-        proposedMN              = map mkModuleName . map handleLines $ lines stdout
+        proposedMN              = map mkModuleName $ handleLines (T.unpack goMN) stdout
         proposedMNinImports     = map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (T.unpack goMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
         goComponents            = modname2components goMN
 
@@ -263,8 +285,8 @@ tryShortenedModName imports mn =
     mnString = T.pack $ moduleNameString mn
 
     go goImports _ (Just goMN)
-        | (mkModuleName $ T.unpack goMN) `elem` goImports = Just goMN
-        | (init $ modname2components goMN) /= []          = Just . T.intercalate "." . init $ modname2components goMN
+        | mkModuleName (T.unpack goMN) `elem` goImports = Just goMN
+        | init (modname2components goMN) /= []          = Just . T.intercalate "." . init $ modname2components goMN
         | otherwise = Nothing
     go _ _ Nothing  = Nothing
 
@@ -318,10 +340,7 @@ field2ProposedChange _ _ _ = error "field2ProposedChange: incomplete pattern mat
 
 
 applyChange :: M.Map SrcSpan RdrName -> Located RdrName -> Located RdrName
-applyChange m (L l r) = 
-    L l $ case M.lookup l m of
-        Nothing -> r
-        Just g  -> g
+applyChange m (L l r) = L l $ fromMaybe r (M.lookup l m)
 
 -- applyChange :: M.Map SrcSpan (RdrName -> RdrName) -> M.Map String RdrName -> Located RdrName -> Located RdrName
 -- applyChange m drst (L l r) = 
@@ -348,8 +367,8 @@ getModuleName = fmap moduleName . nameModule_maybe
 -- ***************************************************************************
 
 unqualFamEqn :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) -> FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs)
-unqualFamEqn (FamEqn _ n bndrs pats fixity rhs) 
-    | isQual (T.pack . oshow $ unLoc n) = FamEqn NoExt (unqualName <$> n) bndrs pats fixity rhs
+unqualFamEqn fe@FamEqn{}
+    | isQual (T.pack . oshow $ unLoc $ feqn_tycon fe) = fe { feqn_tycon = unqualName <$> feqn_tycon fe }
 unqualFamEqn f = f
 
 
@@ -392,7 +411,7 @@ removeImports :: [ModuleName] -> [LImportDecl p] -> [LImportDecl p]
 removeImports ours = filter go
   where
       go (L _ i) = let modName = unLoc . ideclName $ i
-                   in  modName `notElem` ours && ("Prelude" /= (moduleNameString modName))
+                   in  modName `notElem` ours && "Prelude" /= moduleNameString modName
 
 
 -- | too naive check if something is an operator
@@ -424,14 +443,14 @@ randomOpString = do
 -- CABAL FILE UTILITIES
 -- ***************************************************************************
 getAllPragmas :: [FilePath] -> IO [Pragma]
-getAllPragmas = fmap concat . mapM getPragmas . map (\f -> fromMaybe (error $ "could not parse path as absolute file: " <> f) $ parseAbsFile f)
+getAllPragmas = fmap concat . mapM (getPragmas . (\f -> fromMaybe (error $ "could not parse path as absolute file: " <> f) $ parseAbsFile f))
 
 -- ***************************************************************************
 -- CLEANING UP
 -- ***************************************************************************
 fastCleanUp :: Tool -> Path Abs File -> IO ()
-fastCleanUp tool sourcePath = do
-    cleanUp tool Indent sourcePath
+fastCleanUp tool =
+    cleanUp tool Indent 
 --    cleanUp tool MissingImport sourcePath -- add imports
 --    cleanUp tool HiddenImport sourcePath  -- clean up imports
 --    cleanUp tool NotInScope sourcePath       -- clean up uses of hidden modules
@@ -455,32 +474,31 @@ cleanUp tool mode sourcePath = do
     
                 newFileContent = case mode of
     
-                    Indent -> foldr insertIndent fileContent . map (fmap span2Locs) $ rightSpans
+                    Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
     
                     MissingImport -> 
                         let contentLines = T.lines fileContent
                             prefix = T.unlines $ takeWhile (not . ("import qualified" `T.isPrefixOf`)) contentLines
                             suffix = T.unlines $ dropWhile (not . ("import qualified" `T.isPrefixOf`)) contentLines
                         in
-                            prefix <> (T.unlines . map ("import qualified " <>) . map (trace'' "cleanUp" show) . nub . map fst $ rightSpans) <> suffix
+                            prefix <> (T.unlines . map (("import qualified " <>) . trace'' "cleanUp" show) . nub . map fst $ rightSpans) <> suffix
     
                     HiddenImport ->
                         T.unlines 
-                        . map (\(i, l) -> 
-                                let myLines = (map (\(m, s) -> (m, srcLocLine . fst . span2Locs $ s)) rightSpans) 
+                        . zipWith (\i l -> 
+                                let myLines = map (fmap (srcLocLine . fst . span2Locs)) rightSpans 
                                 in 
                                     if  i `elem` map snd myLines && "import qualified" `T.isPrefixOf` l 
                                     then 
                                         let wl      = T.words l 
                                             modName = fst . head $ filter ((==i) . snd) myLines
-                                        in traceShow ("Changing " <> last wl <> " to " <> modName <> " at line " <> (T.pack $ show i)) . T.unwords $ init wl <> [modName] 
+                                        in traceShow ("Changing " <> last wl <> " to " <> modName <> " at line " <> T.pack (show i)) . T.unwords $ init wl <> [modName] 
                                     else 
-                                        l) 
-                        . zip [1..]
+                                        l) [1..]
                         . T.lines 
                         $ fileContent
                 
-                    _ -> foldr replaceWithGhcOutput fileContent . map (fmap span2Locs) $ rightSpans
+                    _ -> foldr (replaceWithGhcOutput . fmap span2Locs) fileContent rightSpans
     
             TIO.writeFile (fromAbsFile sourcePath) newFileContent
             when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
@@ -512,7 +530,7 @@ replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
 
 insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 insertIndent (_, (startLoc, _)) fileContent =
-    T.unlines $ prevLines ++ [traceShow ("inserting indent at line " <> show (currentIndex + 1)) $ newLineContent] ++ succLines
+    T.unlines $ prevLines ++ [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] ++ succLines
   where
       contentLines   = T.lines fileContent
       lineStart      = srcLocLine startLoc
