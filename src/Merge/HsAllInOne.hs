@@ -73,6 +73,7 @@ hsmerge filePath = do
                     let 
                         proposedImportsToAdd  = 
                             map (\mn -> noLoc $ ImportDecl NoExt NoSourceText (noLoc mn) Nothing False False True False Nothing Nothing)
+                            . (mkModuleName "Prelude" :)
                             . catMaybes
                             $ map (importToAdd . snd) proposedNameChanges
 
@@ -163,7 +164,13 @@ name2ProposedChange imports ours n
 
     -- something external
     | Just mn <- getModuleName n, mn `notElem` stuffFromBase = findBestMatchingImport imports mn on >>= \case
-        Left  newMN  -> return $ Change (Just newMN) $ Just (rn, Qual newMN on)
+        Left  newMN  -> do
+            when (oshow newMN `elem` ["Prelude.Compat"]) $ do
+                print $ oshow imports
+                print $ oshow mn
+                print $ oshow on
+
+            return $ Change (Just newMN) $ Just (rn, Qual newMN on)
         Right newMN  -> return $ Change Nothing $ Just (rn, Qual newMN on)
 
     -- qualifying things from base to avoid people importing those modules aliased
@@ -206,35 +213,36 @@ findBestMatchingImport imports mn on
 
     -- | otherwise = return . Right $ tryShortenedModName imports mn 
 
--- | blessed be Neill Mitchell
 getMyHoogleOn :: [ModuleName] -> ModuleName -> OccName -> IO (Either ModuleName ModuleName)
 getMyHoogleOn imports defaultMN on = do
     (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ shell $ "hoogle --count=100 " <> oshow on
 
     let 
-        proposedMN              = map mkModuleName $ handleLines (oshow on) stdout
-        proposedMNinImports     = map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (moduleNameString defaultMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
+        proposedMN              = handleLines Nothing defaultMN (oshow on) stdout
+        proposedMNinImports     = handleLines (Just imports) defaultMN (oshow on) stdout
         shortenedName           = tryShortenedModName proposedMN defaultMN
 
 
-    marst <- hoogleModuleName imports (T.pack $ oshow defaultMN)
+    marst <- hoogleModuleName (Just imports) (T.pack $ oshow defaultMN)
+    mbrst <- hoogleModuleName Nothing (T.pack $ oshow defaultMN)
 
     -- when (stdout == "No results found" && marst == Nothing) $ do
     -- when (oshow on == "Const") $ do
-    --     putStrLn ""
-    --     putStrLn ""
-    --     print $ oshow imports
-    --     print $ oshow defaultMN
-    --     print $ oshow on
-    --     print $ oshow proposedMN
-    --     print $ oshow proposedMNinImports 
+    -- putStrLn ""
+    -- putStrLn "getMyHoogleOn"
+    -- print $ oshow imports
+    -- print $ oshow defaultMN
+    -- print $ oshow on
+    -- print $ oshow proposedMN
+    -- print $ oshow proposedMNinImports 
 
     return $ case () of 
         _   
             | stdout == "No results found", Just mn <- marst    -> Right mn
-            | stdout == "No results found"                      -> brst imports defaultMN on defaultMN
+            | stdout == "No results found", Just mn <- mbrst    -> Left mn -- brst imports defaultMN on defaultMN
             | not $ null proposedMNinImports                    -> Right $ head proposedMNinImports
-            | Just mn <- shortenedName                          -> brst imports defaultMN on mn
+            | Just crst <- mbrst                                -> Left crst
+            -- | Just mn <- shortenedName                          -> brst imports defaultMN on mn
             | otherwise                                         -> brst imports defaultMN on defaultMN
 
 brst imports defaultMN on mn
@@ -243,39 +251,46 @@ brst imports defaultMN on mn
 
 -- convert the output from hoogle
 -- check all lines if the second or third word matches the search term
-handleLines :: String -> String -> [String]
-handleLines name s = 
-    map (head . filter (`notElem` ["module", "class", "newtype"]) . words) . nub $ secondWordMatches ls <> thirdWordMatches ls
+-- order 
+handleLines :: Maybe [ModuleName] -> ModuleName -> String -> String -> [ModuleName]
+handleLines mimports defaultMN name s = 
+    map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (moduleNameString defaultMN) . oshow $ i)) 
+    . (case mimports of
+        Nothing         -> id
+        Just imports    -> filter (`elem` imports))
+    . map (mkModuleName . head . filter (`notElem` ["module", "class", "newtype"]) . words) . nub $ secondWordMatches ls <> thirdWordMatches ls
   where
-    ls                  = filter (/= "") $ lines s
-    secondWordMatches   = nthWordMatches name 2
-    thirdWordMatches    = nthWordMatches name 3
+    ls                      = filter (/= "") $ lines s
+    nthWordMatches name n   = filter (liftA2 (&&) ((>= n) . length) ((== name) . (!! (n - 1))) . words)
+    secondWordMatches       = nthWordMatches name 2
+    thirdWordMatches        = nthWordMatches name 3
 
-nthWordMatches name n    = filter (liftA2 (&&) ((>= n) . length) ((== name) . (!! (n - 1))) . words)
--- data Matches = MNothing | SecondMatches ModuleName | ThirdMatches ModuleName
 
-hoogleModuleName :: [ModuleName] -> T.Text -> IO (Maybe ModuleName)
-hoogleModuleName imports goMN = do
+hoogleModuleName :: Maybe [ModuleName] -> T.Text -> IO (Maybe ModuleName)
+hoogleModuleName mimports goMN = do
     (_, stdout, _) <- flip readCreateProcessWithExitCode "" $ shell $ "hoogle --count=100 " <> T.unpack goMN
 
-
     let 
-        proposedMN              = map mkModuleName $ handleLines (T.unpack goMN) stdout
-        proposedMNinImports     = map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (T.unpack goMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
+        mnS                     = T.unpack goMN
+        proposedMNinImports     = handleLines mimports (mkModuleName mnS) mnS stdout
         goComponents            = modname2components goMN
+        -- proposedMN              = handleLines (T.unpack goMN) stdout
+        -- proposedMNinImports     = case mimports of 
+        --     Nothing         -> proposedMN
+        --     Just imports    -> map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (T.unpack goMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
 
     -- putStrLn ""
-    -- putStrLn ""
-    -- print $ oshow imports
+    -- putStrLn "hoogleModuleName"
+    -- print $ oshow mimports
     -- print $ goMN
-    -- print $ oshow proposedMN
+    -- -- print $ oshow proposedMN
     -- print $ oshow proposedMNinImports 
 
     case () of
         _   
             | stdout == "No results found"      -> return Nothing
             | not $ null proposedMNinImports    -> return . Just $ head proposedMNinImports
-            | init goComponents /= []           -> hoogleModuleName imports (T.intercalate "." $ init goComponents)
+            | init goComponents /= []           -> hoogleModuleName mimports (T.intercalate "." $ init goComponents)
             | otherwise                         -> return Nothing
 
 tryShortenedModName :: [ModuleName] -> ModuleName -> Maybe ModuleName
