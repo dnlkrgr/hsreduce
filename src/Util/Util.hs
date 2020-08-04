@@ -1,5 +1,6 @@
 module Util.Util where
 
+import Data.Char
 import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM
@@ -418,6 +419,10 @@ lshow = showSDocUnsafe . ppr . unLoc
 trace' :: Show a => a -> a
 trace' a = traceShow a a
 
+-- | too naive check if something is an operator
+-- TODO: use syntax from Haskell2010 report
+isOperator :: String -> Bool
+isOperator = not . any isAlphaNum
 
 
 -- realFloor :: T.Text

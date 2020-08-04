@@ -86,6 +86,8 @@ executable hsreduce
         Parser.Parser
         Reduce.Passes.Stubbing
         Reduce.Passes.DataTypes
+        Reduce.Passes.Names
+        Reduce.Passes.Functions
         Reduce.Passes.RemoveUnused.Decls
         Reduce.Passes.RemoveUnused.Imports
         Reduce.Passes.RemoveUnused.Exports

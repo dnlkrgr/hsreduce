@@ -14,7 +14,6 @@ import Name
 import RdrName hiding (isQual, mkUnqual, mkQual)
 import Control.Monad.Extra
 import Control.Monad.Random
-import Data.Char
 import Data.Hashable
 import Data.List
 import GHC hiding (GhcMode, extensions)
@@ -204,14 +203,10 @@ name2ProposedChange imports ours n
                 , "GHC.Base" ]
 
 
--- *** START OF CRAP CODE
 findBestMatchingImport :: [ModuleName] -> ModuleName -> OccName -> IO (Either ModuleName ModuleName)
 findBestMatchingImport imports mn on
     | mn `elem` imports     = return $ Right mn
     | otherwise             = getMyHoogleOn imports mn on
-    -- | otherwise                                      = return . Left . mkModuleName . hiddenModule2KnownModule $ moduleNameString mn -- getMyHoogleOn imports mn on
-
-    -- | otherwise = return . Right $ tryShortenedModName imports mn 
 
 getMyHoogleOn :: [ModuleName] -> ModuleName -> OccName -> IO (Either ModuleName ModuleName)
 getMyHoogleOn imports defaultMN on = do
@@ -225,16 +220,6 @@ getMyHoogleOn imports defaultMN on = do
 
     marst <- hoogleModuleName (Just imports) (T.pack $ oshow defaultMN)
     mbrst <- hoogleModuleName Nothing (T.pack $ oshow defaultMN)
-
-    -- when (stdout == "No results found" && marst == Nothing) $ do
-    -- when (oshow on == "Const") $ do
-    -- putStrLn ""
-    -- putStrLn "getMyHoogleOn"
-    -- print $ oshow imports
-    -- print $ oshow defaultMN
-    -- print $ oshow on
-    -- print $ oshow proposedMN
-    -- print $ oshow proposedMNinImports 
 
     return $ case () of 
         _   
@@ -274,17 +259,6 @@ hoogleModuleName mimports goMN = do
         mnS                     = T.unpack goMN
         proposedMNinImports     = handleLines mimports (mkModuleName mnS) mnS stdout
         goComponents            = modname2components goMN
-        -- proposedMN              = handleLines (T.unpack goMN) stdout
-        -- proposedMNinImports     = case mimports of 
-        --     Nothing         -> proposedMN
-        --     Just imports    -> map fst . sortOn snd . map (\i -> (i, levenshteinDistance defaultEditCosts (T.unpack goMN) . oshow $ i)) $ filter (`elem` imports) proposedMN
-
-    -- putStrLn ""
-    -- putStrLn "hoogleModuleName"
-    -- print $ oshow mimports
-    -- print $ goMN
-    -- -- print $ oshow proposedMN
-    -- print $ oshow proposedMNinImports 
 
     case () of
         _   
@@ -304,26 +278,6 @@ tryShortenedModName imports mn =
         | init (modname2components goMN) /= []          = Just . T.intercalate "." . init $ modname2components goMN
         | otherwise = Nothing
     go _ _ Nothing  = Nothing
-
-hiddenModule2KnownModule :: String -> String
-hiddenModule2KnownModule "Data.OldList"         = "Data.List"
-hiddenModule2KnownModule "Data.HashMap.Base"    = "Data.HashMap.Strict"
--- hiddenModule2KnownModule "Data.Aeson.Types.ToJSON" = "Data.Aeson.Types"
--- hiddenModule2KnownModule "Data.Aeson.Types.FromJSON" = "Data.Aeson.Types"
--- hiddenModule2KnownModule "Data.Aeson.Types.Internal" = "Data.Aeson.Types"
--- hiddenModule2KnownModule "Data.Semigroup.Internal" = "Data.Semigroup"
--- hiddenModule2KnownModule "Data.Attoparsec.ByteString.Internal" = "Data.Attoparsec.ByteString"
--- hiddenModule2KnownModule "GHC.Integer.Type" = "GHC.Integer"
--- hiddenModule2KnownModule "Data.Typeable.Internal" = "Data.Typeable"
-hiddenModule2KnownModule s = s
-
--- keep list of hidden module names and do automatic subsitution here
-
--- tryShortenedModName :: [ModuleName] -> ModuleName -> ModuleName
--- tryShortenedModName imports mn = imports !! i
---   where
---     mnString = moduleNameString mn
---     i = fst . head . sortOn snd . zip [0..] $ map ((levenshteinDistance defaultEditCosts mnString) . moduleNameString) imports
 
 
 ambiguousField2ProposedChanged :: [ModuleName] -> [ModuleName] -> AmbiguousFieldOcc GhcRn -> IO (SrcSpan, (RdrName, RdrName))
@@ -356,14 +310,6 @@ field2ProposedChange _ _ _ = error "field2ProposedChange: incomplete pattern mat
 
 applyChange :: M.Map SrcSpan RdrName -> Located RdrName -> Located RdrName
 applyChange m (L l r) = L l $ fromMaybe r (M.lookup l m)
-
--- applyChange :: M.Map SrcSpan (RdrName -> RdrName) -> M.Map String RdrName -> Located RdrName -> Located RdrName
--- applyChange m drst (L l r) = 
---     L l $ case M.lookup l m of
---         Nothing -> case M.lookup (oshow r) drst of
---             Nothing -> r
---             Just g  -> g
---         Just f  -> f r
 
           
 mangle :: ModuleName -> OccName -> OccName
@@ -428,11 +374,6 @@ removeImports ours = filter go
       go (L _ i) = let modName = unLoc . ideclName $ i
                    in  modName `notElem` ours && "Prelude" /= moduleNameString modName
 
-
--- | too naive check if something is an operator
--- TODO: use syntax from Haskell2010 report
-isOperator :: String -> Bool
-isOperator = not . any isAlphaNum
 
 renameOperator :: String -> String
 renameOperator = evalRand randomOpString . mkStdGen . hash

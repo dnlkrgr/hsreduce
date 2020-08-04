@@ -250,8 +250,6 @@ expr2Undefined e
     | otherwise                 = []
 
 filterExprSubList :: WaysToChange (HsExpr GhcPs)
-filterExprSubList (SingleCase body)                  = map const [body]
-filterExprSubList (HsIf _ _ _ (L _ ls) (L _ rs))     = map const [ls, rs]
 filterExprSubList e@RecordUpd{}                      = handleSubList fExpr pExpr e
 filterExprSubList e@RecordCon{}                      = handleSubList fExpr pExpr e
 filterExprSubList e@ExplicitTuple{}                  = handleSubList fExpr pExpr e
@@ -287,11 +285,13 @@ fExpr loc = \case
 
 
 simplifyExpr :: WaysToChange (HsExpr GhcPs)
+simplifyExpr (SingleCase body)                  = map const [body]
+simplifyExpr (HsIf _ _ _ (L _ ls) (L _ rs))     = map const [ls, rs]
 simplifyExpr (HsApp _ (L _ l) (L _ r))          = map const [l, r]
-simplifyExpr (HsAppType _ (L _ e) _)              = [const e]
+simplifyExpr (HsAppType _ (L _ e) _)            = [const e]
 simplifyExpr (OpApp _ _ (L _ l) (L _ r))        = map const [l, r]
 simplifyExpr (HsLet _ _ (L _ e))                = [const e]
-simplifyExpr (ExprWithTySig _ (L _ e) _)          = [const e]
+simplifyExpr (ExprWithTySig _ (L _ e) _)        = [const e]
 simplifyExpr (HsStatic _ (L _ e))               = [const e]
 simplifyExpr (HsArrApp _ (L _ l) (L _ r) _ _)   = map const [l, r]
 simplifyExpr (HsTick _ _ (L _ e))               = [const e]

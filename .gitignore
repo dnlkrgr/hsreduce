@@ -47,3 +47,4 @@ Bug
 hsreduce_timing.csv
 hsreduce_statistics.csv
 hsreduce_performance.csv
+Bug.stale.hs

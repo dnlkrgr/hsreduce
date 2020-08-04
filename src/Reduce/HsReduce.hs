@@ -29,6 +29,8 @@ import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.RemoveUnused.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
 import qualified Reduce.Passes.DataTypes as DataTypes (inlineType)
+import qualified Reduce.Passes.Names as Names (shortenNames)
+import qualified Reduce.Passes.Functions as Functions (reduce)
 
 hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
 hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
@@ -126,6 +128,8 @@ snail = do
     Stubbing.slowest
     Parameters.reduce
     DataTypes.inlineType
+    Names.shortenNames
+    Functions.reduce
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

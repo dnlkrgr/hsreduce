@@ -1,5 +1,6 @@
 module Util.Types where
 
+import Data.Word8
 import Data.List
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -85,12 +86,13 @@ emptyStats :: Statistics
 emptyStats = Statistics M.empty
 
 data RState = RState
-    { _pragmas      :: [Pragma]
-    , _parsed       :: ParsedSource
-    , _renamed      :: Maybe RenamedSource
-    , _typechecked  :: Maybe TypecheckedSource
-    , _isAlive      :: Bool
-    , _statistics   :: Statistics 
+    { _pragmas          :: [Pragma]
+    , _parsed           :: ParsedSource
+    , _renamed          :: Maybe RenamedSource
+    , _typechecked      :: Maybe TypecheckedSource
+    , _isAlive          :: Bool
+    , _statistics       :: Statistics 
+    , _numRenamedNames  :: Word8
     }
 makeLenses ''RState
 
@@ -112,8 +114,8 @@ newtype R a = R (ReaderT RConf IO a)
 
 
 showState :: RState -> T.Text
-showState (RState []    ps _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _)   =
+showState (RState []    ps _ _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _ _ _)   =
     T.unlines
     $ ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
     : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]

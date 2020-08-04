@@ -85,8 +85,8 @@ parse justParse includeDirs srcDirs fileName = do
     prags <- getPragmas fileName
   
     case et of
-      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False emptyStats
-      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False emptyStats
+      Left _  -> return $ RState prags (parsedSource p) Nothing Nothing False emptyStats 0
+      Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False emptyStats 0
 
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum

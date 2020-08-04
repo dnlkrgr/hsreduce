@@ -30,6 +30,7 @@ pattern ConDeclP constrName args <- L _ (ConDeclH98 _ (L _ constrName) _ _ _ (Pr
 pattern TyVarP :: RdrName -> LHsType GhcPs
 pattern TyVarP name <- L _ (HsTyVar _ _ (L _ name))
 
+
 inlineTypeHelper :: (RdrName, RdrName, Maybe RdrName) -> R ()
 inlineTypeHelper (nn, argName, mConstrName) = do
     conf     <- ask
@@ -47,10 +48,9 @@ inlineTypeHelper (nn, argName, mConstrName) = do
         True  -> liftIO . atomically $ do
             writeTVar (_tState conf) newState
  
-            updateStatistics_ conf "rmvUnusedParams" True sizeDiff
+            updateStatistics_ conf "inlineType" True sizeDiff
 
-        False -> liftIO $ updateStatistics conf "rmvUnusedParams" False 0
- 
+        False -> liftIO $ updateStatistics conf "inlineType" False 0
 
 handleTypes :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
 handleTypes newtypeName argName t@(HsTyVar x p (L l tyvarName)) 
