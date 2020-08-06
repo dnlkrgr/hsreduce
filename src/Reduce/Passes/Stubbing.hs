@@ -81,10 +81,6 @@ simplifyDeriving = handleSubList f p
     p = map getLoc
     f loc = filter ((/= loc) . getLoc)
 
-unIB :: HsImplicitBndrs pass thing -> thing
-unIB (HsIB _ b) = b
-unIB _ = error "Stubbing:unIB - trying to work with NoExt"
-
 simplifyDerivingClause :: WaysToChange (HsDerivingClause GhcPs)
 simplifyDerivingClause = handleSubList f p
   where
@@ -94,6 +90,10 @@ simplifyDerivingClause = handleSubList f p
     -- f :: SrcSpan -> HsDerivingClause GhcPs -> HsDerivingClause GhcPs
     f loc  (HsDerivingClause x s t)= HsDerivingClause x s (filter ((/= loc) . getLoc . unIB) <$> t)
     f _  d = d
+
+unIB :: HsImplicitBndrs pass thing -> thing
+unIB (HsIB _ b) = b
+unIB _ = error "Stubbing:unIB - trying to work with NoExt"
 
 
 -- ***************************************************************************
@@ -124,9 +124,6 @@ simplifyType (HsOpTy _ (L _ l) _ (L _ r))                                      =
 simplifyType (HsKindSig _ (L _ t) _)                                           = map const [t]
 simplifyType _                                                                 = []
 
-pattern UnitTypeP :: HsType GhcPs
-pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
-
 pType :: HsType p -> [SrcSpan]
 pType = \case
     (HsForAllTy _ bndrs _) -> map getLoc bndrs
@@ -146,7 +143,7 @@ fType loc = \case
 simplifyConDecl :: WaysToChange (ConDecl GhcPs)
 simplifyConDecl gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) = map const [gadtDecl{ con_forall = L forallLoc False}, gadtDecl{ con_mb_cxt = Nothing}]
 simplifyConDecl d
-    | isRecCon d = handleSubList f p d <> [const (d { con_args = recCon2Prefix $ con_args d})]
+    | isRecCon d = handleSubList f p d -- <> [const (d { con_args = recCon2Prefix $ con_args d})]
     | otherwise  = []
   where
     isRecCon    = (\case
@@ -165,10 +162,6 @@ simplifyConDecl d
             RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
             a                 -> a }
 
-recCon2Prefix :: HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs]) 
-              -> HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs])
-recCon2Prefix (RecCon rec) = PrefixCon . map (cd_fld_type . unLoc) $ unLoc rec
-recCon2Prefix c = c
 
 -- ***************************************************************************
 -- BINDS

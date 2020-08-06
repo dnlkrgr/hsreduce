@@ -93,6 +93,7 @@ data RState = RState
     , _isAlive          :: Bool
     , _statistics       :: Statistics 
     , _numRenamedNames  :: Word8
+    , _numRmvdArgs      :: Word8
     }
 makeLenses ''RState
 
@@ -114,8 +115,8 @@ newtype R a = R (ReaderT RConf IO a)
 
 
 showState :: RState -> T.Text
-showState (RState []    ps _ _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _ _)   =
+showState (RState []    ps _ _ _ _ _ _)   = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _ _ _ _)   =
     T.unlines
     $ ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
     : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]

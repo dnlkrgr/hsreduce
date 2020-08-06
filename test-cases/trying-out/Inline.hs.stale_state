@@ -1,0 +1,4 @@
+module Arst (
+    ) where
+data Arst a b = Arst a b | Brst b
+Arst undefined _ `e` Arst _ undefined = undefined

@@ -10,6 +10,7 @@ import GHC
 import Util.Types
 import Util.Util
 
+
 reduce :: R ()
 reduce = do
     printInfo "rmvUnusedParams"
@@ -18,22 +19,28 @@ reduce = do
 
     forM_ [ (funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast] rmvUnusedParams_
 
+
 rmvUnusedParams_ :: (RdrName,  MatchGroup GhcPs (LHsExpr GhcPs)) -> R ()
 rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
     case matchgroup2WildPatPositions funMG of
         Nothing        -> return ()
         Just (n, is)   -> do
             conf     <- ask
-            oldState <- liftIO . readTVarIO $ _tState conf
-            let oldAST = oldState ^. parsed
+
+            liftIO $ atomically $ modifyTVar (_tState conf) $ \s -> s & numRmvdArgs .~ 0
 
             forM_ is $ \i -> do
+                oldState <- liftIO . readTVarIO $ _tState conf
+
                 let 
+                    oldAST          = oldState ^. parsed
+                    newI            = i - fromIntegral (oldState ^. numRmvdArgs)
+
                     proposedChanges :: [ParsedSource -> ParsedSource]
                     proposedChanges = 
-                           [ transformBi $ overwriteAtLoc l (rmvWildPatExpr n i) 
-                           | L l e <- universeBi oldAST, exprContainsFunId funId e ]
-                        <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes i) 
+                           [ transformBi $ overwriteAtLoc l (rmvArgsFromExpr funId n i) 
+                           | L l e <- universeBi oldAST, exprContainsId funId e ]
+                        <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes newI) 
                            | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST
                            , sigContainsFunId funId s ]
                         <> [ transformBi (overwriteAtLoc matchesLoc (rmvWildPatMatch i))]
@@ -42,7 +49,11 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
 
                 let 
                     sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-                    newState    = oldState & parsed .~ newAST & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
+                    newState    = 
+                        oldState 
+                            & parsed .~ newAST 
+                            & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
+                            & numRmvdArgs +~ 1
  
                 liftIO (tryNewValue conf newState) >>= \case
                     True  -> liftIO . atomically $ do
@@ -60,16 +71,9 @@ rmvWildPatTypes 1 (HsFunTy _ _ (L _ t)) = t
 rmvWildPatTypes i (HsFunTy x a lt)      = HsFunTy x a (rmvWildPatTypes (i-1) <$> lt)
 rmvWildPatTypes _ t                     = t
 
--- n: total number of patterns
--- i: index of pattern we wish to remove
-rmvWildPatExpr :: Int -> Int -> HsExpr GhcPs -> HsExpr GhcPs
-rmvWildPatExpr n i (HsApp x la@(L _ a) b)
-    | n == i            = a
-    | otherwise         = HsApp x (rmvWildPatExpr (n-1) i <$> la) b
-rmvWildPatExpr _ _ e    = e
 
 rmvWildPatMatch  :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
-rmvWildPatMatch  i mg = [ L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg ]
+rmvWildPatMatch i mg = [ L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg ]
   where
     f = map snd . filter ((== i) . fst) . zip [1..]
 
@@ -90,8 +94,3 @@ match2WildPatPositions m = (length pats, map fst . filter (p . unLoc . snd) $ zi
 sigContainsFunId :: RdrName -> Sig GhcPs -> Bool
 sigContainsFunId n (TypeSig _ ids _)    = n `elem` map unLoc ids
 sigContainsFunId _ _                    = False
-
-exprContainsFunId :: RdrName -> HsExpr GhcPs -> Bool
-exprContainsFunId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
-exprContainsFunId n (HsApp _ (L _ e) _)                 = exprContainsFunId n e
-exprContainsFunId _ _                                   = False

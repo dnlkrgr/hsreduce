@@ -1,0 +1,8 @@
+module Arst where
+import Control.Monad as ASDF
+crst :: Brst -> Brst
+crst a = reverse a
+brst :: Arst -> ()
+brst (Arst n) = arst () ()
+arst :: () -> () -> ()
+arst _ _ = undefined

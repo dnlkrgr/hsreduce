@@ -28,9 +28,9 @@ import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
 import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.RemoveUnused.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
-import qualified Reduce.Passes.DataTypes as DataTypes (inlineType)
+import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Reduce.Passes.Names as Names (shortenNames)
-import qualified Reduce.Passes.Functions as Functions (reduce)
+import qualified Reduce.Passes.Functions as Functions (inline)
 
 hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
 hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
@@ -90,6 +90,7 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
     appendFile "hsreduce_performance.csv" $ show perfStats
     LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
 
+
 allActions :: R ()
 allActions =
     forM_ passes $ \pass -> do
@@ -126,10 +127,11 @@ slowest = do
 snail :: R ()
 snail = do
     Stubbing.slowest
-    Parameters.reduce
-    DataTypes.inlineType
     Names.shortenNames
-    Functions.reduce
+    Parameters.reduce
+    DataTypes.inline
+    Functions.inline
+    DataTypes.rmvConArgs
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

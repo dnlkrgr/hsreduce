@@ -35,6 +35,28 @@ import qualified Data.Text.IO as TIO
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 
+tryNewState :: String -> (RState -> RState) -> R ()
+tryNewState passId f = do 
+    conf        <- ask
+    oldState    <- liftIO . atomically $ readTVar (_tState conf)
+
+    let 
+        oldAST      = _parsed oldState
+        newState    = f oldState
+        newAST      = _parsed newState
+        isASTNew    = oshow oldAST /= oshow newAST
+        sizeDiff    = length (lshow oldAST) - length (lshow $ newAST)
+
+    when isASTNew $ do
+        liftIO (tryNewValue conf newState) >>= \case
+            True  -> liftIO . atomically $ do
+                writeTVar (_tState conf) $ newState & isAlive .~ (oldState ^. isAlive || isASTNew)
+ 
+                updateStatistics_ conf passId True sizeDiff
+
+
+            False -> liftIO $ updateStatistics conf passId False 0
+
 
 runPass :: Data a => String -> WaysToChange a -> R ()
 runPass name pass = do
@@ -103,7 +125,7 @@ tryToApplyChange name oldAST c oldConf oldState = do
 
 
 updateStatistics :: RConf -> String -> Bool -> Int -> IO ()
-updateStatistics conf name success dB = atomically $ updateStatistics_ conf name success dB
+updateStatistics conf name success sizeDiff = atomically $ updateStatistics_ conf name success sizeDiff
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -113,13 +135,13 @@ updateStatistics conf name success dB = atomically $ updateStatistics_ conf name
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
 updateStatistics_ :: RConf -> String -> Bool -> Int -> STM ()
-updateStatistics_ conf name success dB = do
+updateStatistics_ conf name success sizeDiff = do
     let 
         i = if success 
             then 1 
             else 0
         bytesRemoved = if success
-            then dB
+            then sizeDiff
             else 0
 
     modifyTVar (_tState conf) $ \s ->
@@ -423,6 +445,28 @@ trace' a = traceShow a a
 -- TODO: use syntax from Haskell2010 report
 isOperator :: String -> Bool
 isOperator = not . any isAlphaNum
+
+pattern UnitTypeP :: HsType GhcPs
+pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
+
+-- delete at Index i, starting from 1 not from 0
+delete :: Int -> [a] -> [a]
+delete i as = take (i-1) as <> drop i as
+
+exprContainsId :: RdrName -> HsExpr GhcPs -> Bool
+exprContainsId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
+exprContainsId n (HsApp _ (L _ e) _)                 = exprContainsId n e
+exprContainsId _ _                                   = False
+
+-- n: total number of patterns
+-- i: index of pattern we wish to remove
+rmvArgsFromExpr :: RdrName -> Int -> Int -> HsExpr GhcPs -> HsExpr GhcPs
+rmvArgsFromExpr conId n i e@(HsApp x la@(L _ a) b)
+    | exprContainsId conId e, n == i     = a
+    | exprContainsId conId e             = HsApp x (rmvArgsFromExpr conId (n-1) i <$> la) b
+    | otherwise = e
+rmvArgsFromExpr _ _ _ e    = e
+
 
 
 -- realFloor :: T.Text

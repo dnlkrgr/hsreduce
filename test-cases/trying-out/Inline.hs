@@ -1,7 +1,11 @@
-module Arst where
+module Inline where
 
-a _ = undefined
+data Arst = Arst String
 
-b x = a x
+type Brst = Int
 
-c x = b x
+f :: Arst -> ()
+f (Arst "arst") = ()
+
+g :: Brst -> ()
+g 3 = ()

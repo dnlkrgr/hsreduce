@@ -31,7 +31,7 @@ slow = do
 
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
     runPass "simplifyDecl" (simplifyDecl mUnusedBinds)
-
+    runPass "recCon2Prefix"          recCon2Prefix
 
 -- ***************************************************************************
 -- SIGNATURES
@@ -99,6 +99,14 @@ simplifyDecl _ t@(TyClD {}) =
           (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) -> TyClD NoExt oDD { tcdDataDefn = oldDataDefn { dd_cons = filter ((/= loc) . getLoc) (dd_cons oldDataDefn)}}
           d                                            -> d
 simplifyDecl _ _ = []
+
+
+-- ***************************************************************************
+-- RECORD CON
+-- ***************************************************************************
+recCon2Prefix :: WaysToChange (HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs]))
+recCon2Prefix (RecCon rec) = [const (PrefixCon . map (cd_fld_type . unLoc) $ unLoc rec)]
+recCon2Prefix _ = []
 
 
 -- ***************************************************************************

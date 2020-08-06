@@ -1,4 +1,4 @@
-module Reduce.Passes.DataTypes (inlineType) where
+module Reduce.Passes.DataTypes (inline, rmvConArgs) where
 
 import Control.Concurrent.STM
 import Lens.Micro.Platform
@@ -10,9 +10,98 @@ import GHC
 import Util.Types
 import Util.Util
 
-inlineType :: R ()
-inlineType = do
-    printInfo "inlineType"
+
+rmvConArgs :: R ()
+rmvConArgs = do
+    printInfo "rmvConArgs"
+
+    conf <- ask
+    ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
+
+    -- data decls / newtypes / type synonyms
+    forM_ 
+        ([ (constrName, map unLoc args) | PrefixConP constrName args :: LConDecl GhcPs <- universeBi ast ] 
+        <> [ (constrName, map (unLoc . cd_fld_type . unLoc) args) | RecConP constrName args :: LConDecl GhcPs <- universeBi ast ]) 
+        rmvConArgsHelper
+
+pattern PrefixConP :: RdrName -> [LBangType GhcPs] -> LConDecl GhcPs
+pattern PrefixConP constrName args <- L _ (ConDeclH98 _ (L _ constrName) _ _ _ (PrefixCon args) _)
+
+pattern RecConP :: RdrName -> [LConDeclField GhcPs] -> LConDecl GhcPs
+pattern RecConP constrName args <- L _ (ConDeclH98 _ (L _ constrName) _ _ _ (RecCon (L _ args)) _)
+
+pattern TyVarP :: RdrName -> LHsType GhcPs
+pattern TyVarP name <- L _ (HsTyVar _ _ (L _ name))
+
+-- TODO: change this
+rmvConArgsHelper :: (RdrName,  [a]) -> R ()
+rmvConArgsHelper (conId, args) = do
+    conf     <- ask
+    let is      = [1 .. length args] -- args2UnitPositions args
+
+    liftIO $ atomically $ modifyTVar (_tState conf) $ \s -> s & numRmvdArgs .~ 0
+
+    forM_ is $ \i -> do
+        oldState <- liftIO . readTVarIO $ _tState conf
+
+        let 
+            oldAST  = oldState ^. parsed
+
+            newI        = i - fromIntegral (oldState ^. numRmvdArgs)
+            newAST      = 
+                transformBi (rmvArgsFromExpr conId (length args) i) 
+                . transformBi (rmvArgsFromPat conId newI) 
+                . transformBi (rmvArgsFromConDecl conId newI) 
+                $ oldAST
+
+            newState    = 
+                oldState 
+                    & parsed        .~ newAST 
+                    & isAlive       .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
+                    & numRmvdArgs   +~ 1
+
+            sizeDiff    = length (lshow oldAST) - length (lshow $ newAST)
+
+        liftIO (tryNewValue conf newState) >>= \case
+            True  -> liftIO . atomically $ do
+                writeTVar (_tState conf) newState
+ 
+                updateStatistics_ conf "rmvConArgs" True sizeDiff
+
+
+            False -> liftIO $ updateStatistics conf "rmvConArgs" False 0
+
+rmvArgsFromConDecl :: RdrName -> Int -> ConDecl GhcPs -> ConDecl GhcPs
+rmvArgsFromConDecl conId i c@(ConDeclH98 x n fa tvs ctxt (PrefixCon args) doc) 
+    | conId == unLoc n = ConDeclH98 x n fa tvs ctxt (PrefixCon $ delete i args) doc
+    | otherwise = c
+rmvArgsFromConDecl conId i c@(ConDeclH98 x n fa tvs ctxt (RecCon (L l args)) doc) 
+    | conId == unLoc n = ConDeclH98 x n fa tvs ctxt (RecCon . L l $ delete i args) doc
+    | otherwise = c
+rmvArgsFromConDecl _ _ c = c
+
+
+rmvArgsFromPat :: RdrName -> Int -> Pat GhcPs -> Pat GhcPs
+rmvArgsFromPat constrName n p@(ConPatIn (L l name) (PrefixCon args)) 
+    | constrName == name    = ConPatIn (L l name) (PrefixCon $ delete n args )
+    | otherwise             = p
+rmvArgsFromPat _ _ p = p
+
+-- args2UnitPositions :: [BangType GhcPs] -> [Int]
+-- args2UnitPositions = map fst . filter snd . map (fmap isUnit) . zip [0..]
+--   where 
+--     isUnit UnitTypeP    = True
+--     isUnit _            = False
+
+
+
+
+-- ***************************************************************************
+-- INLINE TYPE
+-- ***************************************************************************
+inline :: R ()
+inline = do
+    printInfo "inline"
 
     conf <- ask
     ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
@@ -20,46 +109,29 @@ inlineType = do
     -- data decls / newtypes / type synonyms
     forM_ 
         ([ (unLoc newtypeName, argName, Just constrName) 
-        | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [ConDeclP constrName [TyVarP argName]] _ )   :: TyClDecl GhcPs <- universeBi ast]
+        | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [PrefixConP constrName [TyVarP argName]] _ )   :: TyClDecl GhcPs <- universeBi ast]
         <> [ (unLoc newtypeName, argName, Nothing) | SynDecl _ newtypeName _ _ (TyVarP argName)         :: TyClDecl GhcPs <- universeBi ast])
         inlineTypeHelper
 
-pattern ConDeclP :: RdrName -> [LBangType GhcPs] -> LConDecl GhcPs
-pattern ConDeclP constrName args <- L _ (ConDeclH98 _ (L _ constrName) _ _ _ (PrefixCon args) _)
-
-pattern TyVarP :: RdrName -> LHsType GhcPs
-pattern TyVarP name <- L _ (HsTyVar _ _ (L _ name))
-
-
 inlineTypeHelper :: (RdrName, RdrName, Maybe RdrName) -> R ()
 inlineTypeHelper (nn, argName, mConstrName) = do
-    conf     <- ask
-    oldState <- liftIO . readTVarIO $ _tState conf
+    tryNewState 
+        "inline" 
+        (parsed %~ \oldAST -> 
+            (case mConstrName of
+                Nothing             -> id
+                Just constrName     -> transformBi (inlineTypeAtPat constrName)) 
+            . transformBi (inlineTypeAtType nn argName) 
+            $ oldAST)
 
-    let 
-        oldAST      = oldState ^. parsed
-        newAST      = (case mConstrName of
-            Nothing             -> id
-            Just constrName     -> transformBi (handlePatterns constrName)) $ transformBi (handleTypes nn argName) oldAST
-        sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-        newState    = oldState & parsed .~ newAST & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
- 
-    liftIO (tryNewValue conf newState) >>= \case
-        True  -> liftIO . atomically $ do
-            writeTVar (_tState conf) newState
- 
-            updateStatistics_ conf "inlineType" True sizeDiff
-
-        False -> liftIO $ updateStatistics conf "inlineType" False 0
-
-handleTypes :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
-handleTypes newtypeName argName t@(HsTyVar x p (L l tyvarName)) 
+inlineTypeAtType :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
+inlineTypeAtType newtypeName argName t@(HsTyVar x p (L l tyvarName)) 
     | newtypeName == tyvarName  = HsTyVar x p (L l argName)
     | otherwise                 = t
-handleTypes _ _ t = t
+inlineTypeAtType _ _ t = t
 
-handlePatterns :: RdrName -> Pat GhcPs -> Pat GhcPs
-handlePatterns constrName p@(ConPatIn (L _ name) (PrefixCon [arg])) 
+inlineTypeAtPat :: RdrName -> Pat GhcPs -> Pat GhcPs
+inlineTypeAtPat constrName p@(ConPatIn (L _ name) (PrefixCon [arg])) 
     | constrName == name    = unLoc arg
     | otherwise             = p
-handlePatterns _ p = p
+inlineTypeAtPat _ p = p
