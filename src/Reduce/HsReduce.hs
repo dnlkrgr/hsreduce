@@ -12,12 +12,9 @@ import Control.Monad
 import Control.Monad.Reader
 import Data.Maybe
 import Data.Time
-import Distribution.Simple.Utils (copyDirectoryRecursive)
-import Distribution.Verbosity
 import Parser.Parser
 import Path
 import System.Directory
-import System.Posix.Files
 import Util.Types
 import Util.Util
 import qualified Data.Text as T
@@ -52,23 +49,18 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
         oldSize         =  T.length fileContent
         files           = [test, filePath]
 
+
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
     -- 3. copy all necessary files into the temp dir
     -- 4. write the temp dir name into the channel
     tChan <- atomically newTChan
     forM_ [1 .. numberOfThreads] $ \_ ->  do
-        t <- createTempDirectory "/tmp" "hsreduce"
+        t <- createTempDirectory (fromAbsDir sourceDir) "hsreduce"
 
         tempDir <- parseAbsDir t
 
-        forM_ files $ \iterFile -> do
-            let oldPath = fromAbsFile $ sourceDir </> iterFile
-            status      <- getFileStatus oldPath
-
-            if isDirectory status
-            then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
-            else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+        forM_ files $ \f -> copyFile (fromAbsFile $ sourceDir </> f) (fromAbsFile $ tempDir </> filename f)
 
         atomically $ writeTChan tChan tempDir
 
@@ -102,6 +94,11 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
 
     appendFile "hsreduce_performance.csv" $ show perfStats
     LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
+
+
+    forM_ [1 .. numberOfThreads] $ \_ -> do
+        t <- atomically $ readTChan tChan
+        removeDirectoryRecursive $ fromAbsDir t
 
 
 allActions :: R ()

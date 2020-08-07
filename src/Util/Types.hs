@@ -103,8 +103,6 @@ data RConf = RConf
     , _numberOfThreads :: Int
     , _tempDirs        :: TChan (Path Abs Dir)
     , _tState          :: TVar RState
-    -- , _tAST            :: TVar ParsedSource
-    -- , _tAlive          :: TVar Bool
     }
 
 runR :: RConf -> R a -> IO a

@@ -149,6 +149,11 @@ testAndUpdateStateFlex conf a b newState =
             sourceFile = tempDir </> _sourceFile conf
             test       = tempDir </> _test conf
 
+        print sourceFile
+        print test
+
+        print =<< (doesPathExist $ fromAbsDir tempDir)
+        print =<< (doesFileExist $ fromAbsFile test)
 
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
             Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
@@ -162,6 +167,9 @@ runTest :: Path Abs File -> Word -> IO Interesting
 runTest test duration = do
     let dirName  = parent   test
     let testName = filename test
+
+    print "runTest"
+    print testName
 
     (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
          Nothing -> do
