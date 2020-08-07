@@ -35,7 +35,7 @@ pattern AppP :: RdrName -> HsExpr GhcPs
 pattern AppP n <- HsApp _ (L _ (HsVar _ (L _ n))) _
 
 inlineFunction :: (RdrName,  Located [LMatch GhcPs (LHsExpr GhcPs)]) -> R ()
-inlineFunction (funName, lmatches) = tryNewState "inlineFunctions" (parsed %~ transformBi (inlineFunctionHelper funName lmatches))
+inlineFunction (funName, lmatches) = liftIO . tryNewState "inlineFunctions" (parsed %~ transformBi (inlineFunctionHelper funName lmatches)) =<< ask
 
 inlineFunctionHelper :: RdrName -> Located [LMatch GhcPs (LHsExpr GhcPs)] -> HsExpr GhcPs -> HsExpr GhcPs
 inlineFunctionHelper funName (L l2 lmatches) old@(HsApp _ (L l1 (HsVar _ (L _ n))) expr)

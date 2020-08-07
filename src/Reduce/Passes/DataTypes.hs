@@ -115,14 +115,14 @@ inline = do
 
 inlineTypeHelper :: (RdrName, RdrName, Maybe RdrName) -> R ()
 inlineTypeHelper (nn, argName, mConstrName) = do
-    tryNewState 
+    liftIO . tryNewState
         "inlineType" 
         (parsed %~ \oldAST -> 
             (case mConstrName of
                 Nothing             -> id
                 Just constrName     -> transformBi (inlineTypeAtPat constrName)) 
             . transformBi (inlineTypeAtType nn argName) 
-            $ oldAST)
+            $ oldAST) =<< ask
 
 inlineTypeAtType :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
 inlineTypeAtType newtypeName argName t@(HsTyVar x p (L l tyvarName)) 

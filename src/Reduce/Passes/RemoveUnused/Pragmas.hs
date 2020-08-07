@@ -16,4 +16,5 @@ reduce = do
     forM_ (_pragmas oldState) tryToRemovePragma 
 
 tryToRemovePragma :: Pragma -> R ()
-tryToRemovePragma pragmaToTry = tryNewState "pragmas" (pragmas %~ filter (/= pragmaToTry))
+tryToRemovePragma pragmaToTry =
+    liftIO . tryNewState "pragmas" (pragmas %~ filter (/= pragmaToTry)) =<< ask

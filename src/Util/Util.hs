@@ -35,26 +35,36 @@ import qualified Data.Text.IO as TIO
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 
-tryNewState :: String -> (RState -> RState) -> R ()
-tryNewState passId f = do 
-    conf        <- ask
+
+
+tryNewState :: String -> (RState -> RState) -> RConf -> IO ()
+tryNewState passId f conf = do 
     oldState    <- liftIO . atomically $ readTVar (_tState conf)
 
     let 
-        oldAST      = _parsed oldState
+        oldAST      = oldState ^. parsed
         newState    = f oldState
-        newAST      = _parsed newState
-        isASTNew    = oshow oldAST /= oshow newAST
+        isStateNew  = showState oldState /= showState newState
         sizeDiff    = T.length (showState oldState) - T.length (showState newState)
 
-    when isASTNew $
-        liftIO (tryNewValue conf newState) >>= \case
-            True  -> liftIO . atomically $ do
-                writeTVar (_tState conf) $ newState & isAlive .~ (oldState ^. isAlive || isASTNew)
- 
-                updateStatistics_ conf passId True sizeDiff
+    b  <- tryNewValue conf newState
 
-            False -> liftIO $ updateStatistics conf passId False 0
+    if isStateNew && b then do
+        success <- atomically $ do
+            currentCommonAST <- _parsed <$> (readTVar $ _tState conf)
+
+            -- is the AST we worked still the same?
+            if (oshow oldAST == oshow currentCommonAST) 
+                then do
+                    writeTVar (_tState conf) newState
+                    updateStatistics_ conf passId True sizeDiff
+                    return True
+                else
+                    return False
+
+        unless success $ tryNewState passId f conf
+    else
+        updateStatistics conf passId False 0        
 
 
 runPass :: Data a => String -> WaysToChange a -> R ()
@@ -73,7 +83,7 @@ runPass name pass = do
 
 applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
 applyInterestingChanges name proposedChanges = do
-    oldConf         <- ask
+    conf         <- ask
     numberOfThreads <- asks _numberOfThreads
 
     let
@@ -95,36 +105,8 @@ applyInterestingChanges name proposedChanges = do
     liftIO . forConcurrently_ batches $ \batch -> do
 
         -- within a thread check out all the changes
-        forM_ batch $ \c -> tryToApplyChange name c oldConf
+        forM_ batch $ \c -> tryNewState name (parsed %~ transformBi c) conf
 
-
-tryToApplyChange :: Data a => String -> (Located a -> Located a) -> RConf -> IO ()
-tryToApplyChange name c oldConf = do
-    oldState <- readTVarIO (_tState oldConf)
-
-    let 
-        oldAST      = _parsed oldState
-        newAST      = transformBi c oldAST
-        sizeDiff    = length (oshow oldAST) - length (oshow newAST)
-
-    b  <- tryNewValue oldConf (oldState { _parsed = newAST})
-
-    if (oshow oldAST /= oshow newAST) && b then do
-        success <- atomically $ do
-            currentCommonAST <- _parsed <$> (readTVar $ _tState oldConf)
-
-            -- is the AST we worked still the same?
-            if (oshow oldAST == oshow currentCommonAST) 
-                then do
-                    writeTVar (_tState oldConf) $ oldState & parsed .~ newAST & isAlive .~ True 
-                    updateStatistics_ oldConf name True sizeDiff
-                    return True
-                else
-                    return False
-
-        unless success $ tryToApplyChange name c oldConf
-    else
-        updateStatistics oldConf name False 0        
 
 
 updateStatistics :: RConf -> String -> Bool -> Int -> IO ()

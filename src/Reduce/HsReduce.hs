@@ -32,8 +32,8 @@ import qualified Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Passes.Names as Names (shortenNames)
 import qualified Passes.Functions as Functions (inline)
 
-hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
-hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
+hsreduce :: Int -> FilePath -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
+hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
     putStrLn "*******************************************************"
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
@@ -72,7 +72,9 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
     updateStatistics beginConf "formatting" True (oldSize - T.length (showState beginState))
 
     -- run the reducing functions
-    void $ runR beginConf allActions
+    case mAction of
+        Nothing -> void $ runR beginConf allActions
+        Just oneAction -> void $ runR beginConf oneAction
     newState <- readTVarIO tState
 
     -- handling of the result and outputting useful information
@@ -130,7 +132,7 @@ slowest = do
 snail :: R ()
 snail = do
     Stubbing.slowest
-    Names.shortenNames
+    -- Names.shortenNames -- currently broken
     Parameters.reduce
     DataTypes.inline
     Functions.inline

@@ -12,6 +12,7 @@ import Outputable
 import BasicTypes
 import TcEvidence
 import CoreSyn
+import Debug.Trace
 
 fast :: R ()
 fast = do
@@ -30,8 +31,8 @@ slow = do
     printInfo "Removing unused declarations"
 
     mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
-    runPass "simplifyDecl" (simplifyDecl mUnusedBinds)
-    runPass "recCon2Prefix"          recCon2Prefix
+    runPass "simplifyDecl"  (simplifyDecl $ traceShow (show mUnusedBinds) mUnusedBinds)
+    runPass "recCon2Prefix" recCon2Prefix
 
 -- ***************************************************************************
 -- SIGNATURES
@@ -76,7 +77,7 @@ getName _ = Nothing
 simplifyDecl :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
 simplifyDecl (Just bns) (TypeSigDeclP ids swt) =
     let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
-    in [const (TypeSigDeclX newFunIds swt)]
+    in [const (TypeSigDeclX (traceShow (oshow newFunIds) newFunIds) swt)]
 simplifyDecl _ (FunDeclP fid loc mtchs mo fw ft) =
     let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
     in [const (FunDeclP fid loc nMtchs mo fw ft)]

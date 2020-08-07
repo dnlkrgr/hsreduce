@@ -26,14 +26,16 @@ shortenNames = do
 
 shortenNamesHelper :: OccName -> R ()
 shortenNamesHelper n = do
-    tryNewState "shortenNames" $ \oldState -> 
+    liftIO 
+    . (tryNewState "shortenNames" $ \oldState -> 
         let newState = 
                 oldState 
                     & parsed %~ transformBi (\otherN -> if oshow otherN == oshow n then shortenName (oldState ^. numRenamedNames) n else otherN)
                     & numRenamedNames +~ 1 
         in if showState newState < showState oldState
             then newState
-            else oldState
+            else oldState) 
+    =<< ask
 
 shortenName :: Word8 -> OccName -> OccName
 shortenName m n 
