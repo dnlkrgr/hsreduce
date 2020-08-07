@@ -1,4 +1,4 @@
-module Reduce.Passes.RemoveUnused.Parameters (reduce) where
+module Passes.RemoveUnused.Parameters (reduce) where
 
 import Control.Concurrent.STM
 import Lens.Micro.Platform

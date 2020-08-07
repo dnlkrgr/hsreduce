@@ -1,4 +1,4 @@
-module Reduce.Passes.Names (shortenNames) where
+module Passes.Names (shortenNames) where
 
 import Data.Word8 hiding (isUpper, isLower, toUpper)
 import Lens.Micro.Platform

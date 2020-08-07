@@ -45,15 +45,14 @@ tryNewState passId f = do
         newState    = f oldState
         newAST      = _parsed newState
         isASTNew    = oshow oldAST /= oshow newAST
-        sizeDiff    = length (lshow oldAST) - length (lshow $ newAST)
+        sizeDiff    = T.length (showState oldState) - T.length (showState newState)
 
-    when isASTNew $ do
+    when isASTNew $
         liftIO (tryNewValue conf newState) >>= \case
             True  -> liftIO . atomically $ do
                 writeTVar (_tState conf) $ newState & isAlive .~ (oldState ^. isAlive || isASTNew)
  
                 updateStatistics_ conf passId True sizeDiff
-
 
             False -> liftIO $ updateStatistics conf passId False 0
 
@@ -75,7 +74,6 @@ runPass name pass = do
 applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
 applyInterestingChanges name proposedChanges = do
     oldConf         <- ask
-    oldState        <- liftIO . atomically . readTVar $ _tState oldConf
     numberOfThreads <- asks _numberOfThreads
 
     let
@@ -97,29 +95,34 @@ applyInterestingChanges name proposedChanges = do
     liftIO . forConcurrently_ batches $ \batch -> do
 
         -- within a thread check out all the changes
-        forM_ batch $ \c -> tryToApplyChange name (_parsed oldState) c oldConf oldState
+        forM_ batch $ \c -> tryToApplyChange name c oldConf
 
 
-tryToApplyChange :: Data a => String -> ParsedSource -> (Located a -> Located a) -> RConf -> RState -> IO ()
-tryToApplyChange name oldAST c oldConf oldState = do
-    let newAST = transformBi c oldAST
+tryToApplyChange :: Data a => String -> (Located a -> Located a) -> RConf -> IO ()
+tryToApplyChange name c oldConf = do
+    oldState <- readTVarIO (_tState oldConf)
+
+    let 
+        oldAST      = _parsed oldState
+        newAST      = transformBi c oldAST
+        sizeDiff    = length (oshow oldAST) - length (oshow newAST)
 
     b  <- tryNewValue oldConf (oldState { _parsed = newAST})
 
     if (oshow oldAST /= oshow newAST) && b then do
-        (success, currentCommonAST) <- atomically $ do
+        success <- atomically $ do
             currentCommonAST <- _parsed <$> (readTVar $ _tState oldConf)
 
             -- is the AST we worked still the same?
             if (oshow oldAST == oshow currentCommonAST) 
                 then do
-                    writeTVar (_tState oldConf) $ oldState { _isAlive = True, _parsed = newAST }
-                    updateStatistics_ oldConf name True (length (oshow oldAST) - length (oshow newAST))
-                    return (True, currentCommonAST)
+                    writeTVar (_tState oldConf) $ oldState & parsed .~ newAST & isAlive .~ True 
+                    updateStatistics_ oldConf name True sizeDiff
+                    return True
                 else
-                    return (False, currentCommonAST)
+                    return False
 
-        unless success $ tryToApplyChange name currentCommonAST c oldConf oldState
+        unless success $ tryToApplyChange name c oldConf
     else
         updateStatistics oldConf name False 0        
 
@@ -140,14 +143,13 @@ updateStatistics_ conf name success sizeDiff = do
         i = if success 
             then 1 
             else 0
-        bytesRemoved = if success
-            then sizeDiff
-            else 0
+
+    -- (if sizeDiff < 0 then traceShow ("sizeDiff: " <> show sizeDiff) else id) $ return ()
 
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
-            Nothing                   -> Just $ PassStats name i 1 bytesRemoved
-            Just (PassStats _ n d r)  -> Just $ PassStats name (n + i) (d + 1) (r + bytesRemoved)
+            Nothing                   -> Just $ PassStats name i 1 sizeDiff
+            Just (PassStats _ n d r)  -> Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
 
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a

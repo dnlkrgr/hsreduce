@@ -10,12 +10,12 @@ import Test.Hspec
 -- import Test.QuickCheck
 
 import Util.Util
-import Reduce.HsReduce (hsreduce)
-import qualified Reduce.Passes.RemoveUnused.Imports as Imports
-import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas
-import qualified Reduce.Passes.RemoveUnused.Exports as Exports
-import qualified Reduce.Passes.RemoveUnused.Decls   as Decls
-import qualified Reduce.Passes.Stubbing             as Stubbing
+import HsReduce (hsreduce)
+import qualified Passes.RemoveUnused.Imports as Imports
+import qualified Passes.RemoveUnused.Pragmas as Pragmas
+import qualified Passes.RemoveUnused.Exports as Exports
+import qualified Passes.RemoveUnused.Decls   as Decls
+import qualified Passes.Stubbing             as Stubbing
 
 -- main :: IO ()
 -- main = do

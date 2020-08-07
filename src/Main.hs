@@ -1,7 +1,7 @@
 module Main where
 
 import System.Environment
-import Reduce.HsReduce
+import HsReduce
 
 main :: IO ()
 main = getArgs >>= \case

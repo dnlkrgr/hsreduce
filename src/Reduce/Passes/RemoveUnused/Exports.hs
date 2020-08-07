@@ -1,4 +1,4 @@
-module Reduce.Passes.RemoveUnused.Exports (reduce) where
+module Passes.RemoveUnused.Exports (reduce) where
 
 import Control.Concurrent.STM
 import Control.Monad.State.Strict

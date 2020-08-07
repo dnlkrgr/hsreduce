@@ -1,4 +1,4 @@
-module Reduce.Passes.RemoveUnused.Imports (reduce) where
+module Passes.RemoveUnused.Imports (reduce) where
 
 import Util.Types
 import Util.Util

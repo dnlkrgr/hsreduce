@@ -30,14 +30,14 @@ data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
 
 data Performance = Performance
     { _day              :: Day
-    , _origSize         :: Int
-    , _endSize          :: Int
-    , _ratio            :: Int
+    , _origSize         :: Word8
+    , _endSize          :: Word8
+    , _ratio            :: Word8
     , _startTime        :: UTCTime
     , _endTime          :: UTCTime
     , _duration         :: DiffTime
-    , _capabilities     :: Int
-    , _threads          :: Int
+    , _capabilities     :: Word8
+    , _threads          :: Word8
     }
 
 instance Show Performance where
@@ -52,12 +52,12 @@ instance Show Performance where
             , show _ratio 
             ] <> "\n"
 
-mkPerformance :: Int -> Int -> UTCTime -> UTCTime -> Int -> IO Performance
+mkPerformance :: Word8 -> Word8 -> UTCTime -> UTCTime -> Word8 -> IO Performance
 mkPerformance oldSize newSize t1 t2 n = do
-    c <- getNumCapabilities
+    c <- fromIntegral <$> getNumCapabilities
     return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
   where 
-    ratio       = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Int
+    ratio       = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word8
     offset      = 
         if utctDayTime t2 < utctDayTime t1
         then 86401
@@ -67,8 +67,8 @@ mkPerformance oldSize newSize t1 t2 n = do
 
 data PassStats = PassStats 
     { _passName             :: String
-    , _successfulAttempts   :: Int
-    , _totalAttempts        :: Int
+    , _successfulAttempts   :: Word8
+    , _totalAttempts        :: Word8
     , _removedBytes         :: Int 
     }
     deriving (Generic, Show)

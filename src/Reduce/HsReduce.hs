@@ -1,4 +1,4 @@
-module Reduce.HsReduce
+module HsReduce
   ( hsreduce
   )
 where
@@ -6,7 +6,7 @@ where
 import qualified Data.Map as M
 import qualified Data.ByteString.Lazy as LBS
 import Data.Csv
-import "temporary" System.IO.Temp (createTempDirectory)
+import System.IO.Temp (createTempDirectory)
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
@@ -22,15 +22,15 @@ import Util.Types
 import Util.Util
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Reduce.Passes.RemoveUnused.Decls   as Decls (fast, slow)
-import qualified Reduce.Passes.RemoveUnused.Exports as Exports (reduce)
-import qualified Reduce.Passes.RemoveUnused.Imports as Imports (reduce)
-import qualified Reduce.Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Reduce.Passes.RemoveUnused.Parameters as Parameters (reduce)
-import qualified Reduce.Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
-import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
-import qualified Reduce.Passes.Names as Names (shortenNames)
-import qualified Reduce.Passes.Functions as Functions (inline)
+import qualified Passes.RemoveUnused.Decls   as Decls (fast, slow)
+import qualified Passes.RemoveUnused.Exports as Exports (reduce)
+import qualified Passes.RemoveUnused.Imports as Imports (reduce)
+import qualified Passes.RemoveUnused.Pragmas as Pragmas (reduce)
+import qualified Passes.RemoveUnused.Parameters as Parameters (reduce)
+import qualified Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
+import qualified Passes.DataTypes as DataTypes (inline, rmvConArgs)
+import qualified Passes.Names as Names (shortenNames)
+import qualified Passes.Functions as Functions (inline)
 
 hsreduce :: Int -> FilePath -> FilePath -> FilePath -> IO ()
 hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) = do
@@ -45,7 +45,6 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
     files               <- listDirectory (fromAbsDir sourceDir)
     t1                  <- getCurrentTime
     tState              <- atomically $ newTVar beginState
-
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -68,8 +67,12 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
 
         atomically $ writeTChan tChan tempDir
 
+    -- recording the size diff of formatting
+    let beginConf       = (RConf test filePath numberOfThreads tChan tState)
+    updateStatistics beginConf "formatting" True (oldSize - T.length (showState beginState))
+
     -- run the reducing functions
-    void $ runR (RConf test filePath numberOfThreads tChan tState) allActions
+    void $ runR beginConf allActions
     newState <- readTVarIO tState
 
     -- handling of the result and outputting useful information
@@ -85,7 +88,7 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
 
     t2 <- getCurrentTime
     
-    perfStats <- mkPerformance oldSize newSize t1 t2 numberOfThreads
+    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
 
     appendFile "hsreduce_performance.csv" $ show perfStats
     LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState

@@ -1,4 +1,4 @@
-module Reduce.Passes.Stubbing (fast, medium, slow, slowest) where
+module Passes.Stubbing (fast, medium, slow, slowest) where
 
 import BasicTypes
 import GHC

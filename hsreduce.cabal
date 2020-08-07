@@ -1,160 +1,135 @@
+cabal-version:       3.0
 name:                hsreduce
 version:             0.1.0.0
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 build-type:          Simple
 extra-source-files:  ChangeLog.md
-cabal-version:       >=1.10
 
-executable hsmerge
-    main-is: Main.hs
-    other-modules:
-        Merge.HsAllInOne
-        Parser.Parser
-        Util.Util
-        Util.Types
+common dry
     build-depends:       
         base
-        , Cabal
         , MonadRandom
-        , QuickCheck
-        , aeson
-        , async
         , bytestring
         , containers
         , directory
-        , extra
-        , filepath
-        , generic-deriving
         , ghc
-        , ghc-boot-th
-        , ghc-paths
-        , hashable
-        , hie-bios
-        , hse-cpp
-        , megaparsec
-        , monad-par
+        , microlens-platform
         , mtl
         , path
-        , process
-        , random
-        , regex
-        , split
         , stm
-        , syb
         , temporary
         , text
         , time
-        , transformers
         , uniplate
         , unix
         , word8
-        , microlens-platform
+        , ghc-paths
+        , process
+        , Cabal
+        , aeson
         , cassava
-        , ekg
-        , edit-distance
-    hs-source-dirs:      
-        src
-        src/Merge
+    default-extensions:
+        GeneralizedNewtypeDeriving 
+        LambdaCase
+        OverloadedStrings 
+        PatternSynonyms
+        QuasiQuotes
+        RecordWildCards
+        ScopedTypeVariables
+        TemplateHaskell
     default-language:    
         Haskell2010
-    default-extensions:  
-        FlexibleInstances
-        DeriveGeneric
-        LambdaCase
-        PatternSynonyms
-        Rank2Types  
-        TypeFamilies
-        PackageImports
-        QuasiQuotes
-        GeneralizedNewtypeDeriving 
-        OverloadedStrings 
-        ScopedTypeVariables
-        ViewPatterns
-        TemplateHaskell
-        RecordWildCards
     ghc-options:       
         -Wall
+
+executable hsmerge
+    import:
+        dry
+    main-is: Main.hs
+    other-modules:
+        HsAllInOne
+    build-depends:       
+        hashable
+        , edit-distance
+        , hie-bios
+        , lib-util
+    hs-source-dirs:      
+        src/Merge
+    default-extensions:  
+        FlexibleInstances
     
 executable hsreduce
     main-is: 
         Main.hs
-    other-modules:   
-        Reduce.HsReduce
-        Util.Util
-        Util.Types
-        Parser.Parser
-        Reduce.Passes.Stubbing
-        Reduce.Passes.DataTypes
-        Reduce.Passes.Names
-        Reduce.Passes.Functions
-        Reduce.Passes.RemoveUnused.Decls
-        Reduce.Passes.RemoveUnused.Imports
-        Reduce.Passes.RemoveUnused.Exports
-        Reduce.Passes.RemoveUnused.Pragmas
-        Reduce.Passes.RemoveUnused.Parameters
     build-depends:       
         base
-        , Cabal
-        , MonadRandom
-        , QuickCheck
-        , aeson
-        , async
-        , bytestring
-        , containers
-        , directory
-        , extra
-        , filepath
-        , generic-deriving
-        , ghc
-        , ghc-boot-th
-        , ghc-paths
-        , hashable
-        , hie-bios
-        , hse-cpp
-        , hspec
-        , megaparsec
-        , monad-par
-        , mtl
-        , path
-        , process
-        , random
-        , regex
-        , split
-        , stm
-        , syb
-        , temporary
-        , text
-        , time
-        , transformers
-        , uniplate
-        , unix
-        , word8
-        , microlens-platform
-        , cassava
-        , ekg
+        , lib-hsreduce
     hs-source-dirs:    
         src
-        src/Reduce
     default-language:  
         Haskell2010
     default-extensions:  
-        DeriveGeneric
         LambdaCase
-        PatternSynonyms
-        Rank2Types  
-        TypeFamilies
-        PackageImports
-        QuasiQuotes
-        GeneralizedNewtypeDeriving 
-        OverloadedStrings 
-        ScopedTypeVariables
-        ViewPatterns
-        TemplateHaskell
-        RecordWildCards
     ghc-options:       
         -Wall 
-        -O2 
         -threaded 
         -rtsopts
         -with-rtsopts=-T
+
+library lib-hsreduce
+    import:
+        dry
+    exposed-modules:   
+        HsReduce
+        Passes.Stubbing
+        Passes.DataTypes
+        Passes.Names
+        Passes.Functions
+        Passes.RemoveUnused.Decls
+        Passes.RemoveUnused.Imports
+        Passes.RemoveUnused.Exports
+        Passes.RemoveUnused.Pragmas
+        Passes.RemoveUnused.Parameters
+    build-depends:       
+        lib-util
+    hs-source-dirs:    
+        src/Reduce
+    default-extensions:  
+        Rank2Types  
+        TypeFamilies
+        ViewPatterns
+
+library lib-util
+    import:
+        dry
+    build-depends:
+        megaparsec
+        , regex
+        , syb
+        , async
+        , split
+        , ghc-boot-th
+    exposed-modules:   
+        Util.Util
+        Util.Types
+        Parser.Parser
+    hs-source-dirs:    
+        src
+    default-extensions:  
+        DeriveGeneric
+
+-- test-suite test-hsreduce
+--     import: 
+--         dry
+--     type: 
+--         exitcode-stdio-1.0
+--     main-is: 
+--         Test.hs
+--     hs-source-dirs: 
+--         test
+--     build-depends: 
+--         lib-hsreduce
+--         , hspec
+--     default-language:  
+--         Haskell2010

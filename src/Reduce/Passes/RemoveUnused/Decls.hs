@@ -1,4 +1,4 @@
-module Reduce.Passes.RemoveUnused.Decls (fast, slow) where
+module Passes.RemoveUnused.Decls (fast, slow) where
 
 import Path 
 import Data.Either

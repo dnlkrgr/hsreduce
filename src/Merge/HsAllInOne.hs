@@ -1,4 +1,4 @@
-module Merge.HsAllInOne where
+module HsAllInOne where
 
 import Control.Applicative
 import Data.Traversable
@@ -12,7 +12,6 @@ import qualified Data.Map as M
 import SrcLoc
 import Name
 import RdrName hiding (isQual, mkUnqual, mkQual)
-import Control.Monad.Extra
 import Control.Monad.Random
 import Data.Hashable
 import Data.List

@@ -1,4 +1,4 @@
-module Reduce.Passes.Functions where
+module Passes.Functions where
 
 import Lens.Micro.Platform
 import Data.List

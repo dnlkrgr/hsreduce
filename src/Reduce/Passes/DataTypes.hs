@@ -1,4 +1,4 @@
-module Reduce.Passes.DataTypes (inline, rmvConArgs) where
+module Passes.DataTypes (inline, rmvConArgs) where
 
 import Control.Concurrent.STM
 import Lens.Micro.Platform
@@ -116,7 +116,7 @@ inline = do
 inlineTypeHelper :: (RdrName, RdrName, Maybe RdrName) -> R ()
 inlineTypeHelper (nn, argName, mConstrName) = do
     tryNewState 
-        "inline" 
+        "inlineType" 
         (parsed %~ \oldAST -> 
             (case mConstrName of
                 Nothing             -> id
