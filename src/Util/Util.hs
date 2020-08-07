@@ -168,6 +168,8 @@ runTest test duration = do
     let dirName  = parent   test
     let testName = filename test
 
+    print =<< getCurrentDirectory
+
     print "runTest"
     print dirName
     print testName
