@@ -5,9 +5,9 @@ import HsReduce
 
 main :: IO ()
 main = getArgs >>= \case
-    n:x:y:z:_   -> hsreduce (read n) x y z Nothing
+    n:y:z:_   -> hsreduce (read n) y z Nothing
     _           -> putStrLn $ unlines 
-                        [ "Usage: hsreduce <# of threads> <dir of test-case> <rel path to test> <rel path to hs file>"
-                        , "Example usage: hsreduce /home/me/hsreduce-test-cases/ticket1234 interesting.sh Bug.hs"
+                        [ "Usage: hsreduce <# of threads> <rel path to test> <rel path to hs file>"
+                        , "Example usage: hsreduce 1 interesting.sh Bug.hs"
                         ]
 

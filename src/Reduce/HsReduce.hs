@@ -32,19 +32,25 @@ import qualified Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Passes.Names as Names (shortenNames)
 import qualified Passes.Functions as Functions (inline)
 
-hsreduce :: Int -> FilePath -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
-hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
+hsreduce :: Int -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
+hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
     putStrLn "*******************************************************"
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
     -- 3. record the starting time
-    let fullFilePath    =  sourceDir </> filePath
+    sourceDir           <- parseAbsDir =<< getCurrentDirectory
+
+    let 
+        fullFilePath    =  sourceDir </> filePath
+
     fileContent         <- TIO.readFile $ fromAbsFile fullFilePath
     beginState          <- parse True [] [] fullFilePath
-    let oldSize         =  T.length fileContent
-    files               <- listDirectory (fromAbsDir sourceDir)
     t1                  <- getCurrentTime
     tState              <- atomically $ newTVar beginState
+
+    let 
+        oldSize         =  T.length fileContent
+        files           = [test, filePath]
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -56,8 +62,7 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
 
         tempDir <- parseAbsDir t
 
-        forM_ files $ \f -> do
-            iterFile    <- parseRelFile f
+        forM_ files $ \iterFile -> do
             let oldPath = fromAbsFile $ sourceDir </> iterFile
             status      <- getFileStatus oldPath
 
@@ -68,7 +73,10 @@ hsreduce numberOfThreads (fromJust . parseAbsDir -> sourceDir) (fromJust . parse
         atomically $ writeTChan tChan tempDir
 
     -- recording the size diff of formatting
-    let beginConf       = (RConf test filePath numberOfThreads tChan tState)
+    print $ filename test
+    print $ filename filePath
+
+    let beginConf       = (RConf (filename test) (filename filePath) numberOfThreads tChan tState)
     updateStatistics beginConf "formatting" True (oldSize - T.length (showState beginState))
 
     -- run the reducing functions

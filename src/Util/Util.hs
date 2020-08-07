@@ -145,8 +145,10 @@ tryNewValue conf = testAndUpdateStateFlex conf False True
 testAndUpdateStateFlex :: RConf -> a -> a -> RState -> IO a
 testAndUpdateStateFlex conf a b newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
-        let sourceFile = tempDir </> _sourceFile conf
-        let test       = tempDir </> _test conf
+        let 
+            sourceFile = tempDir </> _sourceFile conf
+            test       = tempDir </> _test conf
+
 
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
             Left (e :: CE.SomeException) -> traceShow  (show e) $ return a

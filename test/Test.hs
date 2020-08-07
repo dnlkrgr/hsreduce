@@ -19,10 +19,10 @@ import qualified Passes.RemoveUnused.Parameters     as Parameters
 main :: IO ()
 main = hspec $ do
     let 
-        root    = "/home/daniel/workspace/hsreduce/test-cases/regressions/"
-        test    = fromJust . parseAbsFile $ root <> "interesting.sh"
+        root    = "test-cases/regressions/"
+        test    = fromJust . parseRelFile $ root <> "interesting.sh"
         sources = 
-            map (\(src, a, m, e) -> (fromJust . parseAbsFile . (root <>) . (<> ".hs") $ src, a, m, e)) 
+            map (\(src, a, m, e) -> (fromJust . parseRelFile . (root <>) $ src, a, m, e)) 
                 [ ("Imports",       Imports.reduce,             Nothing,                "module Imports where")
                 , ("Pragmas",       Pragmas.reduce,             Nothing,                "module Pragmas where")
                 -- Exports: removing explicit exports
@@ -51,15 +51,19 @@ main = hspec $ do
     describe "regressions" $ do
         results <- runIO $ forM sources $ \(src, a, mt, expected) -> do
             let 
-                filePath    = fromAbsFile src
-                newFilePath = take (length filePath - 3) filePath <> "_hsreduce.hs"
+                filePath    = fromRelFile src
+                newFilePath = filePath <> "_hsreduce.hs"
                 realTest    = case mt of
                     Nothing -> test
-                    Just t  -> fromJust . parseAbsFile $ root <> t
+                    Just t  -> fromJust . parseRelFile $ root <> t
 
-            hsreduce 1 (fromAbsDir $ parent realTest) (fromRelFile $ filename realTest) (fromRelFile $ filename src) (Just a)
+            print "***ariesntraisetnarisetariestn***"
+            print $ fromRelFile realTest
+            print $ fromRelFile src
+
+            hsreduce 1 (fromRelFile realTest) (fromRelFile src <> ".hs") (Just a)
             fileContent <- readFile newFilePath
 
             return (drop (length root) filePath, (fileContent, expected))
 
-        forM_ results (\(filePath, (fileContent, expected)) -> it filePath  $ fileContent `shouldBe` expected)
+        forM_ results (\(filePath, (fileContent, expected)) -> it filePath $ fileContent `shouldBe` expected)
