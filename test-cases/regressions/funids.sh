@@ -1,2 +1,2 @@
-#!/run/current-system/sw/bin/bash
+#!/bin/bash
 ghc FunIds.hs

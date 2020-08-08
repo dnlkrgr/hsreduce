@@ -156,7 +156,7 @@ testAndUpdateStateFlex conf a b newState =
         print =<< (doesFileExist $ fromAbsFile test)
 
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-            Left (e :: CE.SomeException) -> traceShow  (show e) $ return a
+            Left (e :: CE.SomeException) -> traceShow "testAndUpdateStateFlex, EXCEPTION:" . traceShow  (show e) $ return a
             Right _ -> do
                 runTest test defaultDuration >>= return . \case
                     Uninteresting -> a
@@ -168,16 +168,22 @@ runTest test duration = do
     let dirName  = parent   test
     let testName = filename test
 
+    print =<< getCurrentDirectory
+
     print "runTest"
+    print dirName
     print testName
 
     (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
          Nothing -> do
              errorPrint "runTest: timed out"
              return Uninteresting
-         Just (exitCode,_,_) -> return $ case exitCode of
-             ExitFailure _ -> Uninteresting
-             ExitSuccess   -> Interesting
+         Just (exitCode,stdout,stderr) -> case exitCode of
+             ExitFailure _ -> do
+                 print stderr
+                 print stdout
+                 return Uninteresting
+             ExitSuccess   -> return Interesting
 
 printInfo :: String -> R ()
 printInfo context = do
