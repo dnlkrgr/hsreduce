@@ -7,13 +7,15 @@ import Control.Monad.State
 import Control.Monad.Reader
 import GHC
 
-import Util.Types
-import Util.Util
+import Types
+import Util
 
+passId :: String
+passId = "rmvUnusedParams"
 
 reduce :: R ()
 reduce = do
-    printInfo "rmvUnusedParams"
+    printInfo passId
 
     ast <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
 
@@ -29,9 +31,7 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
 
             liftIO $ atomically $ modifyTVar (_tState conf) $ \s -> s & numRmvdArgs .~ 0
 
-            forM_ is $ \i -> do
-                oldState <- liftIO . readTVarIO $ _tState conf
-
+            forM_ is $ \i -> liftIO $ tryNewState passId (\oldState ->
                 let 
                     oldAST          = oldState ^. parsed
                     newI            = i - fromIntegral (oldState ^. numRmvdArgs)
@@ -45,24 +45,11 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
                            , sigContainsFunId funId s ]
                         <> [ transformBi (overwriteAtLoc matchesLoc (rmvWildPatMatch i))]
 
-                    newAST = foldr ($) oldAST proposedChanges
-
-                let 
-                    sizeDiff    = length (lshow oldAST) - length (lshow newAST)
-                    newState    = 
-                        oldState 
-                            & parsed .~ newAST 
-                            & isAlive .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
-                            & numRmvdArgs +~ 1
- 
-                liftIO (tryNewValue conf newState) >>= \case
-                    True  -> liftIO . atomically $ do
-                        writeTVar (_tState conf) newState
- 
-                        updateStatistics_ conf "rmvUnusedParams" True sizeDiff
-
-                    False -> liftIO $ updateStatistics conf "rmvUnusedParams" False 0
- 
+                    newAST      = foldr ($) oldAST proposedChanges
+                    newState    = oldState 
+                        & parsed .~ newAST 
+                        & numRmvdArgs +~ 1
+                in newState) conf
 rmvUnusedParams_ _ = return ()
 
 -- simplifyTySigs

@@ -4,8 +4,8 @@ import Path
 import Data.Either
 import Control.Monad.State.Strict
 import qualified Data.Text as T
-import Util.Types
-import Util.Util
+import Types
+import Util
 import Control.Monad.Reader
 import GHC hiding (getName)
 import Outputable

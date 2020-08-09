@@ -22,9 +22,9 @@ import Data.Generics.Uniplate.Data
 import GhcPlugins hiding (extensions, (<>), isQual, mkUnqual, qualName, GhcMode, count, (<&&>))
 import Data.Maybe
 import Data.Either
-import Util.Util
-import Util.Types
-import Parser.Parser
+import Util
+import Types
+import Parser
 import HIE.Bios
 import Data.Void
 import GHC.Paths

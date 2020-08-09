@@ -1,6 +1,5 @@
 module Passes.Names (shortenNames) where
 
-import Data.Word8 hiding (isUpper, isLower, toUpper)
 import Lens.Micro.Platform
 import Data.Char
 import Control.Monad.Random
@@ -9,8 +8,8 @@ import Data.Generics.Uniplate.Data
 import Control.Monad.Reader
 import OccName
 
-import Util.Types
-import Util.Util
+import Types
+import Util
 
 
 shortenNames :: R ()
@@ -37,7 +36,7 @@ shortenNamesHelper n = do
             else oldState) 
     =<< ask
 
-shortenName :: Word8 -> OccName -> OccName
+shortenName :: Word -> OccName -> OccName
 shortenName m n 
     | isVarOcc  n       = mkVarOcc newString
     | isTvOcc   n       = mkTyVarOcc newString
@@ -50,7 +49,7 @@ shortenName m n
   where os          = occNameString n
         newString   = renameName m os
 
-renameName :: Word8 -> String -> String
+renameName :: Word -> String -> String
 renameName m (c:_) 
     | isUpper c     = randomNameString m Upper
     | isLower c     = randomNameString m Lower
@@ -63,7 +62,7 @@ renameName _ s      = s
 data Case = Upper | Lower | Operator
 
 -- | create a random operator string
-randomNameString :: Word8 -> Case -> String
+randomNameString :: Word -> Case -> String
 randomNameString lenElems c =
     let 
         symbols = case c of

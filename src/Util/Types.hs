@@ -1,6 +1,5 @@
-module Util.Types where
+module Types where
 
-import Data.Word8
 import Data.List
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -30,14 +29,14 @@ data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
 
 data Performance = Performance
     { _day              :: Day
-    , _origSize         :: Word8
-    , _endSize          :: Word8
-    , _ratio            :: Word8
+    , _origSize         :: Word
+    , _endSize          :: Word
+    , _ratio            :: Word
     , _startTime        :: UTCTime
     , _endTime          :: UTCTime
     , _duration         :: DiffTime
-    , _capabilities     :: Word8
-    , _threads          :: Word8
+    , _capabilities     :: Word
+    , _threads          :: Word
     }
 
 instance Show Performance where
@@ -52,12 +51,12 @@ instance Show Performance where
             , show _ratio 
             ] <> "\n"
 
-mkPerformance :: Word8 -> Word8 -> UTCTime -> UTCTime -> Word8 -> IO Performance
+mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> IO Performance
 mkPerformance oldSize newSize t1 t2 n = do
     c <- fromIntegral <$> getNumCapabilities
     return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
   where 
-    ratio       = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word8
+    ratio       = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word
     offset      = 
         if utctDayTime t2 < utctDayTime t1
         then 86401
@@ -67,8 +66,8 @@ mkPerformance oldSize newSize t1 t2 n = do
 
 data PassStats = PassStats 
     { _passName             :: String
-    , _successfulAttempts   :: Word8
-    , _totalAttempts        :: Word8
+    , _successfulAttempts   :: Word
+    , _totalAttempts        :: Word
     , _removedBytes         :: Int 
     }
     deriving (Generic, Show)
@@ -92,8 +91,8 @@ data RState = RState
     , _typechecked      :: Maybe TypecheckedSource
     , _isAlive          :: Bool
     , _statistics       :: Statistics 
-    , _numRenamedNames  :: Word8
-    , _numRmvdArgs      :: Word8
+    , _numRenamedNames  :: Word
+    , _numRmvdArgs      :: Word
     }
 makeLenses ''RState
 

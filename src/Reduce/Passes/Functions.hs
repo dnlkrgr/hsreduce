@@ -10,8 +10,8 @@ import BasicTypes
 import Outputable
 import Data.Generics.Uniplate.Data
 
-import Util.Util
-import Util.Types
+import Util
+import Types
 
 inline :: R ()
 inline = do

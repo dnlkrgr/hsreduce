@@ -13,38 +13,13 @@ let
     rev = "28fce082c8ca1a8fb3dfac5c938829e51fb314c8";
   }) {};
 
-  f = { mkDerivation, aeson, async, base, bytestring, Cabal
-      , cassava, containers, directory, edit-distance, ekg, extra
-      , filepath, generic-deriving, ghc, ghc-boot-th, ghc-paths, hashable
-      , hie-bios, hse-cpp, hspec, megaparsec, microlens-platform
-      , monad-par, MonadRandom, mtl, path, process, QuickCheck, random
-      , regex, split, stdenv, stm, syb, temporary, text, time
-      , transformers, uniplate, unix, word8
-      }:
-      mkDerivation {
-        pname = "hsreduce";
-        version = "0.1.0.0";
-        src = ./.;
-        isLibrary = false;
-        isExecutable = true;
-        executableHaskellDepends = [
-          aeson async base bytestring Cabal cassava containers directory
-          edit-distance ekg extra filepath generic-deriving ghc ghc-boot-th
-          ghc-paths hashable hie-bios hse-cpp hspec megaparsec
-          microlens-platform monad-par MonadRandom mtl path process
-          QuickCheck random regex split stm syb temporary text time
-          transformers uniplate unix word8
-        ];
-        license = stdenv.lib.licenses.bsd3;
-      };
-
   haskellPackages = if compiler == "default"
                        then pkgs.haskellPackages
                        else pkgs.haskell.packages.${compiler};
 
   variant = if doBenchmark then pkgs.haskell.lib.doBenchmark else pkgs.lib.id;
 
-  drv = variant (haskellPackages.callPackage f {});
+  drv = variant (haskellPackages.callPackage (import ./default.nix) {});
 
 in
 

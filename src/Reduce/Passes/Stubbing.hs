@@ -5,8 +5,8 @@ import GHC
 import Bag (bagToList, listToBag)
 import OccName (mkVarOcc, mkOccName, varName)
 
-import Util.Types
-import Util.Util
+import Types
+import Util
 
 printStubbingInfo :: R ()
 printStubbingInfo = printInfo "Stubbing Expressions"

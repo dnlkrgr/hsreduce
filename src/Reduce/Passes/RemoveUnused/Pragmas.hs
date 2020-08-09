@@ -4,17 +4,15 @@ import Control.Concurrent.STM
 import Lens.Micro.Platform
 import Control.Monad.Reader
 
-import Util.Types
-import Util.Util
+import Types
+import Util
 
 reduce :: R ()
 reduce = do
     printInfo "Removing Pragmas"
     isTestStillFresh "Pragmas"
 
-    oldState <- liftIO . atomically . readTVar =<< asks _tState
-    forM_ (_pragmas oldState) tryToRemovePragma 
-
-tryToRemovePragma :: Pragma -> R ()
-tryToRemovePragma pragmaToTry =
-    liftIO . tryNewState "pragmas" (pragmas %~ filter (/= pragmaToTry)) =<< ask
+    conf        <- ask
+    oldState    <- liftIO . atomically . readTVar $ _tState conf
+    forM_ (_pragmas oldState) $ \p -> 
+        liftIO . Util.tryNewState "pragmas" (pragmas %~ filter (/= p)) =<< ask

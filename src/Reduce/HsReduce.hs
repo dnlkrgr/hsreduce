@@ -12,11 +12,11 @@ import Control.Monad
 import Control.Monad.Reader
 import Data.Maybe
 import Data.Time
-import Parser.Parser
+import Parser
 import Path
 import System.Directory
-import Util.Types
-import Util.Util
+import Types
+import Util
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Passes.RemoveUnused.Decls   as Decls (fast, slow)
@@ -26,7 +26,6 @@ import qualified Passes.RemoveUnused.Pragmas as Pragmas (reduce)
 import qualified Passes.RemoveUnused.Parameters as Parameters (reduce)
 import qualified Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
 import qualified Passes.DataTypes as DataTypes (inline, rmvConArgs)
-import qualified Passes.Names as Names (shortenNames)
 import qualified Passes.Functions as Functions (inline)
 
 hsreduce :: Int -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
@@ -64,12 +63,9 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
 
         atomically $ writeTChan tChan tempDir
 
-    -- recording the size diff of formatting
-    print $ filename test
-    print $ filename filePath
-
+    -- recording the size diff of formatting for more accurate statistics
     let beginConf       = (RConf (filename test) (filename filePath) numberOfThreads tChan tState)
-    updateStatistics beginConf "formatting" True (oldSize - T.length (showState beginState))
+    updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
 
     -- run the reducing functions
     case mAction of
@@ -78,7 +74,8 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
     newState <- readTVarIO tState
 
     -- handling of the result and outputting useful information
-    let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
+    let 
+        fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
         newSize  = T.length . showState $ newState
 
     putStrLn "*******************************************************"
@@ -106,7 +103,6 @@ allActions =
     forM_ passes $ \pass -> do
         liftIO $ putStrLn "\n\n*** Increasing granularity ***"
         largestFixpoint pass
-  -- where passes = [snail]
   where passes = [fast, medium, slow, slowest, snail]
 
 
@@ -159,5 +155,4 @@ largestFixpoint f = do
   
           liftIO . atomically $ modifyTVar tState $ \s -> s { _isAlive = False }
           f
-          b <- liftIO (fmap _isAlive . atomically $ readTVar tState) 
-          when b (go tState)
+          liftIO (fmap _isAlive . atomically $ readTVar tState) >>= flip when (go tState)

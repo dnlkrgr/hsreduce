@@ -1,4 +1,4 @@
-module Util.Util where
+module Util where
 
 import Data.Char
 import Control.Applicative
@@ -17,7 +17,7 @@ import FastString
 import GHC hiding (GhcMode, ghcMode, Pass)
 import Lens.Micro.Platform
 import Outputable hiding ((<>))
-import Parser.Parser
+import Parser
 import Path
 import SrcLoc as SL
 import System.Directory
@@ -26,7 +26,7 @@ import System.Posix.Files
 import System.Process
 import System.Timeout
 import Text.RE.TDFA.Text
-import Util.Types as UT
+import Types as UT
 import qualified Control.Exception  as CE
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
@@ -39,43 +39,46 @@ import qualified Text.Megaparsec.Char as MC
 
 tryNewState :: String -> (RState -> RState) -> RConf -> IO ()
 tryNewState passId f conf = do 
-    oldState    <- liftIO . atomically $ readTVar (_tState conf)
+    oldState <- liftIO . readTVarIO $ _tState conf
 
     let 
-        oldAST      = oldState ^. parsed
+        oldStateS   = showState oldState
         newState    = f oldState
-        isStateNew  = showState oldState /= showState newState
-        sizeDiff    = T.length (showState oldState) - T.length (showState newState)
+        newStateS   = showState newState
+        isStateNew  = oldStateS /= newStateS
+        sizeDiff    = T.length newStateS - T.length oldStateS
 
-    b  <- tryNewValue conf newState
+    if isStateNew then do
+        testNewState conf newState >>= \case 
+            Interesting -> do
+                success <- atomically $ do
+                    currentCommonStateS <- showState <$> (readTVar $ _tState conf)
 
-    if isStateNew && b then do
-        success <- atomically $ do
-            currentCommonAST <- _parsed <$> (readTVar $ _tState conf)
+                    -- is the state we worked still the same?
+                    if oldStateS == currentCommonStateS
+                    then do
+                        writeTVar (_tState conf) newState
 
-            -- is the AST we worked still the same?
-            if (oshow oldAST == oshow currentCommonAST) 
-                then do
-                    writeTVar (_tState conf) newState
-                    updateStatistics_ conf passId True sizeDiff
-                    return True
-                else
-                    return False
+                        updateStatistics_ conf passId 1 sizeDiff
+                        return True
+                    else
+                        return False
 
-        unless success $ tryNewState passId f conf
+                unless success $ tryNewState passId f conf
+            Uninteresting -> updateStatistics conf passId 0 0        
     else
-        updateStatistics conf passId False 0        
+        updateStatistics conf passId 0 0        
 
 
 runPass :: Data a => String -> WaysToChange a -> R ()
 runPass name pass = do
-    liftIO $ putStrLn name
+    unless isInProduction $ do
+        printInfo name
+        isTestStillFresh name
 
-    conf     <- ask
-    oldState <- liftIO . atomically . readTVar $ _tState conf
+    ast <- _parsed <$> (liftIO . atomically . readTVar . _tState =<< ask)
 
     let
-        ast             = _parsed oldState
         proposedChanges = getProposedChanges ast pass
 
     applyInterestingChanges name proposedChanges
@@ -109,8 +112,8 @@ applyInterestingChanges name proposedChanges = do
 
 
 
-updateStatistics :: RConf -> String -> Bool -> Int -> IO ()
-updateStatistics conf name success sizeDiff = atomically $ updateStatistics_ conf name success sizeDiff
+updateStatistics :: RConf -> String -> Word -> Int -> IO ()
+updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name i sizeDiff
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -119,19 +122,13 @@ updateStatistics conf name success sizeDiff = atomically $ updateStatistics_ con
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatistics_ :: RConf -> String -> Bool -> Int -> STM ()
-updateStatistics_ conf name success sizeDiff = do
-    let 
-        i = if success 
-            then 1 
-            else 0
-
-    -- (if sizeDiff < 0 then traceShow ("sizeDiff: " <> show sizeDiff) else id) $ return ()
-
+updateStatistics_ :: RConf -> String -> Word -> Int -> STM ()
+updateStatistics_ conf name i sizeDiff =
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
-            Nothing                   -> Just $ PassStats name i 1 sizeDiff
-            Just (PassStats _ n d r)  -> Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
+            Nothing                   -> (if name == "rmvPragmas" then traceShow ("sizeDiff : " <> show sizeDiff) else id) Just $ PassStats name i 1 sizeDiff
+            Just (PassStats _ n d r)  -> 
+                Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
 
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
@@ -139,28 +136,16 @@ overwriteAtLoc loc f oldValue@(L oldLoc a)
     | loc == oldLoc = L loc $ f a
     | otherwise = oldValue
 
-tryNewValue :: RConf -> RState -> IO Bool
-tryNewValue conf = testAndUpdateStateFlex conf False True
-
-testAndUpdateStateFlex :: RConf -> a -> a -> RState -> IO a
-testAndUpdateStateFlex conf a b newState =
+testNewState :: RConf -> RState -> IO Interesting
+testNewState conf newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
         let 
             sourceFile = tempDir </> _sourceFile conf
             test       = tempDir </> _test conf
 
-        print sourceFile
-        print test
-
-        print =<< (doesPathExist $ fromAbsDir tempDir)
-        print =<< (doesFileExist $ fromAbsFile test)
-
         (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-            Left (e :: CE.SomeException) -> traceShow "testAndUpdateStateFlex, EXCEPTION:" . traceShow  (show e) $ return a
-            Right _ -> do
-                runTest test defaultDuration >>= return . \case
-                    Uninteresting -> a
-                    Interesting   -> b
+            Left (e :: CE.SomeException) -> traceShow ("testNewStateFlex, EXCEPTION:" :: String) . traceShow  (show e) $ return Uninteresting
+            Right _ -> runTest test defaultDuration 
 
 
 runTest :: Path Abs File -> Word -> IO Interesting
@@ -168,22 +153,13 @@ runTest test duration = do
     let dirName  = parent   test
     let testName = filename test
 
-    print =<< getCurrentDirectory
-
-    print "runTest"
-    print dirName
-    print testName
-
     (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
          Nothing -> do
-             errorPrint "runTest: timed out"
+             putStrLn "error - runTest: timed out"
              return Uninteresting
-         Just (exitCode,stdout,stderr) -> case exitCode of
-             ExitFailure _ -> do
-                 print stderr
-                 print stdout
-                 return Uninteresting
-             ExitSuccess   -> return Interesting
+         Just (exitCode,_,_) -> return $ case exitCode of
+             ExitFailure _ -> Uninteresting
+             ExitSuccess   -> Interesting
 
 printInfo :: String -> R ()
 printInfo context = do
@@ -197,11 +173,11 @@ isTestStillFresh :: String -> R ()
 isTestStillFresh context = do
     conf     <- ask
     newState <- liftIO . atomically $ readTVar $ _tState conf
-    liftIO $ testAndUpdateStateFlex conf False True newState >>= \case
-        False -> do
+    liftIO $ testNewState conf newState >>= \case 
+        Uninteresting -> do
             liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
             error $ "Test case is broken at >>>" <> context <> "<<<"
-        True  -> putStrLn $ context <> ": Test case is still fresh :-)"
+        _ -> return ()
 
 getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [Located a -> Located a]
 getProposedChanges ast pass = concat [map (overwriteAtLoc l) $ pass e| L l e <- universeBi ast]
@@ -400,16 +376,8 @@ span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (
 isQual :: T.Text -> Bool
 isQual = matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
 
-debug :: MonadIO m => (a -> m ()) -> a -> m ()
-debug f s
-    | isInProduction = return ()
-    | otherwise = f s
-
-errorPrint :: MonadIO m => String -> m ()
-errorPrint = debug (liftIO . putStrLn . ("[error] " ++))
-
 isInProduction :: Bool
-isInProduction = False
+isInProduction = True
 
 -- default duration: 30 seconds
 defaultDuration :: Word

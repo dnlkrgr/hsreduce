@@ -1,22 +1,22 @@
 module Passes.RemoveUnused.Exports (reduce) where
 
+import qualified Data.Text as T
 import Control.Concurrent.STM
 import Control.Monad.State.Strict
 import Data.Maybe
 import Path
-import Util.Types
-import Util.Util
+import Types
+import Util
 import Control.Monad.Reader
 import GHC
 
 
 reduce :: R ()
 reduce = do
-    printInfo "Removing Exports"
-    tState <- asks _tState
+    conf <- ask
+    let tState = _tState conf
     oldState <- liftIO . atomically $ readTVar tState
   
-
     let 
         L l oldModule = _parsed oldState
         maybeModName  = hsmodName oldModule
@@ -25,8 +25,7 @@ reduce = do
   
     case maybeExports of
         Nothing -> do
-            liftIO $ putStrLn "making exports explicit"
-            isTestStillFresh "Exports.reduce_1"
+            liftIO $ putStrLn "\n\n***making exports explicit***"
 
             modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
   
@@ -39,14 +38,13 @@ reduce = do
                 newState  = oldState { _parsed = L l newModule }
 
             liftIO . atomically $ writeTVar tState newState
-            -- put newState
+            liftIO $ updateStatistics conf "mkExportsExplicit" 1 (T.length (showState newState) - T.length (showState oldState))
             -- TODO: if no exports were removed, turn it into Nothing again
   
-            isTestStillFresh "Exports.reduce_2"
 
         Just _ -> return ()
   
-    runPass "removeExports" removeExports 
+    runPass "rmvExports" removeExports 
 
 
 removeExports :: WaysToChange [LIE GhcPs]

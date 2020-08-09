@@ -33,7 +33,7 @@ main = hspec $ do
                 -- Decls
                 -- *****
                 , ("Decls",         Decls.fast,                 Nothing,                "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
-                -- deleting only     some of the fun ids in a line
+                -- deleting only some of the fun ids in a line
                 , ("FunIds",        Decls.slow >> Decls.fast,   (Just "funids.sh"),     "module FunIds (\n        foo\n    ) where\nfoo x = 3")
                 , ("Cons",          Decls.slow,                 Nothing,                "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
                 -- ********
@@ -56,10 +56,6 @@ main = hspec $ do
                 realTest    = case mt of
                     Nothing -> test
                     Just t  -> fromJust . parseRelFile $ root <> t
-
-            print "***ariesntraisetnarisetariestn***"
-            print $ fromRelFile realTest
-            print $ fromRelFile src
 
             hsreduce 1 (fromRelFile realTest) (fromRelFile src <> ".hs") (Just a)
             fileContent <- readFile newFilePath

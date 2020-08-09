@@ -1,10 +1,10 @@
-cabal-version:       3.0
+cabal-version:       2.4
 name:                hsreduce
 version:             0.1.0.0
 license:             BSD-3-Clause
 license-file:        LICENSE
 build-type:          Simple
-extra-source-files:  ChangeLog.md
+extra-source-files:  CHANGELOG.md
 
 common dry
     build-depends:       
@@ -23,12 +23,18 @@ common dry
         , time
         , uniplate
         , unix
-        , word8
         , ghc-paths
         , process
         , Cabal
         , aeson
         , cassava
+        , word8
+        , megaparsec
+        , regex
+        , syb
+        , async
+        , split
+        , ghc-boot-th
     default-extensions:
         GeneralizedNewtypeDeriving 
         LambdaCase
@@ -38,6 +44,7 @@ common dry
         RecordWildCards
         ScopedTypeVariables
         TemplateHaskell
+        DeriveGeneric
     default-language:    
         Haskell2010
     ghc-options:       
@@ -49,13 +56,17 @@ executable hsmerge
     main-is: Main.hs
     other-modules:
         HsAllInOne
+        Util
+        Types
+        Parser
     build-depends:       
         hashable
         , edit-distance
         , hie-bios
-        , lib-util
     hs-source-dirs:      
         src/Merge
+        src/Util
+        src/Parser
     default-extensions:  
         FlexibleInstances
     
@@ -91,33 +102,18 @@ library lib-hsreduce
         Passes.RemoveUnused.Exports
         Passes.RemoveUnused.Pragmas
         Passes.RemoveUnused.Parameters
-    build-depends:       
-        lib-util
+    other-modules:
+        Util
+        Types
+        Parser
     hs-source-dirs:    
         src/Reduce
+        src/Util
+        src/Parser
     default-extensions:  
         Rank2Types  
         TypeFamilies
         ViewPatterns
-
-library lib-util
-    import:
-        dry
-    build-depends:
-        megaparsec
-        , regex
-        , syb
-        , async
-        , split
-        , ghc-boot-th
-    exposed-modules:   
-        Util.Util
-        Util.Types
-        Parser.Parser
-    hs-source-dirs:    
-        src
-    default-extensions:  
-        DeriveGeneric
 
 test-suite test-hsreduce
     import: 
@@ -130,7 +126,6 @@ test-suite test-hsreduce
         test
     build-depends: 
         lib-hsreduce
-        , lib-util
         , hspec
     default-language:  
         Haskell2010

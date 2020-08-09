@@ -7,13 +7,15 @@ import Control.Monad.State
 import Control.Monad.Reader
 import GHC
 
-import Util.Types
-import Util.Util
+import Types
+import Util
 
+passId :: String
+passId = "rmvConArgs"
 
 rmvConArgs :: R ()
 rmvConArgs = do
-    printInfo "rmvConArgs"
+    printInfo passId
 
     conf <- ask
     ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf) )
@@ -41,9 +43,7 @@ rmvConArgsHelper (conId, args) = do
 
     liftIO $ atomically $ modifyTVar (_tState conf) $ \s -> s & numRmvdArgs .~ 0
 
-    forM_ is $ \i -> do
-        oldState <- liftIO . readTVarIO $ _tState conf
-
+    forM_ is $ \i -> liftIO $ tryNewState passId (\oldState ->
         let 
             oldAST  = oldState ^. parsed
 
@@ -59,17 +59,7 @@ rmvConArgsHelper (conId, args) = do
                     & parsed        .~ newAST 
                     & isAlive       .~ (oldState ^. isAlive || oshow oldAST /= oshow newAST)
                     & numRmvdArgs   +~ 1
-
-            sizeDiff    = length (lshow oldAST) - length (lshow $ newAST)
-
-        liftIO (tryNewValue conf newState) >>= \case
-            True  -> liftIO . atomically $ do
-                writeTVar (_tState conf) newState
- 
-                updateStatistics_ conf "rmvConArgs" True sizeDiff
-
-
-            False -> liftIO $ updateStatistics conf "rmvConArgs" False 0
+        in newState) conf
 
 rmvArgsFromConDecl :: RdrName -> Int -> ConDecl GhcPs -> ConDecl GhcPs
 rmvArgsFromConDecl conId i c@(ConDeclH98 x n fa tvs ctxt (PrefixCon args) doc) 
@@ -87,11 +77,6 @@ rmvArgsFromPat constrName n p@(ConPatIn (L l name) (PrefixCon args))
     | otherwise             = p
 rmvArgsFromPat _ _ p = p
 
--- args2UnitPositions :: [BangType GhcPs] -> [Int]
--- args2UnitPositions = map fst . filter snd . map (fmap isUnit) . zip [0..]
---   where 
---     isUnit UnitTypeP    = True
---     isUnit _            = False
 
 
 

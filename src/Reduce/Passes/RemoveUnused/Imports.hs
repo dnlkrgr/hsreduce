@@ -1,13 +1,11 @@
 module Passes.RemoveUnused.Imports (reduce) where
 
-import Util.Types
-import Util.Util
+import Types
+import Util
 import GHC
 
 reduce :: R ()
 reduce = do
-    printInfo "Removing Imports"
-    isTestStillFresh "Imports"
     runPass "rmvImports" rmvImports
     runPass "unqualImport" unqualImport
 

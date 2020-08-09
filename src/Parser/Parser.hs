@@ -1,4 +1,4 @@
-module Parser.Parser (getPragmas, parse)  where
+module Parser (getPragmas, parse)  where
 
 import qualified Data.List as L
 import Data.Maybe
@@ -14,7 +14,7 @@ import qualified Data.Text.IO as TIO
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import GHC hiding (extensions)
-import Util.Types
+import Types
 import GHC.Paths
 
 -- TODO: how to handle Safe vs. Trustworthy?

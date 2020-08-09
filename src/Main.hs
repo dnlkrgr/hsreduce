@@ -10,4 +10,3 @@ main = getArgs >>= \case
                         [ "Usage: hsreduce <# of threads> <rel path to test> <rel path to hs file>"
                         , "Example usage: hsreduce 1 interesting.sh Bug.hs"
                         ]
-
