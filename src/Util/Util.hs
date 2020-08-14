@@ -1,17 +1,17 @@
 module Util where
 
+import Data.Either
 import Data.Char
 import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Aeson (decode)
+import Data.Aeson (decodeStrict)
 import Data.Data
 import Data.Generics.Aliases (extQ)
 import Data.Generics.Uniplate.Data
 import Data.List.Split
 import Data.Maybe
-import Data.Void
 import Debug.Trace
 import FastString
 import GHC hiding (GhcMode, ghcMode, Pass)
@@ -28,7 +28,6 @@ import System.Timeout
 import Text.RE.TDFA.Text
 import Types as UT
 import qualified Control.Exception  as CE
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
@@ -255,7 +254,7 @@ withTempDir tChan action = do
 
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-getGhcOutput :: Tool -> GhcMode -> Path Abs File -> IO (Maybe [(Either (M.ParseErrorBundle T.Text Void) T.Text, SL.RealSrcSpan)])
+getGhcOutput :: Tool -> GhcMode -> Path Abs File -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
 getGhcOutput tool ghcMode sourcePath = do
     allPragmas <- getPragmas sourcePath
 
@@ -271,7 +270,7 @@ getGhcOutput tool ghcMode sourcePath = do
 
     return $ case stdout of
         "" -> Nothing
-        _  ->   concat . mapFunc . filterFunc <$> (sequence . filter isJust . map (decode . LBS.fromStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
+        _  -> fromRight [] . sequence . filter isRight . concat . mapFunc . filterFunc . filter (isJust . UT.span) <$> (sequence . filter isJust . map (decodeStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
 
   where
       ghcModeString = case ghcMode of
@@ -282,23 +281,23 @@ getGhcOutput tool ghcMode sourcePath = do
       filterFunc = case ghcMode of
           MissingImport   -> filter ((T.isPrefixOf "Not in scope:" <&&> (T.isInfixOf "imported from" <||> T.isInfixOf "No module named")) . doc)
           NotInScope      -> filter ( T.isPrefixOf "Not in scope:" . doc)
-          PerhapsYouMeant -> filter ((T.isPrefixOf "Not in scope:" <&&> (T.isInfixOf "Perhaps you meant")) . doc)
+          PerhapsYouMeant -> id -- filter ((T.isPrefixOf "Not in scope:" <&&> (T.isInfixOf "Perhaps you meant")) . doc)
           HiddenImport    -> filter (T.isInfixOf "is a hidden module in the package" . doc)
           Indent          -> filter (T.isInfixOf "parse error (possibly incorrect indentation" . doc)
-          _               -> filter ((isJust . UT.span) <&&> (isJust . reason) <&&> (T.isPrefixOf "Opt_WarnUnused" . fromJust . reason))
+          _               -> filter ((isJust . UT.span) <&&> (isJust . reason) <&&> (maybe False (T.isPrefixOf "Opt_WarnUnused") . reason))
 
       mapFunc = case ghcMode of
 
           MissingImport   -> 
               map (\o -> let importSuggestion = fmap (removeInternal id) . useP importedFromP  $ doc o 
                              noModuleNamed    = fmap (removeInternal id) . useP noModuleNamedP $ doc o 
-                             pos = span2SrcSpan . fromJust . UT.span $ o 
-                         in [(importSuggestion, pos), (noModuleNamed, pos)])
-          NotInScope      -> map (\o -> [(fmap removeUseOfHidden . useP notInScopeP $ doc o , span2SrcSpan . fromJust . UT.span $ o)])
-          PerhapsYouMeant -> map (\o -> [(useP perhapsYouMeantP $ doc o , span2SrcSpan . fromJust . UT.span $ o)])
-          Indent          -> map (\o -> [(Right "", span2SrcSpan . fromJust . UT.span $ o)])
-          HiddenImport    -> map ((:[]) . ((,) <$> (fmap (removeInternal init) . useP hiddenImportP . doc) <*> (span2SrcSpan . fromJust . UT.span)))
-          _               -> map ((:[]) . ((,) <$> (Right . T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') . doc) <*> (span2SrcSpan . fromJust . UT.span)))
+                             pos = UT.span o 
+                         in maybe [] (\jpos -> [(, span2SrcSpan jpos) <$> importSuggestion, (, span2SrcSpan jpos) <$> noModuleNamed]) pos )
+          NotInScope      -> map (\o -> maybe [] (\jpos -> [fmap ((, span2SrcSpan jpos) . removeUseOfHidden) . useP notInScopeP $ doc o ]) $ UT.span o)
+          PerhapsYouMeant -> map (\o -> maybe [] (\jpos -> [ fmap (,span2SrcSpan jpos) . useP perhapsYouMeantP $ doc o]) $ UT.span o)
+          Indent          -> map (\o -> maybe [] (\jpos -> [Right ("", span2SrcSpan jpos )]) $ UT.span o)
+          HiddenImport    -> map (\o -> maybe [] (\jpos -> [fmap ((,span2SrcSpan jpos) . (removeInternal init)) . useP hiddenImportP $ doc o]) $ UT.span o)
+          _               -> map (\o -> maybe [] (\jpos -> [(Right $ ((T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') $ doc o), (span2SrcSpan jpos)))]) $ UT.span o)
 
 
 useP :: M.Parsec e s a -> s -> Either (M.ParseErrorBundle s e) a
@@ -313,17 +312,25 @@ notInScopeP = do
 
 perhapsYouMeantP :: Parser T.Text
 perhapsYouMeantP = do
-    void $ M.chunk "Not in scope:"
-    void $ M.some (M.satisfy (/= '‘'))
-    void $ MC.char '‘'
-    void $ M.some (M.satisfy (/= '’'))
-    void $ MC.char '’'
+    M.try (do
+            void $ M.chunk "Not in scope:"
+            void $ M.some (M.satisfy (/= '‘'))
+            void $ MC.char '‘'
+            void $ M.some (M.satisfy (/= '’'))
+            void $ MC.char '’')
+        <|> (do
+            void $ MC.char '\8226'
+            MC.space
+            void $ M.chunk "Variable not in scope:"
+            void $ M.some (M.satisfy (/= '\8226'))
+            void $ MC.char '\8226')
     MC.space
     void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
     void $ M.some (M.satisfy (/= '‘'))
     void $ MC.char '‘'
     T.pack <$> M.some (M.satisfy (/= '’'))
-   
+
+
 removeUseOfHidden :: T.Text -> T.Text
 removeUseOfHidden s 
     | length components > 2 
@@ -374,7 +381,7 @@ span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (
   where n = mkFastString $ T.unpack f
 
 isQual :: T.Text -> Bool
-isQual = matched . (?=~ [re|([A-Za-z]+\.)+[A-Za-z0-9#_]+|])
+isQual = matched . (?=~ [re|([A-Za-z']+\.)+[A-Za-z0-9#_]+|])
 
 isInProduction :: Bool
 isInProduction = True
@@ -459,6 +466,12 @@ rmvArgsFromExpr _ _ _ e    = e
 -- 
 -- importedFrom :: T.Text
 -- importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
+
+
+-- variableNotInScope :: T.Text
+-- variableNotInScope = 
+--     "\8226 Variable not in scope:\n    maybe\n      :: t0\n         -> t1 -> Maybe Int -> Either Int Utf8_TextProtocolBuffersBasic\n  "
+--     <> "\8226 Perhaps you meant ‘Prelude.maybe’ (imported from Prelude)"
 --  
 --  
 --  

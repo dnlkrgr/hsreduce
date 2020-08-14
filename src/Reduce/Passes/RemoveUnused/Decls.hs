@@ -20,7 +20,7 @@ fast = do
     sourceFile <- asks _sourceFile
     printInfo "Removing unused declarations"
 
-    mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
+    mUnusedBinds <- fmap (map fst) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
     runPass "rmvSigs"  (rmvSigs mUnusedBinds)
     runPass "rmvDecls" (rmvDecls mUnusedBinds)
 
@@ -30,7 +30,7 @@ slow = do
     sourceFile <- asks _sourceFile
     printInfo "Removing unused declarations"
 
-    mUnusedBinds <- fmap (map (fromRight "" . fst)) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
+    mUnusedBinds <- fmap (map fst) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
     runPass "simplifyDecl"  (simplifyDecl $ traceShow (show mUnusedBinds) mUnusedBinds)
     runPass "recCon2Prefix" recCon2Prefix
 

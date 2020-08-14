@@ -26,9 +26,9 @@ inline = do
         , numOccurence > 0
         , let fbLength      = length . (\i -> i) $ oshow fb
         , let _longestGRHS  = (\i -> i ) . head . sortOn length . map (showSDocUnsafe . pprGRHSs LambdaExpr . m_grhss . unLoc) $ unLoc lmatches
-        , let uses          = numOccurence * (length $ oshow lmatches)
+        , let lengthOfUses          = numOccurence * (length $ oshow lmatches)
         -- inlining is interesting, if rhs is greater than all uses of the function name, because function def could be deleted
-        ,  fbLength >= uses ]
+        ,  fbLength >= lengthOfUses ]
         inlineFunction
 
 pattern AppP :: RdrName -> HsExpr GhcPs
