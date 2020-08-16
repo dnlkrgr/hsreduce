@@ -5,9 +5,7 @@ import HsAllInOne
 
 main :: IO ()
 main =  getArgs >>= \case
-    [x]     -> do
-        hsmerge x
-        dieForGhcSins
+    [x]     -> hsmerge x
     _       -> putStrLn $ unlines [
                       "Example Usage:" 
                     , "1. Call hsmerge in the cabal project directory you want to merge"

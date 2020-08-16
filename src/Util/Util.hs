@@ -25,7 +25,6 @@ import System.Exit
 import System.Posix.Files
 import System.Process
 import System.Timeout
-import Text.RE.TDFA.Text
 import Types as UT
 import qualified Control.Exception  as CE
 import qualified Data.Text as T
@@ -380,8 +379,6 @@ span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
   where n = mkFastString $ T.unpack f
 
-isQual :: T.Text -> Bool
-isQual = matched . (?=~ [re|([A-Za-z']+\.)+[A-Za-z0-9#_]+|])
 
 isInProduction :: Bool
 isInProduction = True
