@@ -47,6 +47,8 @@ common dry
         DeriveGeneric
         ViewPatterns
         TupleSections
+        TypeFamilies
+        Rank2Types  
     default-language:    
         Haskell2010
     ghc-options:       
@@ -55,26 +57,26 @@ common dry
 executable hsmerge
     import:
         dry
-    main-is: Main.hs
+    main-is: Merge/Main.hs
     other-modules:
-        HsAllInOne
-        Util
-        Types
-        Parser
+        Merge.HsAllInOne
+        Util.Util
+        Util.Types
+        Parser.Parser
     build-depends:       
         hashable
         , edit-distance
         , hie-bios
     hs-source-dirs:      
-        src/Merge
-        src/Util
-        src/Parser
+        src
     default-extensions:  
         FlexibleInstances
     
 executable hsreduce
+    import:
+        dry
     main-is: 
-        Main.hs
+        Reduce/Main.hs
     build-depends:       
         base
         , lib-hsreduce
@@ -94,27 +96,26 @@ library lib-hsreduce
     import:
         dry
     exposed-modules:   
-        Driver
-        Passes.Stubbing
-        Passes.DataTypes
-        Passes.Names
-        Passes.Functions
-        Passes.RemoveUnused.Decls
-        Passes.RemoveUnused.Imports
-        Passes.RemoveUnused.Exports
-        Passes.RemoveUnused.Pragmas
-        Passes.RemoveUnused.Parameters
+        Reduce.Driver
+        Reduce.Passes.Simplify.Expr
+        Reduce.Passes.Simplify.Types
+        Reduce.Passes.Simplify.Pat
+        Reduce.Passes.Simplify.Decls
+        Reduce.Passes.Stubbing
+        Reduce.Passes.DataTypes
+        Reduce.Passes.Names
+        Reduce.Passes.Functions
+        Reduce.Passes.Remove.Decls
+        Reduce.Passes.Remove.Imports
+        Reduce.Passes.Remove.Exports
+        Reduce.Passes.Remove.Pragmas
+        Reduce.Passes.Remove.Parameters
+        Util.Util
     other-modules:
-        Util
-        Types
-        Parser
+        Util.Types
+        Parser.Parser
     hs-source-dirs:    
-        src/Reduce
-        src/Util
-        src/Parser
-    default-extensions:  
-        Rank2Types  
-        TypeFamilies
+        src
 
 test-suite test-hsreduce
     import: 

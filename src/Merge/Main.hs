@@ -1,7 +1,7 @@
 module Main (main) where
 
 import System.Environment
-import HsAllInOne
+import Merge.HsAllInOne
 
 main :: IO ()
 main =  getArgs >>= \case

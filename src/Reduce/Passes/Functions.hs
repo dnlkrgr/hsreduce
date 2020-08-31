@@ -1,4 +1,4 @@
-module Passes.Functions where
+module Reduce.Passes.Functions where
 
 import Lens.Micro.Platform
 import Data.List
@@ -10,8 +10,8 @@ import BasicTypes
 import Outputable
 import Data.Generics.Uniplate.Data
 
-import Util
-import Types
+import Util.Util
+import Util.Types
 
 inline :: R ()
 inline = do

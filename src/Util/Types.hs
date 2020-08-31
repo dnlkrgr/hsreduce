@@ -1,4 +1,4 @@
-module Types where
+module Util.Types where
 
 import Control.Concurrent
 import Control.Concurrent.STM

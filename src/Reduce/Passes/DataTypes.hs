@@ -1,12 +1,12 @@
-module Passes.DataTypes (inline, rmvConArgs) where
+module Reduce.Passes.DataTypes (inline, rmvConArgs) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Data.Generics.Uniplate.Data
 import GHC
 import Lens.Micro.Platform
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 passId :: String
 passId = "rmvConArgs"

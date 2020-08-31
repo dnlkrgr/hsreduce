@@ -1,10 +1,10 @@
-module Passes.RemoveUnused.Decls (fast, slow) where
+module Reduce.Passes.Remove.Decls (fast, slow) where
 
 import Path 
 import Control.Monad.State.Strict
 import qualified Data.Text as T
-import Types
-import Util
+import Util.Types
+import Util.Util
 import Control.Monad.Reader
 import GHC hiding (getName)
 import Outputable hiding ((<>))

@@ -1,8 +1,8 @@
-module Passes.RemoveUnused.Imports (reduce) where
+module Reduce.Passes.Remove.Imports (reduce) where
 
 import GHC
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 reduce :: R ()
 reduce = do

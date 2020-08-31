@@ -1,4 +1,4 @@
-module Passes.RemoveUnused.Exports (reduce) where
+module Reduce.Passes.Remove.Exports (reduce) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
@@ -6,8 +6,8 @@ import Data.Maybe
 import qualified Data.Text as T
 import GHC
 import Path
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 reduce :: R ()
 reduce = do

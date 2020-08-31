@@ -1,4 +1,4 @@
-module HsAllInOne where
+module Merge.HsAllInOne where
 
 import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void, when)
 import Data.Bifunctor
@@ -17,13 +17,13 @@ import GHC hiding (GhcMode, extensions)
 import GHC.Paths (libdir)
 import GhcPlugins hiding ((<&&>), (<>), GhcMode, count, extensions, getHscEnv, isQual, mkUnqual, qualName)
 import HIE.Bios
-import Parser (getPragmas)
+import Parser.Parser (getPragmas)
 import Path ((</>), Abs, File, Path, fromAbsFile, parseAbsDir, parseAbsFile, parseRelFile)
 import System.Directory (getCurrentDirectory)
 import TcRnTypes (tcg_rdr_env)
 import Text.EditDistance
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do

@@ -1,4 +1,4 @@
-module Util where
+module Util.Util where
 
 import Control.Applicative
 import Control.Concurrent.Async
@@ -21,7 +21,7 @@ import FastString
 import GHC hiding (GhcMode, Pass, ghcMode)
 import Lens.Micro.Platform
 import Outputable hiding ((<>))
-import Parser
+import Parser.Parser
 import Path
 import SrcLoc as SL
 import System.Directory
@@ -31,7 +31,7 @@ import System.Process
 import System.Timeout
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
-import Types as UT
+import Util.Types as UT
 
 tryNewState :: String -> (RState -> RState) -> RConf -> IO ()
 tryNewState passId f conf = do

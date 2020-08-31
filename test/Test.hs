@@ -6,14 +6,17 @@ import Data.Maybe
 import Control.Monad
 import Test.Hspec
 
-import Driver (hsreduce)
-import qualified Passes.RemoveUnused.Imports        as Imports
-import qualified Passes.RemoveUnused.Pragmas        as Pragmas
-import qualified Passes.RemoveUnused.Exports        as Exports
-import qualified Passes.RemoveUnused.Decls          as Decls
-import qualified Passes.Stubbing                    as Stubbing
-import qualified Passes.DataTypes                   as DataTypes
-import qualified Passes.RemoveUnused.Parameters     as Parameters
+import Reduce.Driver (hsreduce)
+import qualified Reduce.Passes.Remove.Imports        as Imports
+import qualified Reduce.Passes.Remove.Pragmas        as Pragmas
+import qualified Reduce.Passes.Remove.Exports        as Exports
+import qualified Reduce.Passes.Remove.Decls          as Decls
+import qualified Reduce.Passes.Remove.Parameters     as Parameters
+import qualified Reduce.Passes.Stubbing              as Stubbing
+import qualified Reduce.Passes.DataTypes             as DataTypes
+import qualified Reduce.Passes.Simplify.Expr as Expr
+import qualified Reduce.Passes.Simplify.Types as Types
+import Util.Util
 
 
 main :: IO ()
@@ -40,7 +43,7 @@ main = hspec $ do
                 -- Stubbing
                 -- ********
                 -- , ("Undefined", minireduce (fastTry Stubbing.expr2Undefined), Nothing, "module Undefined where\nfoo x = undefined\n")
-                , ("Unit",          Stubbing.medium,            Nothing,                "module Unit where\narst :: ()\narst = undefined")
+                , ("Unit",          runPass "" Types.type2Unit >> runPass "" Expr.expr2Undefined,            Nothing,                "module Unit where\narst :: ()\narst = undefined")
 
                 , ("Params",        Parameters.reduce,          Nothing,                "module Params where\nbrst = arst\narst :: ()\narst = undefined")
                 , ("ConArgs",       DataTypes.rmvConArgs,       Nothing,                "module Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst () () -> Arst () ()\ne (Arst) = Arst")

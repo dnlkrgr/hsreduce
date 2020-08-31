@@ -1,4 +1,4 @@
-module Passes.RemoveUnused.Parameters (reduce) where
+module Reduce.Passes.Remove.Parameters (reduce) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
@@ -6,8 +6,8 @@ import Data.Generics.Uniplate.Data
 import Debug.Trace
 import GHC
 import Lens.Micro.Platform
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 passId :: String
 passId = "rmvUnusedParams"

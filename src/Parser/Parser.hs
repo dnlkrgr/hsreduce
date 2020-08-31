@@ -1,4 +1,4 @@
-module Parser (getPragmas, parse) where
+module Parser.Parser (getPragmas, parse) where
 
 import Control.Applicative
 import Control.Monad.IO.Class
@@ -15,7 +15,7 @@ import GHC.Paths
 import Path
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
-import Types
+import Util.Types
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]

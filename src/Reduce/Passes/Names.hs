@@ -1,4 +1,4 @@
-module Passes.Names (shortenNames) where
+module Reduce.Passes.Names (shortenNames) where
 
 import Lens.Micro.Platform
 import Data.Char
@@ -8,8 +8,8 @@ import Data.Generics.Uniplate.Data
 import Control.Monad.Reader
 import OccName
 
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 
 shortenNames :: R ()

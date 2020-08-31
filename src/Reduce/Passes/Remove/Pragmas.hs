@@ -1,10 +1,10 @@
-module Passes.RemoveUnused.Pragmas (reduce) where
+module Reduce.Passes.Remove.Pragmas (reduce) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Lens.Micro.Platform
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 reduce :: R ()
 reduce =

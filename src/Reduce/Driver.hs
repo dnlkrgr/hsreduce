@@ -1,4 +1,4 @@
-module Driver
+module Reduce.Driver
     ( hsreduce,
     )
 where
@@ -16,21 +16,25 @@ import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time
-import Parser
-import qualified Passes.DataTypes as DataTypes (inline, rmvConArgs)
-import qualified Passes.Functions as Functions (inline)
-import qualified Passes.Names as Names (shortenNames)
-import qualified Passes.RemoveUnused.Decls as Decls (fast, slow)
-import qualified Passes.RemoveUnused.Exports as Exports (reduce)
-import qualified Passes.RemoveUnused.Imports as Imports (reduce)
-import qualified Passes.RemoveUnused.Parameters as Parameters (reduce)
-import qualified Passes.RemoveUnused.Pragmas as Pragmas (reduce)
-import qualified Passes.Stubbing as Stubbing (fast, medium, slow, slowest)
+import Parser.Parser
+import qualified Reduce.Passes.Simplify.Expr as Expr 
+import qualified Reduce.Passes.Simplify.Types as Types 
+import qualified Reduce.Passes.Simplify.Pat as Pat 
+import qualified Reduce.Passes.Simplify.Decls as Decls 
+import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
+import qualified Reduce.Passes.Functions as Functions (inline)
+import qualified Reduce.Passes.Names as Names (shortenNames)
+import qualified Reduce.Passes.Remove.Decls as Decls (fast, slow)
+import qualified Reduce.Passes.Remove.Exports as Exports (reduce)
+import qualified Reduce.Passes.Remove.Imports as Imports (reduce)
+import qualified Reduce.Passes.Remove.Parameters as Parameters (reduce)
+import qualified Reduce.Passes.Remove.Pragmas as Pragmas (reduce)
+import qualified Reduce.Passes.Stubbing as Stubbing (slow, slowest)
 import Path
 import System.Directory
 import System.IO.Temp (createTempDirectory)
-import Types
-import Util
+import Util.Types
+import Util.Util
 
 hsreduce :: Int -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
 hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
@@ -110,7 +114,7 @@ allActions =
         liftIO $ putStrLn "\n\n*** Increasing granularity ***"
         largestFixpoint pass
     where
-        passes = [fast, medium, slow, slowest, snail]
+        passes = [fast, medium, slowest, snail]
 
 fast :: R ()
 fast = do
@@ -121,22 +125,23 @@ fast = do
 
 medium :: R ()
 medium = do
-    Stubbing.fast
+    runPass "expr2Undefined" Expr.expr2Undefined
     fast
     Decls.slow
 
-slow :: R ()
-slow = do
-    Stubbing.medium
-    fast
-
 slowest :: R ()
 slowest = do
+    runPass "filterExprSubList" Expr.filterExprSubList
+    runPass "type2Unit" Types.type2Unit
+    runPass "pat2Wildcard" Pat.pat2Wildcard
+    runPass "simplifyConDecl" Decls.simplifyConDecl
     Stubbing.slow
     fast
 
 snail :: R ()
 snail = do
+    runPass "simplifyExpr" Expr.simplifyExpr
+    runPass "simplifyType" Types.simplifyType
     Stubbing.slowest
     Names.shortenNames -- currently broken
     DataTypes.inline
