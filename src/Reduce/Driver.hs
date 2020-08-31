@@ -1,8 +1,11 @@
-module HsReduce
+module Driver
     ( hsreduce,
     )
 where
 
+import Distribution.Simple.Utils hiding (createTempDirectory)
+import Distribution.Verbosity
+import System.Posix.Files
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
@@ -35,9 +38,9 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
     -- 3. record the starting time
-    sourceDir <- parseAbsDir =<< getCurrentDirectory
+    sourceDir <- fmap (</> parent test) . parseAbsDir =<< getCurrentDirectory
 
-    let fullFilePath = sourceDir </> filePath
+    let fullFilePath = sourceDir </> filename filePath
 
     fileContent <- TIO.readFile $ fromAbsFile fullFilePath
     beginState <- parse True [] [] fullFilePath
@@ -45,7 +48,8 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
     tState <- atomically $ newTVar beginState
 
     let oldSize = T.length fileContent
-        files = [test, filePath]
+        -- files = [test, filePath]
+    files <- listDirectory $ fromAbsDir sourceDir
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -53,11 +57,18 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
     -- 4. write the temp dir name into the channel
     tChan <- atomically newTChan
     forM_ [1 .. numberOfThreads] $ \_ -> do
-        t <- createTempDirectory (fromAbsDir sourceDir) "hsreduce"
+        t <- createTempDirectory "/tmp" "hsreduce"
 
         tempDir <- parseAbsDir t
 
-        forM_ files $ \f -> copyFile (fromAbsFile $ sourceDir </> f) (fromAbsFile $ tempDir </> filename f)
+        forM_ files $ \f -> do
+            iterFile    <- parseRelFile f
+            let oldPath = fromAbsFile $ sourceDir </> iterFile
+            status      <- getFileStatus oldPath
+
+            if isDirectory status
+            then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
+            else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
 
         atomically $ writeTChan tChan tempDir
 
@@ -128,10 +139,10 @@ snail :: R ()
 snail = do
     Stubbing.slowest
     Names.shortenNames -- currently broken
-    Parameters.reduce
     DataTypes.inline
     Functions.inline
     DataTypes.rmvConArgs
+    Parameters.reduce
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

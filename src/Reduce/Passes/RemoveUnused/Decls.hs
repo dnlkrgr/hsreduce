@@ -1,18 +1,16 @@
 module Passes.RemoveUnused.Decls (fast, slow) where
 
 import Path 
-import Data.Either
 import Control.Monad.State.Strict
 import qualified Data.Text as T
 import Types
 import Util
 import Control.Monad.Reader
 import GHC hiding (getName)
-import Outputable
+import Outputable hiding ((<>))
 import BasicTypes
 import TcEvidence
 import CoreSyn
-import Debug.Trace
 
 fast :: R ()
 fast = do
@@ -31,7 +29,7 @@ slow = do
     printInfo "Removing unused declarations"
 
     mUnusedBinds <- fmap (map fst) <$> liftIO (withTempDir tchan $ \temp -> getGhcOutput Ghc Binds (temp </> sourceFile))
-    runPass "simplifyDecl"  (simplifyDecl $ traceShow (show mUnusedBinds) mUnusedBinds)
+    runPass "simplifyDecl"  (simplifyDecl mUnusedBinds)
     runPass "recCon2Prefix" recCon2Prefix
 
 -- ***************************************************************************
@@ -61,7 +59,8 @@ getDeclLocs :: ([LHsDecl GhcPs] -> [Located e]) -> HsModule GhcPs -> [SrcSpan]
 getDeclLocs f = map getLoc . f .  hsmodDecls
 
 rmvOneDecl :: SrcSpan -> HsModule GhcPs -> HsModule GhcPs
-rmvOneDecl loc m = m { hsmodDecls = filter ((/= loc) . getLoc ) $ hsmodDecls m }
+rmvOneDecl loc m = 
+    m { hsmodDecls = filter ((/= loc) . getLoc ) $ hsmodDecls m }
 
 -- TODO: what other decls make sense here?
 getName :: LHsDecl GhcPs -> Maybe (IdP GhcPs)
@@ -77,7 +76,7 @@ getName _ = Nothing
 simplifyDecl :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
 simplifyDecl (Just bns) (TypeSigDeclP ids swt) =
     let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
-    in [const (TypeSigDeclX (traceShow (oshow newFunIds) newFunIds) swt)]
+    in [const (TypeSigDeclX newFunIds swt)]
 simplifyDecl _ (FunDeclP fid loc mtchs mo fw ft) =
     let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
     in [const (FunDeclP fid loc nMtchs mo fw ft)]

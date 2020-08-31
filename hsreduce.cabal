@@ -94,7 +94,7 @@ library lib-hsreduce
     import:
         dry
     exposed-modules:   
-        HsReduce
+        Driver
         Passes.Stubbing
         Passes.DataTypes
         Passes.Names

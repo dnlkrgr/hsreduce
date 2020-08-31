@@ -1,11 +1,10 @@
 module HsAllInOne where
 
-import Data.Bifunctor
 import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void, when)
+import Data.Bifunctor
 import Data.Generics.Uniplate.Data
 import Data.Hashable (hash)
-import Text.EditDistance
-import Data.List (isInfixOf, nub, sortOn)
+import Data.List (nub, sortOn)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
@@ -22,6 +21,7 @@ import Parser (getPragmas)
 import Path ((</>), Abs, File, Path, fromAbsFile, parseAbsDir, parseAbsFile, parseRelFile)
 import System.Directory (getCurrentDirectory)
 import TcRnTypes (tcg_rdr_env)
+import Text.EditDistance
 import Types
 import Util
 
@@ -41,6 +41,7 @@ hsmerge filePath = do
                 let modSums = concatMap flattenSCC $ topSortModuleGraph False mg Nothing
                     ours = map (moduleName . ms_mod) modSums
 
+                liftIO $ print $ map oshow $ ours
 
                 missingImportsAndAnnotatedAST <- for modSums $ \modSum -> do
                     t <- typecheckModule =<< parseModule modSum
@@ -49,25 +50,23 @@ hsmerge filePath = do
                         myParsedSource = unLoc . pm_parsed_source $ tm_parsed_module t
                         importsModuleNames = mkModuleName "Prelude" : (map (unLoc . ideclName . unLoc) $ hsmodImports myParsedSource)
                         (renamedGroups, _, _, _) = fromMaybe (error "HsAllInOne->hsmerge: no renamed source!") $ tm_renamed_source t
-
                         proposedNameChanges = flip map (universeBi renamedGroups :: [Located Name]) $ \(L l n) ->
                             let temp = name2ProposedChange rdrEnv importsModuleNames ours n
-                            in  (l,) $ temp
-                            -- in (if "Interval" `isInfixOf` oshow n then traceShow (oshow temp) else id) $ (l,) $ temp
+                             in (l,) $ temp
+                        -- in (if "Interval" `isInfixOf` oshow n then traceShow (oshow temp) else id) $ (l,) $ temp
                         otherNames = map (fmap snd) proposedNameChanges
                         ambiguousFields = map (fmap snd) $ flip map (universeBi renamedGroups) (ambiguousField2ProposedChanged rdrEnv importsModuleNames ours)
                         fields = map (fmap snd) $ flip map (universeBi renamedGroups) (field2ProposedChange rdrEnv importsModuleNames ours)
                         proposedChanges = M.fromList $ otherNames <> ambiguousFields <> fields
                         rdr2NewRdr = M.fromList $ map (first (occNameString . rdrNameOcc)) $ map snd $ proposedNameChanges
 
-
-                    return . 
-                        transformBi unqualFamEqnClsInst
-                            . transformBi unqualSig
-                            . transformBi unqualBinds
-                            . transformBi (qualSplices rdrEnv importsModuleNames ours rdr2NewRdr)
-                            . transformBi (applyChange proposedChanges)
-                            $ myParsedSource
+                    return
+                        . transformBi unqualFamEqnClsInst
+                        . transformBi unqualSig
+                        . transformBi unqualBinds
+                        . transformBi (qualSplices rdrEnv importsModuleNames ours rdr2NewRdr)
+                        . transformBi (applyChange proposedChanges)
+                        $ myParsedSource
 
                 d <- liftIO getCurrentDirectory
                 let crd = cradleRootDir cradle
@@ -92,44 +91,70 @@ hsmerge filePath = do
             dir <- parseAbsDir =<< getCurrentDirectory
             f <- parseRelFile "AllInOne.hs"
             cleanUp Ghc Indent (dir </> f)
+            cleanUp Ghc PerhapsYouMeant (dir </> f)
         CradleFail err -> error $ show err
         _ -> error "Cradle wasn't loaded successfully! Maybe you're missing a hie.yaml file?"
 
 renameRdrName :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -> M.Map String RdrName -> RdrName -> RdrName
-renameRdrName rdrEnv imports ours rdr2NewRdr rn@(Unqual on) = 
-    case getNameFromEnv rdrEnv imports ours (mkModuleName "") on of
-        Unqual _ -> 
-            -- (if "Interval" `isInfixOf` oshow on then traceShow "\nhey" . traceShow (oshow (Unqual $ mkOccName ns $ dropWhile (=='\'') os)) . traceShow (oshow $ rdr2NewRdr) . traceShow (oshow $ M.lookup (Unqual $ mkOccName ns $ dropWhile (=='\'') os) rdr2NewRdr) else id) $ 
-                fromMaybe rn $ M.lookup (dropWhile (=='\'') os) rdr2NewRdr
+renameRdrName rdrEnv imports ours rdr2NewRdr rn@(Unqual on) =
+    case getNameFromEnv rdrEnv imports ours (mkModuleName "") Nothing on of
+        Unqual _ ->
+            -- (if "Interval" `isInfixOf` oshow on then traceShow "\nhey" . traceShow (oshow (Unqual $ mkOccName ns $ dropWhile (=='\'') os)) . traceShow (oshow $ rdr2NewRdr) . traceShow (oshow $ M.lookup (Unqual $ mkOccName ns $ dropWhile (=='\'') os) rdr2NewRdr) else id) $
+            fromMaybe rn $ M.lookup (dropWhile (== '\'') os) rdr2NewRdr
         n -> n
-  where 
-      ns = occNameSpace on
-      os = occNameString on
-renameRdrName rdrEnv imports ours _ (Qual mn on) = getNameFromEnv rdrEnv imports ours mn on
+    where
+        os = occNameString on
+renameRdrName rdrEnv imports ours _ (Qual mn on) = getNameFromEnv rdrEnv imports ours mn Nothing on
 renameRdrName _ _ _ _ n = n
 
 qualSplices :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -> M.Map String RdrName -> HsSplice GhcPs -> HsSplice GhcPs
 qualSplices rdrEnv imports ours rdr2NewRdr = transformBi (renameRdrName rdrEnv imports ours rdr2NewRdr)
 
--- run this in the maybe monad
-getNameFromEnv :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -> ModuleName -> OccName -> RdrName
-getNameFromEnv rdrEnv imports ours mn on =
+getNameFromEnv :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -> ModuleName -> (Maybe Name) -> OccName -> RdrName
+getNameFromEnv rdrEnv imports ours mn maybeName on =
     if mn `elem` imports
         then Qual mn on
         else case moduleNamesFromEnv of
             [] -> Unqual on
-            (newMN : _) -> 
-                 -- (if "element" `isInfixOf` oshow on 
-                 --    then traceShow "getNameFromEnv" . traceShow (oshow on) . traceShow (oshow mn) . traceShow (oshow newMN) 
-                 --    else id) $ 
-                Qual (if newMN `notElem` ours then newMN else mn) on
+            [newMN] ->
+                Qual (if newMN `elem` ours then mn else newMN) on
+            _ ->
+                -- traceShow ("" :: String)
+                --     . traceShow ("getNameFromEnv" :: String)
+                --     . traceShow (oshow mn)
+                --     . traceShow (map oshow otherMNs)
+                --     . traceShow (oshow newMN)
+                --     . traceShow (newMN `elem` ours)
+                Unqual on
+                    -- $ Qual (if newMN `notElem` ours then newMN else mn) on
     where
         moduleNamesFromEnv =
-            sortOn (levenshteinDistance defaultEditCosts (oshow mn) . oshow) [ importMN
-              | rdrElement <- lookupGlobalRdrEnv rdrEnv on,
-                possibleImport <- gre_imp rdrElement,
-                let importMN = is_mod $ is_decl possibleImport
-            ]
+            sortOn (levenshteinDistance defaultEditCosts (oshow mn) . oshow) . nub $
+                ( case maybeName of
+                      Nothing ->
+                          [ importMN
+                            | rdrElement <- lookupGlobalRdrEnv rdrEnv on,
+                              possibleImport <- gre_imp rdrElement,
+                              let importMN = is_mod $ is_decl possibleImport
+                          ]
+                      Just n ->
+                          case lookupGRE_Name rdrEnv n of
+                              Nothing ->
+                                  [ importMN
+                                    | rdrElement <- lookupGlobalRdrEnv rdrEnv on,
+                                      gre_name rdrElement == n,
+                                      possibleImport <- gre_imp rdrElement,
+                                      let importMN = is_mod $ is_decl possibleImport
+                                  ]
+                              Just rdrElement ->
+                                  traceShow "lookupGRE_Name: SUCCESS!"
+                                  [ importMN
+                                    | possibleImport <- gre_imp rdrElement,
+                                      let importMN = is_mod $ is_decl possibleImport
+                                  ]
+                )
+
+-- in (if lookupGRE_Name rdrEnv n == Nothing then traceShow (oshow n) . traceShow (oshow mn) . traceShow (oshow temp) . traceShow (oshow $ getModuleName n) else id) $ temp)
 
 name2ProposedChange :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -> Name -> (RdrName, RdrName)
 name2ProposedChange rdrEnv imports ours n
@@ -148,7 +173,7 @@ name2ProposedChange rdrEnv imports ours n
         (rn, Unqual $ mangle mn on)
     -- something external
     | Just mn <- getModuleName n = do
-        (rn,) $ getNameFromEnv rdrEnv imports ours mn on
+        (rn,) $ getNameFromEnv rdrEnv imports ours mn (Just n) on
     -- if mn `elem` imports
     -- then
     --     return $ ChangeName (rn, Qual mn on)
@@ -171,7 +196,7 @@ ambiguousField2ProposedChanged :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -
 ambiguousField2ProposedChanged rdrEnv imports ours (Unambiguous n (L l rn))
     | Just mn <- getModuleName n, mn `elem` ours = (l, (rn, Unqual $ mangle mn on))
     | Just mn <- getModuleName n = do
-        (l,) . (rn,) $ getNameFromEnv rdrEnv imports ours mn on
+        (l,) . (rn,) $ getNameFromEnv rdrEnv imports ours mn Nothing on
     where
         on = rdrNameOcc rn
 ambiguousField2ProposedChanged _ _ ours (Ambiguous _ (L l rn@(Qual mn on)))
@@ -183,7 +208,7 @@ field2ProposedChange :: GlobalRdrEnv -> [ModuleName] -> [ModuleName] -> FieldOcc
 field2ProposedChange rdrEnv imports ours (FieldOcc n (L l rn))
     | Just mn <- getModuleName n, mn `elem` ours = (l, (rn, Unqual $ mangle mn on))
     | Just mn <- getModuleName n = do
-        (l,) . (rn,) $ getNameFromEnv rdrEnv imports ours mn on
+        (l,) . (rn,) $ getNameFromEnv rdrEnv imports ours mn Nothing on
     where
         on = rdrNameOcc rn
 field2ProposedChange _ _ _ _ = error "field2ProposedChange: incomplete pattern match"
@@ -202,7 +227,9 @@ getModuleName = fmap moduleName . nameModule_maybe
 
 -- ***************************************************************************
 -- MERGING MODULES UTILITIES
+
 -- ***************************************************************************
+
 unqualFamEqnClsInst :: ClsInstDecl GhcPs -> ClsInstDecl GhcPs
 unqualFamEqnClsInst = transformBi unqualFamEqn
 
@@ -277,16 +304,20 @@ randomOpString = do
 
 -- ***************************************************************************
 -- CABAL FILE UTILITIES
+
 -- ***************************************************************************
+
 getAllPragmas :: [FilePath] -> IO [Pragma]
 getAllPragmas =
     fmap concat . mapM (getPragmas . (\f -> fromMaybe (error $ "could not parse path as absolute file: " <> f) $ parseAbsFile f))
 
 -- ***************************************************************************
 -- CLEANING UP
+
 -- ***************************************************************************
+
 allowedToLoop :: [GhcMode]
-allowedToLoop = [Indent]
+allowedToLoop = [Indent, PerhapsYouMeant]
 
 cleanUp :: Tool -> GhcMode -> Path Abs File -> IO ()
 cleanUp tool mode sourcePath = do
@@ -302,27 +333,51 @@ cleanUp tool mode sourcePath = do
                     (if mode == Indent then id else filter ((/= "") . fst)) $ mySpans
                 newFileContent = case mode of
                     Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
+                    PerhapsYouMeant -> foldr (replaceWithGhcOutput . fmap span2Locs) fileContent rightSpans
                     _ -> fileContent
 
             TIO.writeFile (fromAbsFile sourcePath) newFileContent
             when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
 
-insertIndent :: (T.Text, (Int, Int, Int, Int)) -> T.Text -> T.Text
-insertIndent (_, (lineStart, _, _, _)) fileContent =
+replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
+    = T.unlines $ prevLines ++ [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] ++ succLines
+  where
+      contentLines   = T.lines fileContent
+      lineStart      = srcLocLine startLoc
+      colStart       = srcLocCol  startLoc
+      colEnd         = srcLocCol  endLoc
+      currentIndex   = lineStart-1
+      prevLines      = take currentIndex contentLines
+      succLines      = drop lineStart contentLines
+      currentLine    = contentLines !! currentIndex
+      oldName        = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
+      prefix         = T.take (colStart-1) currentLine
+      suffix         = T.drop (colEnd-1) currentLine
+      isInfix        = (==2) . T.length . T.filter (=='`') . T.drop (colStart-1) . T.take (colEnd-1) $ currentLine
+      realNewName    = 
+          if "Internal" `elem` T.words oldName
+          then removeInternal id oldName
+          else newName
+      newLineContent =
+          if isInfix
+          then prefix <> "`" <> realNewName <> "`" <> suffix
+          else prefix <> realNewName <> suffix
+
+insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+insertIndent (_, (startLoc, _)) fileContent =
     T.unlines $ prevLines ++ [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] ++ succLines
     where
         contentLines = T.lines fileContent
+        lineStart      = srcLocLine startLoc
         currentIndex = lineStart -1
         prevLines = take currentIndex contentLines
         succLines = drop lineStart contentLines
         currentLine = contentLines !! currentIndex
         newLineContent = "  " <> currentLine
 
-span2Locs :: RealSrcSpan -> (Int, Int, Int, Int)
-span2Locs s = (srcLocLine start, srcLocCol start, srcLocLine end, srcLocCol end)
-    where
-        start = realSrcSpanStart s
-        end = realSrcSpanEnd s
+span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
+span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 instance Eq (ImportDecl GhcPs) where
     i1 == i2 = oshow i1 == oshow i2

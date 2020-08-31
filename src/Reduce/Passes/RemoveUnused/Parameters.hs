@@ -2,8 +2,8 @@ module Passes.RemoveUnused.Parameters (reduce) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Control.Monad.State
 import Data.Generics.Uniplate.Data
+import Debug.Trace
 import GHC
 import Lens.Micro.Platform
 import Types
@@ -35,19 +35,20 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
                         passId
                         ( \oldState ->
                               let oldAST = oldState ^. parsed
-                                  newI = i - fromIntegral (oldState ^. numRmvdArgs)
-                                  proposedChanges :: [ParsedSource -> ParsedSource]
-                                  proposedChanges =
-                                      [ transformBi $ overwriteAtLoc l (rmvArgsFromExpr funId n i)
-                                        | L l e <- universeBi oldAST,
-                                          exprContainsId funId e
-                                      ]
-                                          <> [ transformBi $ overwriteAtLoc l (rmvWildPatTypes newI)
-                                               | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST,
-                                                 sigContainsFunId funId s
-                                             ]
-                                          <> [transformBi (overwriteAtLoc matchesLoc (rmvWildPatMatch i))]
-                                  newAST = foldr ($) oldAST proposedChanges
+                                  -- change offset based on the number of parameters already removed
+                                  newI = i - fromIntegral (oldState ^. numRmvdArgs) 
+
+                                  newAST =
+                                      foldr ($) oldAST $
+                                          [ transformBi $ overwriteAtLoc l (rmvArgsFromExpr funId n i)
+                                            | L l e <- universeBi oldAST,
+                                              exprContainsId funId e
+                                          ]
+                                              <> [ transformBi $ overwriteAtLoc l (handleTypes newI)
+                                                   | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST,
+                                                     sigContainsFunId funId s
+                                                 ]
+                                              <> [transformBi (overwriteAtLoc matchesLoc (handleMatches i))]
                                   newState =
                                       oldState
                                           & parsed .~ newAST
@@ -58,15 +59,20 @@ rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
 rmvUnusedParams_ _ = return ()
 
 -- simplifyTySigs
-rmvWildPatTypes :: Int -> HsType GhcPs -> HsType GhcPs
-rmvWildPatTypes 1 (HsFunTy _ _ (L _ t)) = t
-rmvWildPatTypes i (HsFunTy x a lt) = HsFunTy x a (rmvWildPatTypes (i -1) <$> lt)
-rmvWildPatTypes _ t = t
+handleTypes :: Int -> HsType GhcPs -> HsType GhcPs
+handleTypes 1 (HsFunTy _ _ (L _ t)) = t
+handleTypes i (HsFunTy x a lt) = HsFunTy x a (handleTypes (i -1) <$> lt)
+handleTypes _ t = t
 
-rmvWildPatMatch :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
-rmvWildPatMatch i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg]
+handleMatches :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
+handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg]
     where
-        f = map snd . filter ((== i) . fst) . zip [1 ..]
+        f =
+            (\pats -> traceShow ("after: " <> oshow pats) pats)
+                . map snd
+                . filter ((== i) . fst)
+                . zip [1 ..]
+                . (\pats -> traceShow ("before: " <> oshow pats) pats)
 
 matchgroup2WildPatPositions :: MatchGroup GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
 matchgroup2WildPatPositions mg

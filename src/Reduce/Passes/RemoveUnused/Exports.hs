@@ -2,7 +2,6 @@ module Passes.RemoveUnused.Exports (reduce) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Data.Maybe
 import qualified Data.Text as T
 import GHC

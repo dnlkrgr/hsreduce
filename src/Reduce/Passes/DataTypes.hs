@@ -2,7 +2,6 @@ module Passes.DataTypes (inline, rmvConArgs) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Control.Monad.State
 import Data.Generics.Uniplate.Data
 import GHC
 import Lens.Micro.Platform

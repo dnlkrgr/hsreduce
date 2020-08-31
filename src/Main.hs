@@ -1,7 +1,7 @@
 module Main where
 
 import System.Environment
-import HsReduce
+import Driver
 
 main :: IO ()
 main = getArgs >>= \case

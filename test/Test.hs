@@ -6,7 +6,7 @@ import Data.Maybe
 import Control.Monad
 import Test.Hspec
 
-import HsReduce (hsreduce)
+import Driver (hsreduce)
 import qualified Passes.RemoveUnused.Imports        as Imports
 import qualified Passes.RemoveUnused.Pragmas        as Pragmas
 import qualified Passes.RemoveUnused.Exports        as Exports
