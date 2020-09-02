@@ -6,9 +6,9 @@ import Util.Util
 
 simplifyConDecl :: WaysToChange (ConDecl GhcPs)
 simplifyConDecl gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) =
-    map const [gadtDecl {con_forall = L forallLoc False}, gadtDecl {con_mb_cxt = Nothing}] <> arst gadtDecl
+    map const [gadtDecl {con_forall = L forallLoc False}, gadtDecl {con_mb_cxt = Nothing}] <> temp gadtDecl
     where
-        arst = handleSubList (\loc g -> g {con_qvars = HsQTvs NoExt (filter ((/= loc) . getLoc) (hsq_explicit $ con_qvars g))}) (map getLoc . hsq_explicit . con_qvars)
+        temp = handleSubList (\loc g -> g {con_qvars = HsQTvs NoExt (filter ((/= loc) . getLoc) (hsq_explicit $ con_qvars g))}) (map getLoc . hsq_explicit . con_qvars)
 simplifyConDecl d
     | isRecCon d = handleSubList f p d -- <> [const (d { con_args = recCon2Prefix $ con_args d})]
     | otherwise = []
@@ -33,3 +33,12 @@ simplifyConDecl d
                           RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
                           a -> a
                     }
+
+rmvFunDeps :: WaysToChange (HsDecl GhcPs)
+rmvFunDeps = handleSubList f p
+  where
+    p (TyClD _ d@ClassDecl{}) = map getLoc $ tcdFDs d 
+    p _ = []
+
+    f loc (TyClD _ d@ClassDecl{}) = TyClD NoExt $ d { tcdFDs = filter ((/= loc) . getLoc) $ tcdFDs d }
+    f _ t = t

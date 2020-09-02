@@ -17,6 +17,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time
 import Parser.Parser
+import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies 
 import qualified Reduce.Passes.Simplify.Expr as Expr 
 import qualified Reduce.Passes.Simplify.Types as Types 
 import qualified Reduce.Passes.Simplify.Pat as Pat 
@@ -118,6 +119,8 @@ allActions =
 
 fast :: R ()
 fast = do
+    runPass "rmvFunDeps" Decls.rmvFunDeps
+    runPass "TypeFamilies: rmvEquations" TypeFamilies.rmvEquations
     Imports.reduce
     Pragmas.reduce
     Exports.reduce
@@ -143,7 +146,7 @@ snail = do
     runPass "simplifyExpr" Expr.simplifyExpr
     runPass "simplifyType" Types.simplifyType
     Stubbing.slowest
-    Names.shortenNames -- currently broken
+    Names.shortenNames
     DataTypes.inline
     Functions.inline
     DataTypes.rmvConArgs
