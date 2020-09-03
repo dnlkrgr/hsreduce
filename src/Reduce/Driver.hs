@@ -3,9 +3,6 @@ module Reduce.Driver
     )
 where
 
-import Distribution.Simple.Utils hiding (createTempDirectory)
-import Distribution.Verbosity
-import System.Posix.Files
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
@@ -16,29 +13,34 @@ import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time
+import Distribution.Simple.Utils hiding (createTempDirectory)
+import Distribution.Verbosity
 import Parser.Parser
-import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies 
-import qualified Reduce.Passes.Simplify.Expr as Expr 
-import qualified Reduce.Passes.Simplify.Types as Types 
-import qualified Reduce.Passes.Simplify.Pat as Pat 
-import qualified Reduce.Passes.Simplify.Decls as Decls 
+import Path
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
+import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
 import qualified Reduce.Passes.Functions as Functions (inline)
 import qualified Reduce.Passes.Names as Names (shortenNames)
-import qualified Reduce.Passes.Remove.Decls as Decls (fast, slow)
+import qualified Reduce.Passes.Remove.Decls as Decls (fast, recCon2Prefix, slow)
 import qualified Reduce.Passes.Remove.Exports as Exports (reduce)
 import qualified Reduce.Passes.Remove.Imports as Imports (reduce)
 import qualified Reduce.Passes.Remove.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Remove.Pragmas as Pragmas (reduce)
+import qualified Reduce.Passes.Simplify.Decls as Decls
+import qualified Reduce.Passes.Simplify.Expr as Expr
+import qualified Reduce.Passes.Simplify.Pat as Pat
+import qualified Reduce.Passes.Simplify.Types as Types
 import qualified Reduce.Passes.Stubbing as Stubbing (slow, slowest)
-import Path
 import System.Directory
 import System.IO.Temp (createTempDirectory)
+import System.Posix.Files
 import Util.Types
 import Util.Util
+import Data.Word
 
-hsreduce :: Int -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
-hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
+
+hsreduce :: Word8 -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
+hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
     putStrLn "*******************************************************"
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
@@ -48,12 +50,12 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
     let fullFilePath = sourceDir </> filename filePath
 
     fileContent <- TIO.readFile $ fromAbsFile fullFilePath
-    beginState <- parse True [] [] fullFilePath
+    beginState <- parse False [] [] fullFilePath
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
     let oldSize = T.length fileContent
-        -- files = [test, filePath]
+    -- files = [test, filePath]
     files <- listDirectory $ fromAbsDir sourceDir
 
     -- 1. create a channel
@@ -67,13 +69,13 @@ hsreduce numberOfThreads (fromJust . parseRelFile -> test) (fromJust . parseRelF
         tempDir <- parseAbsDir t
 
         forM_ files $ \f -> do
-            iterFile    <- parseRelFile f
+            iterFile <- parseRelFile f
             let oldPath = fromAbsFile $ sourceDir </> iterFile
-            status      <- getFileStatus oldPath
+            status <- getFileStatus oldPath
 
             if isDirectory status
-            then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
-            else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+                then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
+                else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
 
         atomically $ writeTChan tChan tempDir
 
@@ -117,8 +119,12 @@ allActions =
     where
         passes = [fast, medium, slowest, snail]
 
+-- passes = [fast] --, medium, slowest, snail]
+
 fast :: R ()
 fast = do
+    TypeFamilies.inline
+    runPass "recCon2Prefix" Decls.recCon2Prefix
     runPass "rmvFunDeps" Decls.rmvFunDeps
     runPass "TypeFamilies: rmvEquations" TypeFamilies.rmvEquations
     Imports.reduce
@@ -146,11 +152,11 @@ snail = do
     runPass "simplifyExpr" Expr.simplifyExpr
     runPass "simplifyType" Types.simplifyType
     Stubbing.slowest
-    Names.shortenNames
+    -- Names.shortenNames
     DataTypes.inline
     Functions.inline
     DataTypes.rmvConArgs
-    Parameters.reduce
+    -- Parameters.reduce
     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

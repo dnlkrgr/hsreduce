@@ -1,4 +1,4 @@
-module Reduce.Passes.Remove.Decls (fast, slow) where
+module Reduce.Passes.Remove.Decls (fast, slow, recCon2Prefix) where
 
 import Path 
 import Control.Monad.State.Strict

@@ -64,7 +64,7 @@ parse justParse includeDirs srcDirs fileName = do
 
     extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
 
-    (p, et) <- runGhc (Just libdir) $ do
+    (p, et, hEnv) <- runGhc (Just libdir) $ do
         dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
         let includeDirStrings = map fromAbsDir includeDirs
             srcDirStrings = map fromAbsDir srcDirs
@@ -78,13 +78,16 @@ parse justParse includeDirs srcDirs fileName = do
         p <- parseModule modSum
         -- TODO: catch and handle exceptions that could be thrown by typechecking
         t <- if justParse then return $ Left () else Right <$> typecheckModule p
-        return (p, t)
+
+        hEnv <- getSession
+
+        return (p, t, hEnv)
 
     prags <- getPragmas fileName
 
     case et of
-        Left _ -> return $ RState prags (parsedSource p) Nothing Nothing False emptyStats 0 0
-        Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just $ typecheckedSource t) False emptyStats 0 0
+        Left _ -> return $ RState prags (parsedSource p) Nothing Nothing False emptyStats 0 0 hEnv
+        Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just t) False emptyStats 0 0 hEnv
 
 -- BUG: parse error bei ListUtils, weiss noch nicht warum
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text

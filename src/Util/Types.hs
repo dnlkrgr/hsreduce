@@ -10,13 +10,24 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import Data.Time
 import Data.Void
+import Data.Word
 import GHC
-import GHC.Generics (Generic)
 import GHC.LanguageExtensions.Type
 import Lens.Micro.Platform
+import Options.Generic
 import Outputable hiding ((<>))
 import Path
 import qualified Text.Megaparsec as MP
+
+data CLIOptions w = CLIOptions
+    { test :: w ::: FilePath <?> "relative path to the interestingness test, please avoid using `..` in the path",
+      sourceFile :: w ::: FilePath <?> "relative path to the source file, please avoid using `..` in the path",
+      numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
+    }
+    deriving (Generic)
+
+instance ParseRecord (CLIOptions Wrapped)
+instance Show (CLIOptions Unwrapped)
 
 type WaysToChange a = a -> [a -> a]
 
@@ -91,11 +102,12 @@ data RState = RState
     { _pragmas :: [Pragma],
       _parsed :: ParsedSource,
       _renamed :: Maybe RenamedSource,
-      _typechecked :: Maybe TypecheckedSource,
+      _typechecked :: Maybe TypecheckedModule,
       _isAlive :: Bool,
       _statistics :: Statistics,
       _numRenamedNames :: Word,
-      _numRmvdArgs :: Word
+      _numRmvdArgs :: Word,
+      _hscEnv :: HscEnv
     }
 
 makeLenses ''RState
@@ -115,8 +127,8 @@ newtype R a = R (ReaderT RConf IO a)
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf)
 
 showState :: RState -> T.Text
-showState (RState [] ps _ _ _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _ _ _) =
+showState (RState [] ps _ _ _ _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _ _ _ _ _) =
     T.unlines $
         ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
