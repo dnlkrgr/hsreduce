@@ -9,10 +9,8 @@ import Data.Maybe
 import FamInst
 import FamInstEnv
 import GHC
-import Lens.Micro.Platform
 import TcHsType
 import TcRnMonad
-import TcType
 import Util.Types
 import Util.Util
 
@@ -34,7 +32,7 @@ inline = do
     let passId = "inline type families"
     printInfo passId
 
-    ast <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
+    _ <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
 
     useTypeChecker
 
@@ -47,11 +45,11 @@ inline = do
 --     )
 --     $ mapM_ (inlineHelper passId)
 
-inlineHelper :: p ~ GhcPs => String -> FamEqn p (HsTyPats p) (LHsType p) -> R ()
-inlineHelper passId (FamEqn _ (unLoc -> tfName) _ pats Prefix (unLoc -> rhs)) = do
-    conf <- ask
-
-    useTypeChecker
+-- inlineHelper :: p ~ GhcPs => String -> FamEqn p (HsTyPats p) (LHsType p) -> R ()
+-- inlineHelper passId (FamEqn _ (unLoc -> tfName) _ pats Prefix (unLoc -> rhs)) = do
+--     conf <- ask
+-- 
+--     useTypeChecker
 -- liftIO $
 --     tryNewState
 --         passId
@@ -67,7 +65,7 @@ inlineHelper passId (FamEqn _ (unLoc -> tfName) _ pats Prefix (unLoc -> rhs)) = 
 --                in newState
 --         )
 --         conf
-inlineHelper _ _ = return ()
+-- inlineHelper _ _ = return ()
 
 -- inlineAtType :: p ~ GhcPs => IdP p -> HsTyPats p -> HsType p -> HsType p -> HsType p
 -- inlineAtType tfName pats rhs t@(HsAppTy _ tLHS _)
@@ -78,10 +76,10 @@ inlineHelper _ _ = return ()
 -- unify :: p ~ GhcPs => HsType p -> HsTyPats p -> HsType p -> HsType p
 -- unify rhs pats (HsAppTy _ tLHS tRHS) = rhs
 
-typeContainsId :: p ~ GhcPs => LHsType p -> IdP p -> Bool
-typeContainsId (unLoc -> HsTyVar _ _ (unLoc -> typeName)) n = n == typeName
-typeContainsId (unLoc -> HsAppTy _ lhs _) n = typeContainsId lhs n
-typeContainsId _ _ = False
+-- typeContainsId :: p ~ GhcPs => LHsType p -> IdP p -> Bool
+-- typeContainsId (unLoc -> HsTyVar _ _ (unLoc -> typeName)) n = n == typeName
+-- typeContainsId (unLoc -> HsAppTy _ lhs _) n = typeContainsId lhs n
+-- typeContainsId _ _ = False
 
 useTypeChecker :: R ()
 useTypeChecker = do
@@ -100,7 +98,7 @@ useTypeChecker = do
 arst :: HscEnv -> TcGblEnv -> RealSrcSpan -> LHsType GhcRn -> IO (LHsType GhcRn)
 arst hEnv glblEnv loc t = do
     CE.try (fmap snd (initTcWithGbl hEnv glblEnv loc (doStuff t))) >>= \case
-        Left (e :: CE.SomeException) -> return ()
+        Left (_ :: CE.SomeException) -> return ()
         Right (Just tk) ->
             when (oshow t /= "Type" && oshow t /= oshow tk)
                 . putStrLn

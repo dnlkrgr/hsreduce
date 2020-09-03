@@ -36,6 +36,9 @@ common dry
         , split
         , ghc-boot-th
         , optparse-generic
+        , hashable
+        , edit-distance
+        , hie-bios
     default-extensions:
         GeneralizedNewtypeDeriving 
         LambdaCase
@@ -58,29 +61,11 @@ common dry
     ghc-options:       
         -Wall
 
-executable hsmerge
-    import:
-        dry
-    main-is: Merge/Main.hs
-    other-modules:
-        Merge.HsAllInOne
-        Util.Util
-        Util.Types
-        Parser.Parser
-    build-depends:       
-        hashable
-        , edit-distance
-        , hie-bios
-    hs-source-dirs:      
-        src
-    default-extensions:  
-        FlexibleInstances
-    
 executable hsreduce
     import:
         dry
     main-is: 
-        Reduce/Main.hs
+        Main.hs
     build-depends:       
         base
         , lib-hsreduce
@@ -100,6 +85,7 @@ library lib-hsreduce
     import:
         dry
     exposed-modules:   
+        Merge.HsAllInOne
         Reduce.Driver
         Reduce.Passes.Simplify.Expr
         Reduce.Passes.Simplify.Types

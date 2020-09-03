@@ -19,14 +19,17 @@ import Outputable hiding ((<>))
 import Path
 import qualified Text.Megaparsec as MP
 
-data CLIOptions w = CLIOptions
-    { test :: w ::: FilePath <?> "relative path to the interestingness test, please avoid using `..` in the path",
-      sourceFile :: w ::: FilePath <?> "relative path to the source file, please avoid using `..` in the path",
-      numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
-    }
+data CLIOptions w
+    = Reduce
+          { test :: w ::: FilePath <?> "relative path to the interestingness test, please avoid using `..` in the path",
+            sourceFile :: w ::: FilePath <?> "relative path to the source file, please avoid using `..` in the path",
+            numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
+          }
+    | Merge {sourceFile :: w ::: FilePath <?> "relative path to the source file, please avoid using `..` in the path"}
     deriving (Generic)
 
 instance ParseRecord (CLIOptions Wrapped)
+
 instance Show (CLIOptions Unwrapped)
 
 type WaysToChange a = a -> [a -> a]
