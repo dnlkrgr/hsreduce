@@ -1,8 +1,9 @@
 { mkDerivation, aeson, async, base, bytestring, Cabal, cassava
-, containers, directory, edit-distance, ghc, ghc-boot-th, ghc-paths
-, hashable, hie-bios, hspec, megaparsec, microlens-platform
-, MonadRandom, mtl, optparse-generic, path, process, regex, split
-, stdenv, stm, syb, temporary, text, time, uniplate, unix, word8
+, containers, directory, edit-distance, ghc, ghc-boot-th
+, ghc-exactprint, ghc-paths, hashable, hie-bios, hspec, megaparsec
+, microlens-platform, MonadRandom, mtl, optparse-generic, path
+, process, regex, split, stdenv, stm, syb, temporary, text, time
+, uniplate, unix, word8
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -11,22 +12,25 @@ mkDerivation {
   isLibrary = false;
   isExecutable = true;
   libraryHaskellDepends = [
-    aeson async base bytestring Cabal cassava containers directory ghc
-    ghc-boot-th ghc-paths megaparsec microlens-platform MonadRandom mtl
+    aeson async base bytestring Cabal cassava containers directory
+    edit-distance ghc ghc-boot-th ghc-exactprint ghc-paths hashable
+    hie-bios megaparsec microlens-platform MonadRandom mtl
     optparse-generic path process regex split stm syb temporary text
     time uniplate unix word8
   ];
   executableHaskellDepends = [
     aeson async base bytestring Cabal cassava containers directory
-    edit-distance ghc ghc-boot-th ghc-paths hashable hie-bios
-    megaparsec microlens-platform MonadRandom mtl optparse-generic path
-    process regex split stm syb temporary text time uniplate unix word8
+    edit-distance ghc ghc-boot-th ghc-exactprint ghc-paths hashable
+    hie-bios megaparsec microlens-platform MonadRandom mtl
+    optparse-generic path process regex split stm syb temporary text
+    time uniplate unix word8
   ];
   testHaskellDepends = [
-    aeson async base bytestring Cabal cassava containers directory ghc
-    ghc-boot-th ghc-paths hspec megaparsec microlens-platform
-    MonadRandom mtl optparse-generic path process regex split stm syb
-    temporary text time uniplate unix word8
+    aeson async base bytestring Cabal cassava containers directory
+    edit-distance ghc ghc-boot-th ghc-exactprint ghc-paths hashable
+    hie-bios hspec megaparsec microlens-platform MonadRandom mtl
+    optparse-generic path process regex split stm syb temporary text
+    time uniplate unix word8
   ];
   doHaddock = false;
   license = stdenv.lib.licenses.bsd3;

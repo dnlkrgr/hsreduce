@@ -12,6 +12,8 @@ import Data.Void
 import DynFlags hiding (extensions)
 import GHC hiding (extensions)
 import GHC.Paths
+import qualified Language.Haskell.GHC.ExactPrint as EP
+import Outputable (ppr, showSDocUnsafe)
 import Path
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
@@ -47,49 +49,52 @@ pragmaType =
         <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return OptionsGhc)
         <|> ((string "INCLUDE" <|> string "include") >> return Include)
 
--- TODO: collect and return all pragmas
-parse :: Bool -> [Path Abs Dir] -> [Path Abs Dir] -> Path Abs File -> IO RState
-parse justParse includeDirs srcDirs fileName = do
-    banner $ "Parsing: " ++ fromAbsFile fileName
+parse :: Bool -> Path Abs File -> IO RState
+parse justParse fileName = do
+    banner $ "Parsing: " <> fromAbsFile fileName
 
-    modName <-
-        ( \case
-              Left _ -> "Main"
-              Right t -> t
-            )
-            . getModName
-            <$> TIO.readFile (fromAbsFile fileName)
+    let filePath = fromAbsFile fileName
+    p <- EP.parseModule filePath >>= \case
+        Left e -> error . showSDocUnsafe $ ppr e
+        Right p -> return $ snd p
 
-    putStrLn $ "modName: " <> show modName
+    (mt, hEnv) <-
+        if justParse
+            then return (Nothing, Nothing)
+            else do
+                modName <-
+                    ( \case
+                          Left _ -> "Main"
+                          Right t -> t
+                        )
+                        . getModName
+                        <$> TIO.readFile filePath
 
-    extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
+                putStrLn $ "modName: " <> show modName
 
-    (p, et, hEnv) <- runGhc (Just libdir) $ do
-        dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
-        let includeDirStrings = map fromAbsDir includeDirs
-            srcDirStrings = map fromAbsDir srcDirs
-        _ <- setSessionDynFlags dflags {includePaths = IncludeSpecs [] includeDirStrings, importPaths = srcDirStrings}
+                extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
 
-        target <- guessTarget (fromAbsFile fileName) Nothing
-        setTargets [target]
-        _ <- load LoadAllTargets
-        modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
+                runGhc (Just libdir) $ do
+                    dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
+                    _ <- setSessionDynFlags dflags
 
-        p <- parseModule modSum
-        -- TODO: catch and handle exceptions that could be thrown by typechecking
-        t <- if justParse then return $ Left () else Right <$> typecheckModule p
+                    target <- guessTarget (fromAbsFile fileName) Nothing
+                    setTargets [target]
+                    _ <- load LoadAllTargets
+                    modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
 
-        hEnv <- getSession
+                    pm <- parseModule modSum
+                    -- TODO: catch and handle exceptions that could be thrown by typechecking
+                    t <- typecheckModule pm
 
-        return (p, t, hEnv)
+                    hEnv <- getSession
+
+                    return (Just t, Just hEnv)
 
     prags <- getPragmas fileName
 
-    case et of
-        Left _ -> return $ RState prags (parsedSource p) Nothing Nothing False emptyStats 0 0 hEnv
-        Right t -> return $ RState prags (parsedSource p) (renamedSource t) (Just t) False emptyStats 0 0 hEnv
+    return $ RState prags p mt False emptyStats 0 0 hEnv
 
--- BUG: parse error bei ListUtils, weiss noch nicht warum
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines
 
@@ -112,7 +117,7 @@ name' = do
     return . T.pack $ c : cs
 
 banner :: MonadIO m => String -> m ()
-banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
+banner s = liftIO $ putStrLn $ "\n" <> s' <> s <> s'
     where
         n = 80 - length s
         s' = replicate (div n 2) '='

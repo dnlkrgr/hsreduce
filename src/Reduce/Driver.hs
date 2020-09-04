@@ -50,7 +50,7 @@ hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fr
     let fullFilePath = sourceDir </> filename filePath
 
     fileContent <- TIO.readFile $ fromAbsFile fullFilePath
-    beginState <- parse False [] [] fullFilePath
+    beginState <- parse True fullFilePath
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
@@ -95,10 +95,10 @@ hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fr
 
     putStrLn "*******************************************************"
     putStrLn "\n\nFinished."
-    putStrLn $ "Old size:        " ++ show oldSize
-    putStrLn $ "Reduced size:    " ++ show newSize
+    putStrLn $ "Old size:        " <> show oldSize
+    putStrLn $ "Reduced size:    " <> show newSize
 
-    TIO.writeFile (fileName ++ "_hsreduce.hs") (showState newState)
+    TIO.writeFile (fileName <> "_hsreduce.hs") (showState newState)
 
     t2 <- getCurrentTime
 
@@ -123,7 +123,7 @@ allActions =
 
 fast :: R ()
 fast = do
-    TypeFamilies.inline
+    -- TypeFamilies.inline
     runPass "recCon2Prefix" Decls.recCon2Prefix
     runPass "rmvFunDeps" Decls.rmvFunDeps
     runPass "TypeFamilies: rmvEquations" TypeFamilies.rmvEquations

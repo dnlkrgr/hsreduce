@@ -166,7 +166,7 @@ name2ProposedChange rdrEnv imports ours n
     | Just mn <- getModuleName n,
       isOperator . oshow $ getRdrName n,
       mn `elem` ours =
-        (rn, Unqual . mkOccName ns $ head os : renameOperator (os ++ filter (/= '.') (moduleNameString mn)))
+        (rn, Unqual . mkOccName ns $ head os : renameOperator (os <> filter (/= '.') (moduleNameString mn)))
     -- our function / variable
     | Just mn <- getModuleName n,
       mn `elem` ours =
@@ -217,7 +217,7 @@ applyChange :: M.Map SrcSpan RdrName -> Located RdrName -> Located RdrName
 applyChange m (L l r) = L l $ fromMaybe r (M.lookup l m)
 
 mangle :: ModuleName -> OccName -> OccName
-mangle mn on = mkOccName ns $ os ++ "_" ++ filter (/= '.') (moduleNameString mn)
+mangle mn on = mkOccName ns $ os <> "_" <> filter (/= '.') (moduleNameString mn)
     where
         os = occNameString on
         ns = occNameSpace on
@@ -341,7 +341,7 @@ cleanUp tool mode sourcePath = do
 
 replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
-    = T.unlines $ prevLines ++ [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] ++ succLines
+    = T.unlines $ prevLines <> [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] <> succLines
   where
       contentLines   = T.lines fileContent
       lineStart      = srcLocLine startLoc
@@ -366,7 +366,7 @@ replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
 
 insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 insertIndent (_, (startLoc, _)) fileContent =
-    T.unlines $ prevLines ++ [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] ++ succLines
+    T.unlines $ prevLines <> [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] <> succLines
     where
         contentLines = T.lines fileContent
         lineStart      = srcLocLine startLoc

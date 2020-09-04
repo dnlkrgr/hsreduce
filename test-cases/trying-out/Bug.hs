@@ -202,8 +202,8 @@ data SillyGadt a where
   MkSillyGadt2 :: Float -> SillyGadt (F1 Double)
 
 instance Show (SillyGadt a) where
-  show (MkSillyGadt1 i) = "MkSillyGadt1 " ++ show i
-  show (MkSillyGadt2 f) = "MkSillyGadt2 " ++ show f
+  show (MkSillyGadt1 i) = "MkSillyGadt1 " <> show i
+  show (MkSillyGadt2 f) = "MkSillyGadt2 " <> show f
 
 -- type applications
 isEven = (== 0) . (`mod` 2)

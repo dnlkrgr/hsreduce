@@ -90,7 +90,7 @@ applyInterestingChanges name proposedChanges = do
                  in case reverse temp of
                         (x : y : xs) ->
                             if length temp > numberOfThreads
-                                then (x ++ y) : xs
+                                then (x <> y) : xs
                                 else temp
                         _ -> temp
 
@@ -137,7 +137,7 @@ runTest test duration = do
     let dirName = parent test
     let testName = filename test
 
-    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" ++ fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
+    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
         Nothing -> do
             putStrLn "error - runTest: timed out"
             return Uninteresting
@@ -151,7 +151,7 @@ printInfo context = do
     oldState <- liftIO . atomically $ readTVar tState
 
     liftIO . putStrLn $ "\n***" <> context <> "***"
-    liftIO $ putStrLn $ "Size of old state: " ++ (show . T.length . showState $ oldState)
+    liftIO $ putStrLn $ "Size of old state: " <> (show . T.length . showState $ oldState)
 
 isTestStillFresh :: String -> R ()
 isTestStillFresh context = do
@@ -244,7 +244,7 @@ getGhcOutput tool ghcMode sourcePath = do
     let dirName = parent sourcePath
         fileName = filename sourcePath
         command = case tool of
-            Ghc -> "ghc " ++ ghcModeString ++ " -ddump-json " ++ unwords (("-X" ++) . T.unpack . showExtension <$> allPragmas) ++ " " ++ fromRelFile fileName
+            Ghc -> "ghc " <> ghcModeString <> " -ddump-json " <> unwords (("-X" ++) . T.unpack . showExtension <$> allPragmas) <> " " <> fromRelFile fileName
             Cabal -> "nix-shell --run 'cabal new-build'"
 
     (_, stdout, _) <-
@@ -391,7 +391,7 @@ oshow :: Outputable a => a -> String
 oshow = showSDocUnsafe . ppr
 
 banner :: MonadIO m => String -> m ()
-banner s = liftIO $ putStrLn $ "\n" ++ s' ++ s ++ s'
+banner s = liftIO $ putStrLn $ "\n" <> s' <> s <> s'
     where
         n = 80 - length s
         s' = replicate (div n 2) '='

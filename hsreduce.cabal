@@ -39,6 +39,7 @@ common dry
         , hashable
         , edit-distance
         , hie-bios
+        , ghc-exactprint
     default-extensions:
         GeneralizedNewtypeDeriving 
         LambdaCase

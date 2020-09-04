@@ -95,8 +95,8 @@ useTypeChecker = do
 
 -- forM_ [t | (t :: LHsType GhcRn) <- universeBi renamedAST] (transformBiM (liftIO . arst hEnv tcGlblEnv loc) . (\t -> traceShow (oshow t) t))
 
-arst :: HscEnv -> TcGblEnv -> RealSrcSpan -> LHsType GhcRn -> IO (LHsType GhcRn)
-arst hEnv glblEnv loc t = do
+arst :: Maybe HscEnv -> TcGblEnv -> RealSrcSpan -> LHsType GhcRn -> IO (LHsType GhcRn)
+arst (Just hEnv) glblEnv loc t = do
     CE.try (fmap snd (initTcWithGbl hEnv glblEnv loc (doStuff t))) >>= \case
         Left (_ :: CE.SomeException) -> return ()
         Right (Just tk) ->
@@ -105,6 +105,7 @@ arst hEnv glblEnv loc t = do
                 $ "lhsType2Type: " <> oshow t <> " -> " <> oshow tk
         _ -> return ()
     return t
+arst _ _ _ _ = error "implement me"
 
 -- see for every type that we normalise type family redexes inside of it
 doStuff :: LHsType GhcRn -> TcM Type
