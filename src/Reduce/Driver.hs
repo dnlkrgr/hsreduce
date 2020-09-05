@@ -9,12 +9,9 @@ import Control.Monad.Reader
 import qualified Data.ByteString.Lazy as LBS
 import Data.Csv
 import qualified Data.Map as M
-import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time
-import Distribution.Simple.Utils hiding (createTempDirectory)
-import Distribution.Verbosity
 import Parser.Parser
 import Path
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
@@ -31,32 +28,32 @@ import qualified Reduce.Passes.Simplify.Expr as Expr
 import qualified Reduce.Passes.Simplify.Pat as Pat
 import qualified Reduce.Passes.Simplify.Types as Types
 import qualified Reduce.Passes.Stubbing as Stubbing (slow, slowest)
-import System.Directory
-import System.IO.Temp (createTempDirectory)
 import System.Posix.Files
 import Util.Types
 import Util.Util
 import Data.Word
+import Path.IO
 
 
 hsreduce :: Word8 -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
-hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fromJust . parseRelFile -> filePath) mAction = do
+hsreduce (fromIntegral -> numberOfThreads) test filePath mAction = do
     putStrLn "*******************************************************"
+    testAbs <- resolveFile' test
+    filePathAbs <- resolveFile' filePath
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
     -- 3. record the starting time
-    sourceDir <- fmap (</> parent test) . parseAbsDir =<< getCurrentDirectory
 
-    let fullFilePath = sourceDir </> filename filePath
 
-    fileContent <- TIO.readFile $ fromAbsFile fullFilePath
-    beginState <- parse True fullFilePath
+    fileContent <- TIO.readFile $ fromAbsFile filePathAbs
+    beginState <- parse True filePathAbs
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
-    let oldSize = T.length fileContent
-    -- files = [test, filePath]
-    files <- listDirectory $ fromAbsDir sourceDir
+    let 
+        sourceDir = parent testAbs
+        oldSize = T.length fileContent
+    files <- listDir sourceDir
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -64,23 +61,15 @@ hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fr
     -- 4. write the temp dir name into the channel
     tChan <- atomically newTChan
     forM_ [1 .. numberOfThreads] $ \_ -> do
-        t <- createTempDirectory "/tmp" "hsreduce"
+        tempDir <- createTempDir [absdir|/tmp|] "hsreduce"
 
-        tempDir <- parseAbsDir t
-
-        forM_ files $ \f -> do
-            iterFile <- parseRelFile f
-            let oldPath = fromAbsFile $ sourceDir </> iterFile
-            status <- getFileStatus oldPath
-
-            if isDirectory status
-                then copyDirectoryRecursive normal oldPath (fromAbsFile $ tempDir </> filename iterFile)
-                else copyFile oldPath (fromAbsFile $ tempDir </> filename iterFile)
+        forM_ (fst files) $ \d -> copyDirRecur d (tempDir </> dirname d)
+        forM_ (snd files) $ \f -> copyFile f (tempDir </> filename f)
 
         atomically $ writeTChan tChan tempDir
 
     -- recording the size diff of formatting for more accurate statistics
-    let beginConf = (RConf (filename test) (filename filePath) numberOfThreads tChan tState)
+    let beginConf = (RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState)
     updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
 
     -- run the reducing functions
@@ -90,7 +79,7 @@ hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fr
     newState <- readTVarIO tState
 
     -- handling of the result and outputting useful information
-    let fileName = takeWhile (/= '.') . fromAbsFile $ fullFilePath
+    let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
         newSize = T.length . showState $ newState
 
     putStrLn "*******************************************************"
@@ -109,7 +98,8 @@ hsreduce (fromIntegral -> numberOfThreads) (fromJust . parseRelFile -> test) (fr
 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan
-        removeDirectoryRecursive $ fromAbsDir t
+        removeDirRecur t
+
 
 allActions :: R ()
 allActions =
@@ -119,7 +109,6 @@ allActions =
     where
         passes = [fast, medium, slowest, snail]
 
--- passes = [fast] --, medium, slowest, snail]
 
 fast :: R ()
 fast = do

@@ -18,12 +18,12 @@ import GHC.Paths (libdir)
 import GhcPlugins hiding ((<&&>), (<>), GhcMode, count, extensions, getHscEnv, isQual, mkUnqual, qualName)
 import HIE.Bios
 import Parser.Parser (getPragmas)
-import Path ((</>), Abs, File, Path, fromAbsFile, parseAbsDir, parseAbsFile, parseRelFile)
-import System.Directory (getCurrentDirectory)
+import Path ((</>), Abs, File, Path, fromAbsFile, parseAbsFile, parseRelFile, fromAbsDir)
 import TcRnTypes (tcg_rdr_env)
 import Text.EditDistance
 import Util.Types
 import Util.Util
+import Path.IO
 
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
@@ -68,7 +68,7 @@ hsmerge filePath = do
                         . transformBi (applyChange proposedChanges)
                         $ myParsedSource
 
-                d <- liftIO getCurrentDirectory
+                d <- fromAbsDir <$> liftIO getCurrentDir
                 let crd = cradleRootDir cradle
                     root = if crd == "." then d else crd
 
@@ -88,7 +88,7 @@ hsmerge filePath = do
                 liftIO . writeFile "AllInOne.hs" $ unlines [extensions, oshow mergedMod]
 
             putStrLn "cleaning up"
-            dir <- parseAbsDir =<< getCurrentDirectory
+            dir <- getCurrentDir
             f <- parseRelFile "AllInOne.hs"
             cleanUp Ghc Indent (dir </> f)
             cleanUp Ghc PerhapsYouMeant (dir </> f)

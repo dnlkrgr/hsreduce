@@ -24,9 +24,7 @@ import Outputable hiding ((<>))
 import Parser.Parser
 import Path
 import SrcLoc as SL
-import System.Directory
 import System.Exit
-import System.Posix.Files
 import System.Process
 import System.Timeout
 import qualified Text.Megaparsec as M
@@ -217,17 +215,6 @@ gshows = render `extQ` (shows :: String -> ShowS)
                 -- isNull      = null (filter (not . flip elem "[]") (constructor ""))
                 isList = constructor "" == "(:)"
 
-recListDirectory :: FilePath -> IO [FilePath]
-recListDirectory dir =
-    listDirectory dir
-        >>= fmap concat
-            . mapM
-                ( \f ->
-                      let f' = dir <> "/" <> f
-                       in (isDirectory <$> getFileStatus f') >>= \case
-                              False -> return [f']
-                              True -> recListDirectory f'
-                )
 
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a
 withTempDir tChan action = do

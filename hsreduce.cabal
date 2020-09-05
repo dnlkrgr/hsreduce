@@ -7,39 +7,40 @@ build-type:          Simple
 extra-source-files:  CHANGELOG.md
 
 common dry
+    hs-source-dirs:
+        src
     build-depends:       
         base
+        , Cabal
         , MonadRandom
+        , aeson
+        , async
         , bytestring
+        , cassava
         , containers
-        , directory
+        , edit-distance
         , ghc
+        , ghc-boot-th
+        , ghc-exactprint
+        , ghc-paths
+        , hashable
+        , hie-bios
+        , megaparsec
         , microlens-platform
         , mtl
+        , optparse-generic
         , path
+        , path-io
+        , process
+        , regex
+        , split
         , stm
-        , temporary
+        , syb
         , text
         , time
         , uniplate
         , unix
-        , ghc-paths
-        , process
-        , Cabal
-        , aeson
-        , cassava
         , word8
-        , megaparsec
-        , regex
-        , syb
-        , async
-        , split
-        , ghc-boot-th
-        , optparse-generic
-        , hashable
-        , edit-distance
-        , hie-bios
-        , ghc-exactprint
     default-extensions:
         GeneralizedNewtypeDeriving 
         LambdaCase
@@ -68,14 +69,7 @@ executable hsreduce
     main-is: 
         Main.hs
     build-depends:       
-        base
-        , lib-hsreduce
-    hs-source-dirs:    
-        src
-    default-language:  
-        Haskell2010
-    default-extensions:  
-        LambdaCase
+        lib-hsreduce
     ghc-options:       
         -Wall 
         -threaded 
@@ -106,8 +100,6 @@ library lib-hsreduce
         Util.Types
     other-modules:
         Parser.Parser
-    hs-source-dirs:    
-        src
 
 test-suite test-hsreduce
     import: 
@@ -121,5 +113,3 @@ test-suite test-hsreduce
     build-depends: 
         lib-hsreduce
         , hspec
-    default-language:  
-        Haskell2010

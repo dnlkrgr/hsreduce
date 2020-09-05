@@ -21,11 +21,11 @@ import qualified Text.Megaparsec as MP
 
 data CLIOptions w
     = Reduce
-          { test :: w ::: FilePath <?> "relative path to the interestingness test, please avoid using `..` in the path",
-            sourceFile :: w ::: FilePath <?> "relative path to the source file, please avoid using `..` in the path",
+          { test :: w ::: FilePath <?> "path to the interestingness test",
+            sourceFile :: w ::: FilePath <?> "path to the source file",
             numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
           }
-    | Merge {sourceFile :: w ::: FilePath <?> "relative path to the source file, please avoid using `..` in the path"}
+    | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     deriving (Generic)
 
 instance ParseRecord (CLIOptions Wrapped)
@@ -187,8 +187,8 @@ showExtension (OptionsGhc _) = ""
 showExtension (Include _) = ""
 
 instance Show Pragma where
-    show (Language e) = "{-# LANGUAGE " <> T.unpack e <> " #-}"
-    show (OptionsGhc o) = "{-# OPTIONS_GHC " <> T.unpack o <> " #-}"
-    show (Include i) = "{-# INCLUDE " <> T.unpack i <> " #-}"
+    show (Language e) = "{-# LANGUAGE " ++ T.unpack e ++ " #-}"
+    show (OptionsGhc o) = "{-# OPTIONS_GHC " ++ T.unpack o ++ " #-}"
+    show (Include i) = "{-# INCLUDE " ++ T.unpack i ++ " #-}"
 
 type Parser = MP.Parsec Void T.Text
