@@ -28,7 +28,6 @@ import qualified Reduce.Passes.Simplify.Expr as Expr
 import qualified Reduce.Passes.Simplify.Pat as Pat
 import qualified Reduce.Passes.Simplify.Types as Types
 import qualified Reduce.Passes.Stubbing as Stubbing (slow, slowest)
-import System.Posix.Files
 import Util.Types
 import Util.Util
 import Data.Word
@@ -112,10 +111,10 @@ allActions =
 
 fast :: R ()
 fast = do
-    -- TypeFamilies.inline
+    TypeFamilies.apply
     runPass "recCon2Prefix" Decls.recCon2Prefix
     runPass "rmvFunDeps" Decls.rmvFunDeps
-    runPass "TypeFamilies: rmvEquations" TypeFamilies.rmvEquations
+    runPass "remove type family equations" TypeFamilies.rmvEquations
     Imports.reduce
     Pragmas.reduce
     Exports.reduce

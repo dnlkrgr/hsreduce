@@ -67,11 +67,9 @@ runPass name pass = do
         printInfo name
         isTestStillFresh name
 
-    ast <- _parsed <$> (liftIO . atomically . readTVar . _tState =<< ask)
-
-    let proposedChanges = getProposedChanges ast pass
-
-    applyInterestingChanges name proposedChanges
+    ask
+    >>= fmap (getProposedChanges pass . _parsed) . liftIO . readTVarIO . _tState 
+    >>= applyInterestingChanges name 
 
 applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
 applyInterestingChanges name proposedChanges = do
@@ -162,8 +160,8 @@ isTestStillFresh context = do
                 error $ "Test case is broken at >>>" <> context <> "<<<"
             _ -> return ()
 
-getProposedChanges :: Data a => ParsedSource -> WaysToChange a -> [Located a -> Located a]
-getProposedChanges ast pass = concat [map (overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
+getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [Located a -> Located a]
+getProposedChanges pass ast = concat [map (overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
 
 mkPass :: Data a => ParsedSource -> String -> WaysToChange a -> [Pass]
 mkPass ast name pass = concat [map (Pass name . transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
