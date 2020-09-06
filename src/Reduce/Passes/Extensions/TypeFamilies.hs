@@ -33,32 +33,33 @@ apply = do
 
     void $ transformBiM applyHelper ast
 
-arstP :: (Outputable.Outputable a1, Outputable.Outputable a2) => a1 -> a2 -> Bool
-arstP feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
+isContainedIn :: (Outputable.Outputable a1, Outputable.Outputable a2) => a1 -> a2 -> Bool
+isContainedIn feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
 
 applyHelper :: p ~ GhcPs => FamEqn p (HsTyPats p) (LHsType p) -> R (FamEqn p (HsTyPats p) (LHsType p))
 applyHelper f@(FamEqn {..}) = do
     conf <- ask
-    let index = fst . head . filter (arstP feqn_rhs . snd) $ zip [1 ..] feqn_pats
-
     ast <- liftIO . fmap _parsed $ readTVarIO (_tState conf)
+
+    let index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
+        tycon = unLoc feqn_tycon
+
     forM_ [ t | (t :: LHsType GhcPs) <- universeBi ast ] $ \(L l _) -> do
         liftIO $
             tryNewState
                 "apply type families"
                 ( \oldState ->
                       let oldAST = oldState ^. parsed
-                          tycon = unLoc feqn_tycon
-                          c = if any (arstP feqn_rhs) feqn_pats 
+                          c = if any (isContainedIn feqn_rhs) feqn_pats 
                                 -- the rhs is one of the patterns
                                 -- get the index of the pattern
                                 -- find occurrences of the type family
                                 -- replace them by nth pattern
                                 then takeNthArgument tycon (length feqn_pats) index
-                                else replaceWithRHs tycon (unLoc feqn_rhs)
-                          newAST = 
+                                else replaceWithRHs tycon feqn_rhs
 
-                              transformBi (overwriteAtLoc l c) oldAST
+                          newAST = transformBi (overwriteAtLoc l c) oldAST
+
                           newState =
                               oldState
                                   & parsed .~ newAST
@@ -72,11 +73,10 @@ applyHelper f@(FamEqn {..}) = do
     -- replace them by rhs
 applyHelper f = return f
 
-
-replaceWithRHs :: p ~ GhcPs => IdP p -> HsType p -> HsType p -> HsType p
-replaceWithRHs tycon rhs t 
-    | oshow tycon `isInfixOf` oshow t = rhs
+replaceWithRHs :: p ~ GhcPs => IdP p -> LHsType p -> HsType p -> HsType p
+replaceWithRHs tycon (unLoc -> rhs) t
     | oshow tycon `isPrefixOf` oshow t = rhs
+    | oshow tycon `isInfixOf` oshow t  = rhs
     | otherwise = t
 
 -- the rhs is one of the patterns sub type expressions
