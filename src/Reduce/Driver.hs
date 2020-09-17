@@ -12,27 +12,26 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time
+import Data.Word
 import Parser.Parser
 import Path
+import Path.IO
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
 import qualified Reduce.Passes.Functions as Functions (inline)
 import qualified Reduce.Passes.Names as Names (shortenNames)
-import qualified Reduce.Passes.Remove.Decls as Decls (fast, recCon2Prefix, slow)
+import qualified Reduce.Passes.Remove.Decls as Decls
 import qualified Reduce.Passes.Remove.Exports as Exports (reduce)
-import qualified Reduce.Passes.Remove.Imports as Imports (reduce)
+import qualified Reduce.Passes.Remove.Imports as Imports
 import qualified Reduce.Passes.Remove.Parameters as Parameters (reduce)
 import qualified Reduce.Passes.Remove.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.Simplify.Decls as Decls
 import qualified Reduce.Passes.Simplify.Expr as Expr
 import qualified Reduce.Passes.Simplify.Pat as Pat
 import qualified Reduce.Passes.Simplify.Types as Types
-import qualified Reduce.Passes.Stubbing as Stubbing (slow, slowest)
+import qualified Reduce.Passes.Stubbing as Stubbing
 import Util.Types
 import Util.Util
-import Data.Word
-import Path.IO
-
 
 hsreduce :: Word8 -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
 hsreduce (fromIntegral -> numberOfThreads) test filePath mAction = do
@@ -43,14 +42,12 @@ hsreduce (fromIntegral -> numberOfThreads) test filePath mAction = do
     -- 2. record all the files in the current directory
     -- 3. record the starting time
 
-
     fileContent <- TIO.readFile $ fromAbsFile filePathAbs
     beginState <- parse True filePathAbs
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
-    let 
-        sourceDir = parent testAbs
+    let sourceDir = parent testAbs
         oldSize = T.length fileContent
     files <- listDir sourceDir
 
@@ -99,53 +96,65 @@ hsreduce (fromIntegral -> numberOfThreads) test filePath mAction = do
         t <- atomically $ readTChan tChan
         removeDirRecur t
 
-
 allActions :: R ()
-allActions =
-    forM_ passes $ \pass -> do
-        liftIO $ putStrLn "\n\n*** Increasing granularity ***"
-        largestFixpoint pass
-    where
-        passes = [fast, medium, slowest, snail]
+allActions = do
+    Pragmas.reduce
+    Exports.reduce
+    mapM_ runPass passes
+    TypeFamilies.apply
+    Parameters.reduce
 
+passes =
+        [ Imports.rmvImports
+        , Imports.unqualImport
+        , Decls.rmvSigs Nothing
+        , Decls.rmvDecls Nothing
+        , Decls.simplifyDecl Nothing
+        , Decls.recCon2Prefix
+        , Decls.simplifyConDecl
+        , Decls.rmvFunDeps
+        , DataTypes.inline
+        , Expr.expr2Undefined
+        , Expr.filterExprSubList
+        , Expr.simplifyExpr
+        , Types.type2Unit
+        , Types.type2WildCard
+        , Types.simplifyType
+        , Pat.pat2Wildcard
+        ]
 
 fast :: R ()
 fast = do
-    TypeFamilies.apply
-    runPass "recCon2Prefix" Decls.recCon2Prefix
-    runPass "rmvFunDeps" Decls.rmvFunDeps
-    runPass "remove type family equations" TypeFamilies.rmvEquations
-    Imports.reduce
     Pragmas.reduce
     Exports.reduce
-    Decls.fast
+    TypeFamilies.apply
+    -- runPass "recCon2Prefix" Decls.recCon2Prefix
+    -- runPass "rmvFunDeps" Decls.rmvFunDeps
+    -- runPass "remove type family equations" TypeFamilies.rmvEquations
 
-medium :: R ()
-medium = do
-    runPass "expr2Undefined" Expr.expr2Undefined
-    fast
-    Decls.slow
-
-slowest :: R ()
-slowest = do
-    runPass "filterExprSubList" Expr.filterExprSubList
-    runPass "type2Unit" Types.type2Unit
-    runPass "pat2Wildcard" Pat.pat2Wildcard
-    runPass "simplifyConDecl" Decls.simplifyConDecl
-    Stubbing.slow
-    fast
-
-snail :: R ()
-snail = do
-    runPass "simplifyExpr" Expr.simplifyExpr
-    runPass "simplifyType" Types.simplifyType
-    Stubbing.slowest
-    -- Names.shortenNames
-    DataTypes.inline
-    Functions.inline
-    DataTypes.rmvConArgs
-    -- Parameters.reduce
-    fast
+-- medium :: R ()
+-- medium = do
+--     -- runPass "expr2Undefined" Expr.expr2Undefined
+--     fast
+-- 
+-- slowest :: R ()
+-- slowest = do
+--     runPass "filterExprSubList" Expr.filterExprSubList
+--     runPass "type2Unit" Types.type2Unit
+--     -- runPass "type2WildCard" Types.type2WildCard
+--     runPass "pat2Wildcard" Pat.pat2Wildcard
+--     runPass "simplifyConDecl" Decls.simplifyConDecl
+--     fast
+-- 
+-- snail :: R ()
+-- snail = do
+--     runPass "simplifyExpr" Expr.simplifyExpr
+--     runPass "simplifyType" Types.simplifyType
+--     -- Names.shortenNames
+--     Functions.inline
+--     DataTypes.rmvConArgs
+--     -- Parameters.reduce
+--     fast
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
 -- 2. set alive variable to false

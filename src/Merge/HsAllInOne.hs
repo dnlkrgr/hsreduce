@@ -379,5 +379,5 @@ insertIndent (_, (startLoc, _)) fileContent =
 span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
-instance Eq (ImportDecl GhcPs) where
+instance {-# OVERLAPPABLE #-} Eq (ImportDecl GhcPs) where
     i1 == i2 = oshow i1 == oshow i2

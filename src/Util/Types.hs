@@ -32,9 +32,6 @@ instance ParseRecord (CLIOptions Wrapped)
 
 instance Show (CLIOptions Unwrapped)
 
-type WaysToChange a = a -> [a -> a]
-
-data Pass = Pass String (ParsedSource -> ParsedSource)
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving (Eq)
@@ -192,3 +189,8 @@ instance Show Pragma where
     show (Include i) = "{-# INCLUDE " ++ T.unpack i ++ " #-}"
 
 type Parser = MP.Parsec Void T.Text
+
+type WaysToChange a = a -> [a -> a]
+
+data Pass = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
+    | Arst String (RState -> [RState -> RState])

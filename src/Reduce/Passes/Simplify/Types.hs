@@ -1,39 +1,50 @@
 module Reduce.Passes.Simplify.Types where
 
 import BasicTypes
-import GHC
+import GHC hiding (Pass)
 import OccName (mkVarOcc)
 import Util.Types
 import Util.Util
 
+type2Unit :: Pass
+type2Unit = mkPass "type2Unit" f
+    where
+        f :: WaysToChange (HsType GhcPs)
+        f UnitTypeP = []
+        f _ = map const [UnitTypeP]
 
-type2Unit :: WaysToChange (HsType GhcPs)
-type2Unit UnitTypeP = []
-type2Unit _ = map const [UnitTypeP]
+type2WildCard :: Pass
+type2WildCard = mkPass "type2WildCard" f
+    where
+        f :: WaysToChange (HsType GhcPs)
+        f (HsWildCardTy _) = []
+        f _ = map const [HsWildCardTy NoExt]
 
-simplifyType :: WaysToChange (HsType GhcPs)
-simplifyType UnitTypeP = []
-simplifyType t@(ForallTypeP body) = handleSubList fType pType t <> map const [body]
-simplifyType t@(QualTypeP body) = handleSubList fType pType t <> map const [body]
-simplifyType (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = map const [t1]
--- simplifyType at@HsAppTy{}                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
-simplifyType (HsAppTy _ (L l _) u@(L _ (HsTupleTy _ _ []))) = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
-simplifyType (HsOpTy _ (L _ l) _ (L _ r)) = map const [l, r]
-simplifyType (HsKindSig _ (L _ t) _) = map const [t]
-simplifyType _ = []
+simplifyType :: Pass
+simplifyType = mkPass "simplifyType" f
+    where
+        f :: WaysToChange (HsType GhcPs)
+        f UnitTypeP = []
+        f t@(ForallTypeP body) = handleSubList fType pType t <> map const [body]
+        f t@(QualTypeP body) = handleSubList fType pType t <> map const [body]
+        f (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = map const [t1]
+        -- f at@HsAppTy{}                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
+        f (HsAppTy _ (L l _) u@(L _ (HsTupleTy _ _ []))) = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
+        f (HsOpTy _ (L _ l) _ (L _ r)) = map const [l, r]
+        f (HsKindSig _ (L _ t) _) = map const [t]
+        f _ = []
 
-pType :: HsType p -> [SrcSpan]
-pType = \case
-    (HsForAllTy _ bndrs _) -> map getLoc bndrs
-    (HsQualTy _ ctxt _) -> map getLoc $ unLoc ctxt
-    _ -> []
-
-fType :: SrcSpan -> HsType p -> HsType p
-fType loc = \case
-    (HsForAllTy x bndrs body) -> HsForAllTy x (filter ((/= loc) . getLoc) bndrs) body
-    (HsQualTy x ctxt body) -> HsQualTy x (filter ((/= loc) . getLoc) <$> ctxt) body
-    x -> x
-
+        pType :: HsType p -> [SrcSpan]
+        pType = \case
+            (HsForAllTy _ bndrs _) -> map getLoc bndrs
+            (HsQualTy _ ctxt _) -> map getLoc $ unLoc ctxt
+            _ -> []
+        
+        fType :: SrcSpan -> HsType p -> HsType p
+        fType loc = \case
+            (HsForAllTy x bndrs body) -> HsForAllTy x (filter ((/= loc) . getLoc) bndrs) body
+            (HsQualTy x ctxt body) -> HsQualTy x (filter ((/= loc) . getLoc) <$> ctxt) body
+            x -> x
 
 pattern ForallTypeP, QualTypeP :: HsType GhcPs -> HsType GhcPs
 pattern ForallTypeP body <- HsForAllTy _ _ (L _ body)

@@ -61,8 +61,17 @@ tryNewState passId f conf = do
                 Uninteresting -> updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
 
-runPass :: Data a => String -> WaysToChange a -> R ()
-runPass name pass = do
+overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
+overwriteAtLoc loc f oldValue@(L oldLoc a)
+    | loc == oldLoc = L loc $ f a
+    | otherwise = oldValue
+
+mkPass :: Data a => String -> WaysToChange a -> Pass
+mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
+
+
+runPass :: Pass -> R ()
+runPass (AST name pass) = do
     unless isInProduction $ do
         printInfo name
         isTestStillFresh name
@@ -70,6 +79,9 @@ runPass name pass = do
     ask
     >>= fmap (getProposedChanges pass . _parsed) . liftIO . readTVarIO . _tState 
     >>= applyInterestingChanges name 
+
+getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [Located a -> Located a]
+getProposedChanges pass ast = concat [map (overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
 
 applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
 applyInterestingChanges name proposedChanges = do
@@ -113,11 +125,6 @@ updateStatistics_ conf name i sizeDiff =
             Just (PassStats _ n d r) ->
                 Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
 
-overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
-overwriteAtLoc loc f oldValue@(L oldLoc a)
-    | loc == oldLoc = L loc $ f a
-    | otherwise = oldValue
-
 testNewState :: RConf -> RState -> IO Interesting
 testNewState conf newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
@@ -159,12 +166,6 @@ isTestStillFresh context = do
                 liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
                 error $ "Test case is broken at >>>" <> context <> "<<<"
             _ -> return ()
-
-getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [Located a -> Located a]
-getProposedChanges pass ast = concat [map (overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
-
-mkPass :: Data a => ParsedSource -> String -> WaysToChange a -> [Pass]
-mkPass ast name pass = concat [map (Pass name . transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
 
 -- get ways to change an expression that contains a list as an subexpression
 -- p: preprocessing (getting to the list)

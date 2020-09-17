@@ -1,20 +1,21 @@
-module Reduce.Passes.Remove.Imports (reduce) where
+module Reduce.Passes.Remove.Imports where
 
-import GHC
+import GHC hiding (Pass)
 import Util.Types
 import Util.Util
 
-reduce :: R ()
-reduce = do
-    runPass "rmvImports" rmvImports
-    runPass "unqualImport" unqualImport
+unqualImport :: Pass
+unqualImport = mkPass "unqualImports" f
+    where 
+        f :: WaysToChange (ImportDecl GhcPs)
+        f (ImportDecl _ srcText name pkgQual src safe _ implicit as _) =
+            [const (ImportDecl NoExt srcText name pkgQual src safe False implicit as Nothing)]
+        f _ = []
 
-unqualImport :: WaysToChange (ImportDecl GhcPs)
-unqualImport (ImportDecl _ srcText name pkgQual src safe _ implicit as _) =
-    [const (ImportDecl NoExt srcText name pkgQual src safe False implicit as Nothing)]
-unqualImport _ = []
-
-rmvImports :: WaysToChange (HsModule GhcPs)
-rmvImports = handleSubList f (map getLoc . hsmodImports)
-    where
-        f loc m = m {hsmodImports = filter ((/= loc) . getLoc) (hsmodImports m)}
+rmvImports :: Pass
+rmvImports = mkPass "rmvImports" f
+    where 
+        f :: WaysToChange (HsModule GhcPs)
+        f = handleSubList f (map getLoc . hsmodImports)
+            where
+                f loc m = m {hsmodImports = filter ((/= loc) . getLoc) (hsmodImports m)}

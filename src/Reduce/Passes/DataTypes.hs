@@ -3,7 +3,7 @@ module Reduce.Passes.DataTypes (inline, rmvConArgs) where
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Data.Generics.Uniplate.Data
-import GHC
+import GHC hiding (Pass)
 import Lens.Micro.Platform
 import Util.Types
 import Util.Util
@@ -79,39 +79,23 @@ rmvArgsFromPat _ _ p = p
 
 -- ***************************************************************************
 -- INLINE TYPE
-
 -- ***************************************************************************
-
-inline :: R ()
-inline = do
-    printInfo "inline"
-
-    conf <- ask
-    ast <- _parsed <$> (liftIO . atomically $ readTVar (_tState conf))
-
-    -- data decls / newtypes / type synonyms
-    forM_
+inline :: Pass
+inline = AST "inlineType" $ \ast ->
+    map
+        ( \(nn, argName, mConstrName) oldAst ->
+            ( case mConstrName of
+                  Nothing -> id
+                  Just constrName -> transformBi (inlineTypeAtPat constrName)
+            )
+            . transformBi (inlineTypeAtType nn argName)
+            $ oldAst
+        )
         ( [ (unLoc newtypeName, argName, Just constrName)
             | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [PrefixConP constrName [TyVarP argName]] _) :: TyClDecl GhcPs <- universeBi ast
           ]
               <> [(unLoc newtypeName, argName, Nothing) | SynDecl _ newtypeName _ _ (TyVarP argName) :: TyClDecl GhcPs <- universeBi ast]
         )
-        inlineTypeHelper
-
-inlineTypeHelper :: (RdrName, RdrName, Maybe RdrName) -> R ()
-inlineTypeHelper (nn, argName, mConstrName) = do
-    liftIO
-        . tryNewState
-            "inlineType"
-            ( parsed %~ \oldAST ->
-                  ( case mConstrName of
-                        Nothing -> id
-                        Just constrName -> transformBi (inlineTypeAtPat constrName)
-                  )
-                      . transformBi (inlineTypeAtType nn argName)
-                      $ oldAST
-            )
-        =<< ask
 
 inlineTypeAtType :: RdrName -> RdrName -> HsType GhcPs -> HsType GhcPs
 inlineTypeAtType newtypeName argName t@(HsTyVar x p (L l tyvarName))

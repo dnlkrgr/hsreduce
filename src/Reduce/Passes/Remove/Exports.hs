@@ -4,7 +4,7 @@ import Control.Concurrent.STM
 import Control.Monad.Reader
 import Data.Maybe
 import qualified Data.Text as T
-import GHC
+import GHC hiding (Pass)
 import Path
 import Util.Types
 import Util.Util
@@ -40,10 +40,13 @@ reduce = do
 
         Just _ -> return ()
 
-    runPass "rmvExports" removeExports
+    runPass removeExports
 
-removeExports :: WaysToChange [LIE GhcPs]
-removeExports = handleSubList (\e -> filter ((/= e) . oshow)) (map oshow)
+removeExports :: Pass
+removeExports = mkPass "rmvExports" f
+    where
+        f :: WaysToChange [LIE GhcPs]
+        f = handleSubList (\e -> filter ((/= e) . oshow)) (map oshow)
 
 -- | turn decl into a fitting export, somehow type synonyms and
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)

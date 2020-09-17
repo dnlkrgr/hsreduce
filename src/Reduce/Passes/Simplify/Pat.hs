@@ -1,8 +1,12 @@
 module Reduce.Passes.Simplify.Pat where
 
-import GHC
+import GHC hiding (Pass)
 import Util.Types
+import Util.Util
 
-pat2Wildcard :: WaysToChange (Pat GhcPs)
-pat2Wildcard WildPat {} = []
-pat2Wildcard _ = [const (WildPat NoExt)]
+pat2Wildcard :: Pass
+pat2Wildcard = mkPass "pat2Wildcard" f
+    where
+        f :: WaysToChange (Pat GhcPs)
+        f WildPat {} = []
+        f _ = [const (WildPat NoExt)]

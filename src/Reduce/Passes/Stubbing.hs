@@ -1,30 +1,12 @@
-module Reduce.Passes.Stubbing (slow, slowest) where
+module Reduce.Passes.Stubbing where
 
 import Bag (bagToList, listToBag)
-import GHC
+import GHC hiding (Pass)
 import Util.Types
 import Util.Util
 
 printStubbingInfo :: R ()
 printStubbingInfo = printInfo "Stubbing Expressions"
-
-slow :: R ()
-slow = do
-    printStubbingInfo
-    runPass "contexts" contexts
-    runPass "simplifyMatches" simplifyMatches
-    runPass "simplifyMatch" simplifyMatch
-    runPass "simplifyLGRHS" simplifyLGRHS
-    runPass "localBinds" localBinds
-    runPass "familyResultSig" familyResultSig
-    runPass "tyVarBndr" tyVarBndr
-
-slowest :: R ()
-slowest = do
-    slow
-    runPass "simplifyDeriving" simplifyDeriving
-    runPass "simplifyDerivingClause" simplifyDerivingClause
-    runPass "unqualNames" unqualNames
 
 -- ******************************
 
@@ -52,8 +34,11 @@ slowest = do
 -- 4. inline type sigs that match the type name
 
 -- CONTEXTS
-contexts :: WaysToChange (HsContext GhcPs)
-contexts = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
+contexts :: Pass
+contexts = mkPass "contexts" f
+    where
+        f :: WaysToChange (HsContext GhcPs)
+        f = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
 
 -- ***************************************************************************
 -- DERIVING CLAUSES
