@@ -11,6 +11,7 @@ type2Unit = mkPass "type2Unit" f
     where
         f :: WaysToChange (HsType GhcPs)
         f UnitTypeP = []
+        f (HsWildCardTy _) = []
         f _ = map const [UnitTypeP]
 
 type2WildCard :: Pass
@@ -39,7 +40,7 @@ simplifyType = mkPass "simplifyType" f
             (HsForAllTy _ bndrs _) -> map getLoc bndrs
             (HsQualTy _ ctxt _) -> map getLoc $ unLoc ctxt
             _ -> []
-        
+
         fType :: SrcSpan -> HsType p -> HsType p
         fType loc = \case
             (HsForAllTy x bndrs body) -> HsForAllTy x (filter ((/= loc) . getLoc) bndrs) body

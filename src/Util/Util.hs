@@ -51,7 +51,7 @@ tryNewState passId f conf = do
                         -- is the state we worked still the same?
                         if oldStateS == currentCommonStateS
                             then do
-                                writeTVar (_tState conf) newState
+                                writeTVar (_tState conf) $ newState { _isAlive = True }
 
                                 updateStatistics_ conf passId 1 sizeDiff
                                 traceShow ("+" :: String) $ return True
@@ -69,7 +69,6 @@ overwriteAtLoc loc f oldValue@(L oldLoc a)
 mkPass :: Data a => String -> WaysToChange a -> Pass
 mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
 
-
 runPass :: Pass -> R ()
 runPass (AST name pass) = do
     unless isInProduction $ do
@@ -77,13 +76,14 @@ runPass (AST name pass) = do
         isTestStillFresh name
 
     ask
-    >>= fmap (getProposedChanges pass . _parsed) . liftIO . readTVarIO . _tState 
+    >>= fmap (pass . _parsed) . liftIO . readTVarIO . _tState 
     >>= applyInterestingChanges name 
+runPass _ = return ()
 
-getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [Located a -> Located a]
-getProposedChanges pass ast = concat [map (overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
+-- getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [ParsedSource -> ParsedSource]
+-- getProposedChanges pass ast = pass ast
 
-applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
+applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R ()
 applyInterestingChanges name proposedChanges = do
     conf <- ask
     numberOfThreads <- asks _numberOfThreads
@@ -105,7 +105,7 @@ applyInterestingChanges name proposedChanges = do
     -- run one thread for each batch
     liftIO . forConcurrently_ batches $ \batch -> do
         -- within a thread check out all the changes
-        forM_ batch $ \c -> tryNewState name (parsed %~ transformBi c) conf
+        forM_ batch $ \c -> tryNewState name (parsed %~ c) conf
 
 updateStatistics :: RConf -> String -> Word -> Int -> IO ()
 updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name i sizeDiff

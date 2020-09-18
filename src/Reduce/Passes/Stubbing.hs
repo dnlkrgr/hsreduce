@@ -42,25 +42,32 @@ contexts = mkPass "contexts" f
 
 -- ***************************************************************************
 -- DERIVING CLAUSES
--- ***************************************************************************
-simplifyDeriving :: WaysToChange [LHsDerivingClause GhcPs]
-simplifyDeriving = handleSubList f p
-    where
-        p = map getLoc
-        f loc = filter ((/= loc) . getLoc)
 
-simplifyDerivingClause :: WaysToChange (HsDerivingClause GhcPs)
-simplifyDerivingClause = handleSubList f p
+-- ***************************************************************************
+
+simplifyDeriving :: Pass
+simplifyDeriving = mkPass "simplifyDeriving" f
     where
-        p (HsDerivingClause _ _ t) = map (getLoc . unIB) $ unLoc t
-        p _ = []
-        f loc (HsDerivingClause x s t) = HsDerivingClause x s (filter ((/= loc) . getLoc . unIB) <$> t)
-        f _ d = d
+        f :: WaysToChange [LHsDerivingClause GhcPs]
+        f = handleSubList g p
+            where
+                p = map getLoc
+                g loc = filter ((/= loc) . getLoc)
+
+simplifyDerivingClause :: Pass
+simplifyDerivingClause = mkPass "simplifyDerivingClause" f
+    where
+        f :: WaysToChange (HsDerivingClause GhcPs)
+        f = handleSubList g p
+            where
+                p (HsDerivingClause _ _ t) = map (getLoc . unIB) $ unLoc t
+                p _ = []
+                g loc (HsDerivingClause x s t) = HsDerivingClause x s (filter ((/= loc) . getLoc . unIB) <$> t)
+                g _ d = d
 
 unIB :: HsImplicitBndrs pass thing -> thing
 unIB (HsIB _ b) = b
 unIB _ = error "Stubbing:unIB - trying to work with NoExt"
-
 
 -- ***************************************************************************
 
@@ -71,30 +78,33 @@ unIB _ = error "Stubbing:unIB - trying to work with NoExt"
 data LocalBindSpan = Bind SrcSpan | Sig SrcSpan
     deriving (Eq)
 
-localBinds :: WaysToChange (HsLocalBinds GhcPs)
-localBinds EmptyLocalBinds {} = []
-localBinds v@HsValBinds {} = handleSubList f p v <> [const (EmptyLocalBinds NoExt)]
+localBinds :: Pass
+localBinds = mkPass "localBinds" f
     where
-        p = \case
-            (HsValBinds _ (ValBinds _ binds sigs)) ->
-                let bindList = bagToList binds
-                 in map (Sig . getLoc) sigs <> map (Bind . getLoc) bindList
-            _ -> []
-        f (Sig loc) = \case
-            (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExt . ValBinds NoExt binds . filter ((/= loc) . getLoc) $ sigs
-            hvb -> hvb
-        f (Bind loc) = \case
-            (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExt . ValBinds NoExt (listToBag . filter ((/= loc) . getLoc) $ bagToList binds) $ sigs
-            hvb -> hvb
-localBinds v@HsIPBinds {} = handleSubList f p v <> [const (EmptyLocalBinds NoExt)]
-    where
-        p = \case
-            (HsIPBinds _ (IPBinds _ binds)) -> map getLoc binds
-            _ -> []
-        f loc = \case
-            (HsIPBinds _ (IPBinds _ binds)) -> HsIPBinds NoExt . IPBinds NoExt . filter ((/= loc) . getLoc) $ binds
-            hvb -> hvb
-localBinds _ = [const (EmptyLocalBinds NoExt)]
+        f :: WaysToChange (HsLocalBinds GhcPs)
+        f EmptyLocalBinds {} = []
+        f v@HsValBinds {} = handleSubList g p v <> [const (EmptyLocalBinds NoExt)]
+            where
+                p = \case
+                    (HsValBinds _ (ValBinds _ binds sigs)) ->
+                        let bindList = bagToList binds
+                         in map (Sig . getLoc) sigs <> map (Bind . getLoc) bindList
+                    _ -> []
+                g (Sig loc) = \case
+                    (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExt . ValBinds NoExt binds . filter ((/= loc) . getLoc) $ sigs
+                    hvb -> hvb
+                g (Bind loc) = \case
+                    (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExt . ValBinds NoExt (listToBag . filter ((/= loc) . getLoc) $ bagToList binds) $ sigs
+                    hvb -> hvb
+        f v@HsIPBinds {} = handleSubList g p v <> [const (EmptyLocalBinds NoExt)]
+            where
+                p = \case
+                    (HsIPBinds _ (IPBinds _ binds)) -> map getLoc binds
+                    _ -> []
+                g loc = \case
+                    (HsIPBinds _ (IPBinds _ binds)) -> HsIPBinds NoExt . IPBinds NoExt . filter ((/= loc) . getLoc) $ binds
+                    hvb -> hvb
+        f _ = [const (EmptyLocalBinds NoExt)]
 
 -- ***************************************************************************
 
@@ -102,38 +112,46 @@ localBinds _ = [const (EmptyLocalBinds NoExt)]
 
 -- ***************************************************************************
 
-simplifyMatch :: WaysToChange (Match GhcPs (LHsExpr GhcPs))
-simplifyMatch (Match _ _ _ (GRHSs _ [] _)) = []
-simplifyMatch mm = handleSubList f p mm
+simplifyMatch :: Pass
+simplifyMatch = mkPass "simplifyMatch" f
     where
-        p = \case
-            -- reverse because the lower have to be tried first
-            MatchP iterGRHSs _ -> map getLoc . reverse $ iterGRHSs
-            _ -> []
-        f grhsLoc = \case
-            m@(Match _ _ _ (GRHSs _ grhss lb)) ->
-                let newGRHSs = filter ((/= grhsLoc) . getLoc) grhss
-                 in case newGRHSs of
-                        [] -> m
-                        _ -> m {m_grhss = GRHSs NoExt newGRHSs lb}
-            m -> m
+        f :: WaysToChange (Match GhcPs (LHsExpr GhcPs))
+        f (Match _ _ _ (GRHSs _ [] _)) = []
+        f mm = handleSubList g p mm
+            where
+                p = \case
+                    -- reverse because the lower have to be tried first
+                    MatchP iterGRHSs _ -> map getLoc . reverse $ iterGRHSs
+                    _ -> []
+                g grhsLoc = \case
+                    m@(Match _ _ _ (GRHSs _ grhss lb)) ->
+                        let newGRHSs = filter ((/= grhsLoc) . getLoc) grhss
+                         in case newGRHSs of
+                                [] -> m
+                                _ -> m {m_grhss = GRHSs NoExt newGRHSs lb}
+                    m -> m
 
-simplifyMatches :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
-simplifyMatches = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
+simplifyMatches :: Pass
+simplifyMatches = mkPass "simplifyMatches" f
+    where
+        f :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
+        f = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
 
 -- <> [ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
 -- ,  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> not (all ( ("undefined" `isSubsequenceOf`) . showSDocUnsafe . pprGRHS LambdaExpr . unLoc) grhs))]
 
-simplifyLGRHS :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
-simplifyLGRHS (GRHS _ [] _) = []
-simplifyLGRHS g@(GRHS _ _ body) = [const (GRHS NoExt [] body)] <> handleSubList f p g
+simplifyLGRHS :: Pass
+simplifyLGRHS = mkPass "simplifyLGRHS" f
     where
-        p (GRHS _ stmts _) = map getLoc stmts
-        p _ = []
-        f loc (GRHS _ s b) = GRHS NoExt (filter ((/= loc) . getLoc) s) b
-        f _ _ = g
-simplifyLGRHS _ = []
-
+        f :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
+        f (GRHS _ [] _) = []
+        f g@(GRHS _ _ body) = [const (GRHS NoExt [] body)] <> handleSubList h p g
+            where
+                p (GRHS _ stmts _) = map getLoc stmts
+                p _ = []
+                h loc (GRHS _ s b) = GRHS NoExt (filter ((/= loc) . getLoc) s) b
+                h _ _ = g
+        f _ = []
 
 -- ***************************************************************************
 
@@ -141,18 +159,27 @@ simplifyLGRHS _ = []
 
 -- ***************************************************************************
 
-familyResultSig :: WaysToChange (FamilyResultSig GhcPs)
-familyResultSig (NoSig _) = []
-familyResultSig (XFamilyResultSig _) = []
-familyResultSig _ = [const (NoSig NoExt)]
+familyResultSig :: Pass
+familyResultSig = mkPass "familyResultSig" f
+    where
+        f :: WaysToChange (FamilyResultSig GhcPs)
+        f (NoSig _) = []
+        f (XFamilyResultSig _) = []
+        f _ = [const (NoSig NoExt)]
 
-tyVarBndr :: WaysToChange (HsTyVarBndr GhcPs)
-tyVarBndr (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
-tyVarBndr _ = []
+tyVarBndr :: Pass
+tyVarBndr = mkPass "tyVarBndr" f
+    where
+        f :: WaysToChange (HsTyVarBndr GhcPs)
+        f (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
+        f _ = []
 
-unqualNames :: WaysToChange RdrName
-unqualNames (Qual _ on) = [const (Unqual on)]
-unqualNames _ = []
+unqualNames :: Pass
+unqualNames = mkPass "unqualNames" f
+    where
+        f :: WaysToChange RdrName
+        f (Qual _ on) = [const (Unqual on)]
+        f _ = []
 
 -- ***************************************************************************
 

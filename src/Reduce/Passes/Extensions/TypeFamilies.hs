@@ -5,24 +5,27 @@ import Control.Concurrent.STM
 import Control.Monad.Reader
 import Data.Generics.Uniplate.Data
 import Data.List
-import GHC
+import GHC hiding (Pass)
 import Lens.Micro.Platform
 import Outputable hiding ((<>))
 import Util.Types
 import Util.Util
 
-rmvEquations :: WaysToChange (HsDecl GhcPs)
-rmvEquations = handleSubList f p
+rmvEquations :: Pass
+rmvEquations = mkPass "typefamilies:rmvEquations" f
     where
-        p (TyClD _ FamDecl {tcdFam = d}) = case fdInfo d of
-            ClosedTypeFamily (Just equations) -> map getLoc equations
-            _ -> []
-        p _ = []
-        f loc (TyClD _ t@FamDecl {tcdFam = d}) = case fdInfo d of
-            ClosedTypeFamily (Just equations) ->
-                TyClD NoExt $ t {tcdFam = d {fdInfo = ClosedTypeFamily . Just $ filter ((/= loc) . getLoc) equations}}
-            _ -> TyClD NoExt t
-        f _ t = t
+        f :: WaysToChange (HsDecl GhcPs)
+        f = handleSubList g p
+            where
+                p (TyClD _ FamDecl {tcdFam = d}) = case fdInfo d of
+                    ClosedTypeFamily (Just equations) -> map getLoc equations
+                    _ -> []
+                p _ = []
+                g loc (TyClD _ t@FamDecl {tcdFam = d}) = case fdInfo d of
+                    ClosedTypeFamily (Just equations) ->
+                        TyClD NoExt $ t {tcdFam = d {fdInfo = ClosedTypeFamily . Just $ filter ((/= loc) . getLoc) equations}}
+                    _ -> TyClD NoExt t
+                g _ t = t
 
 apply :: R ()
 apply = do
