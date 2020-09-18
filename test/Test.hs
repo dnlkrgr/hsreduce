@@ -13,7 +13,16 @@ import qualified Reduce.Passes.Remove.Pragmas        as Pragmas
 import qualified Reduce.Passes.Remove.Exports        as Exports
 import qualified Reduce.Passes.Remove.Decls          as Decls
 import qualified Reduce.Passes.Remove.Parameters     as Parameters
-import qualified Reduce.Passes.Stubbing              as Stubbing
+import qualified Reduce.Passes.Stubbing              as Stubbing 
+    ( contexts,
+      simplifyDeriving,
+      simplifyDerivingClause,
+      localBinds,
+      rmvRHSs,
+      rmvMatches,
+      rmvGuards,
+      tyVarBndr,
+    )
 import qualified Reduce.Passes.DataTypes             as DataTypes
 import qualified Reduce.Passes.Simplify.Expr as Expr
 import qualified Reduce.Passes.Simplify.Types as Types
@@ -81,6 +90,38 @@ main = hspec $ do
                     runPass DataTypes.inline,           
                     Nothing,                
                     "module Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()")
+                , ("Contexts",   
+                    runPass Stubbing.contexts,           
+                    Nothing,                
+                    "module Contexts where\narst :: () => a -> a\narst = undefined")
+                , ("Deriving",   
+                    runPass Stubbing.simplifyDeriving,           
+                    Nothing,                
+                    "module Deriving where\ndata Arst = Arst")
+                , ("Deriving2",   
+                    runPass Stubbing.simplifyDerivingClause,           
+                    Nothing,                
+                    "module Deriving where\ndata Arst\n  = Arst\n  deriving ()")
+                , ("TyVarBndr",   
+                    runPass Stubbing.tyVarBndr,           
+                    Nothing,                
+                    "{-# LANGUAGE KindSignatures, PolyKinds #-}\nmodule TyVarBndr where\ndata Arst a b\n")
+                , ("LocalBinds",   
+                    runPass Stubbing.localBinds,           
+                    Nothing,                
+                    "module LocalBinds where\narst = undefined")
+                , ("Matches",   
+                    runPass Stubbing.rmvMatches,           
+                    Nothing,                
+                    "module Matches where")
+                , ("Guards",   
+                    runPass Stubbing.rmvGuards,           
+                    Nothing,                
+                    "module Guards where\narst = \"crst\"")
+                , ("RHSs",   
+                    runPass Stubbing.rmvRHSs,           
+                    Nothing,                
+                    "module RHSs where\narst | 3 > 5 = \"arst\"")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

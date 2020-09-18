@@ -29,7 +29,7 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
     -- 3. record the starting time
 
     fileContent <- TIO.readFile $ fromAbsFile filePathAbs
-    beginState <- parse True filePathAbs
+    beginState <- parse filePathAbs
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 

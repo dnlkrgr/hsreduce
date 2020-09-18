@@ -101,11 +101,9 @@ emptyStats = Statistics M.empty
 data RState = RState
     { _pragmas :: [Pragma],
       _parsed :: ParsedSource,
-      _typechecked :: Maybe TypecheckedModule,
       _isAlive :: Bool,
       _statistics :: Statistics,
-      _numRenamedNames :: Word,
-      _hscEnv :: Maybe HscEnv
+      _numRenamedNames :: Word
     }
 
 makeLenses ''RState
@@ -125,8 +123,8 @@ newtype R a = R (ReaderT RConf IO a)
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf)
 
 showState :: RState -> T.Text
-showState (RState [] ps _ _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _ _) =
+showState (RState [] ps _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _) =
     T.unlines $
         ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
@@ -162,7 +160,7 @@ instance Show ProjectType where
     show Library = "library"
 
 data Interesting = Interesting | Uninteresting
-    deriving (Show)
+    deriving (Eq, Show)
 
 pragma2Extension :: Pragma -> Maybe Extension
 pragma2Extension (Language e) =

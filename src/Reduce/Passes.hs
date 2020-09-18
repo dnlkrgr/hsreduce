@@ -1,4 +1,4 @@
-module Reduce.Passes (allActions) where
+module Reduce.Passes (allActions, allPasses) where
 
 
 import Util.Types
@@ -20,8 +20,8 @@ import qualified Reduce.Passes.Stubbing as Stubbing
 
 
 allActions :: [R ()]
--- allActions = [fast, medium, slow]
-allActions = pure $ mapM_ runPass [TypeFamilies.apply, TypeFamilies.rmvEquations]
+allActions = [fast, medium, slow]
+-- allActions = [runPass Parameters.reduce]
 
 fast :: R ()
 fast = do
@@ -37,7 +37,7 @@ medium :: R ()
 medium = do
     mapM_ runPass 
         [ Expr.expr2Undefined
-        , Types.type2WildCard
+        , Types.type2Unit
         ]
     fast
 
@@ -50,23 +50,23 @@ slow = do
         , Decls.rmvFunDeps
         , Expr.filterExprSubList
         , Expr.simplifyExpr
-        , Types.type2Unit
+        -- , Types.type2WildCard
         , Types.simplifyType
         , Pat.pat2Wildcard
         , Stubbing.contexts
         , Stubbing.simplifyDeriving
         , Stubbing.simplifyDerivingClause
         , Stubbing.localBinds
-        , Stubbing.simplifyMatch
-        , Stubbing.simplifyMatches
-        , Stubbing.simplifyLGRHS
+        , Stubbing.rmvRHSs
+        , Stubbing.rmvMatches
+        , Stubbing.rmvGuards
         , TypeFamilies.familyResultSig
         , Stubbing.tyVarBndr
         , Names.unqualNames
         , DataTypes.inline
         , DataTypes.rmvConArgs
-        , TypeFamilies.apply
         , Imports.unqualImport
+        -- , TypeFamilies.apply
         , TypeFamilies.rmvEquations
         , Parameters.reduce
         , Functions.inline
@@ -74,37 +74,37 @@ slow = do
     medium
 
 
--- allPasses :: [Pass]
--- allPasses =
---         [ Imports.rmvImports
---         , Decls.rmvSigs Nothing
---         , Decls.rmvDecls Nothing
---         , Decls.simplifyDecl Nothing
---         , Decls.recCon2Prefix
---         , Decls.simplifyConDecl
---         , Decls.rmvFunDeps
---         , Expr.expr2Undefined
---         , Expr.filterExprSubList
---         , Expr.simplifyExpr
---         , Types.type2WildCard
---         , Types.type2Unit
---         , Types.simplifyType
---         , Pat.pat2Wildcard
---         , Stubbing.contexts
---         , Stubbing.simplifyDeriving
---         , Stubbing.simplifyDerivingClause
---         , Stubbing.localBinds
---         , Stubbing.simplifyMatch
---         , Stubbing.simplifyMatches
---         , Stubbing.simplifyLGRHS
---         , Stubbing.familyResultSig
---         , Stubbing.tyVarBndr
---         , Stubbing.unqualNames
---         , DataTypes.inline
---         , DataTypes.rmvConArgs
---         -- , TypeFamilies.apply
---         , Imports.unqualImport
---         , TypeFamilies.rmvEquations
---         , Parameters.reduce
---         , Functions.inline
---         ]
+allPasses :: [Pass]
+allPasses =
+        [ Imports.rmvImports
+        , Decls.rmvSigs Nothing
+        , Decls.rmvDecls Nothing
+        , Decls.simplifyDecl Nothing
+        , Decls.recCon2Prefix
+        , Decls.simplifyConDecl
+        , Decls.rmvFunDeps
+        , Expr.expr2Undefined
+        , Expr.filterExprSubList
+        , Expr.simplifyExpr
+        , Types.type2WildCard
+        , Types.type2Unit
+        , Types.simplifyType
+        , Pat.pat2Wildcard
+        , Stubbing.contexts
+        , Stubbing.simplifyDeriving
+        , Stubbing.simplifyDerivingClause
+        , Stubbing.localBinds
+        , Stubbing.rmvRHSs
+        , Stubbing.rmvMatches
+        , Stubbing.rmvGuards
+        , Stubbing.tyVarBndr
+        , Names.unqualNames
+        , DataTypes.inline
+        , DataTypes.rmvConArgs
+        , Imports.unqualImport
+        -- , TypeFamilies.apply
+        , TypeFamilies.familyResultSig
+        , TypeFamilies.rmvEquations
+        , Parameters.reduce
+        , Functions.inline
+        ]

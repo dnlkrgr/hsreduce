@@ -128,9 +128,11 @@ testNewState conf newState =
         let sourceFile = tempDir </> _sourceFile conf
             test = tempDir </> _test conf
 
-        (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-            Left (e :: CE.SomeException) -> traceShow ("testNewStateFlex, EXCEPTION:" :: String) . traceShow (show e) $ return Uninteresting
-            Right _ -> runTest test defaultDuration
+        CE.try (do
+            TIO.writeFile (fromAbsFile sourceFile) $ showState newState
+            runTest test defaultDuration) >>= \case
+            Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
+            Right i -> return i
 
 runTest :: Path Abs File -> Word -> IO Interesting
 runTest test duration = do
@@ -157,21 +159,19 @@ isTestStillFresh :: String -> R ()
 isTestStillFresh context = do
     conf <- ask
     newState <- liftIO . atomically $ readTVar $ _tState conf
-    liftIO $
-        testNewState conf newState >>= \case
-            Uninteresting -> do
-                liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
-                error $ "Test case is broken at >>>" <> context <> "<<<"
-            _ -> return ()
+    liftIO $ testNewState conf newState >>= \case
+        Uninteresting -> do
+            results <- replicateM 3 (liftIO $ testNewState conf newState) 
+            when (all (== Uninteresting) results) $ do
+                        liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
+                        error $ "Test case is broken at >>>" <> context <> "<<<"
+        _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression
 -- p: preprocessing (getting to the list)
 -- f: filtering and returning a valid expression again
 handleSubList :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
 handleSubList f p = map f . p
-
--- minireduce :: Data a => (Located a -> R (Located a)) -> R ()
--- minireduce pass = void . (transformBiM pass) =<< gets _parsed
 
 modname2components :: T.Text -> [T.Text]
 modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)

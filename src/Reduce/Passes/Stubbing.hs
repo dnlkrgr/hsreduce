@@ -3,9 +3,9 @@ module Reduce.Passes.Stubbing
       simplifyDeriving,
       simplifyDerivingClause,
       localBinds,
-      simplifyMatch,
-      simplifyMatches,
-      simplifyLGRHS,
+      rmvRHSs,
+      rmvMatches,
+      rmvGuards,
       tyVarBndr,
     )
 where
@@ -119,8 +119,8 @@ localBinds = mkPass "localBinds" f
 
 -- ***************************************************************************
 
-simplifyMatch :: Pass
-simplifyMatch = mkPass "simplifyMatch" f
+rmvRHSs :: Pass
+rmvRHSs = mkPass "rmvRHSs" f
     where
         f :: WaysToChange (Match GhcPs (LHsExpr GhcPs))
         f (Match _ _ _ (GRHSs _ [] _)) = []
@@ -138,8 +138,8 @@ simplifyMatch = mkPass "simplifyMatch" f
                                 _ -> m {m_grhss = GRHSs NoExt newGRHSs lb}
                     m -> m
 
-simplifyMatches :: Pass
-simplifyMatches = mkPass "simplifyMatches" f
+rmvMatches :: Pass
+rmvMatches = mkPass "rmvMatches" f
     where
         f :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
         f = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
@@ -147,8 +147,8 @@ simplifyMatches = mkPass "simplifyMatches" f
 -- <> [ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
 -- ,  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> not (all ( ("undefined" `isSubsequenceOf`) . showSDocUnsafe . pprGRHS LambdaExpr . unLoc) grhs))]
 
-simplifyLGRHS :: Pass
-simplifyLGRHS = mkPass "simplifyLGRHS" f
+rmvGuards :: Pass
+rmvGuards = mkPass "rmvGuards" f
     where
         f :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
         f (GRHS _ [] _) = []
