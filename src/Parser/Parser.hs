@@ -93,7 +93,7 @@ parse justParse fileName = do
 
     prags <- getPragmas fileName
 
-    return $ RState prags p mt False emptyStats 0 0 hEnv
+    return $ RState prags p mt False emptyStats 0 hEnv
 
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines

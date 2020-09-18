@@ -16,6 +16,6 @@ rmvImports :: Pass
 rmvImports = mkPass "rmvImports" f
     where 
         f :: WaysToChange (HsModule GhcPs)
-        f = handleSubList f (map getLoc . hsmodImports)
+        f = handleSubList g (map getLoc . hsmodImports)
             where
-                f loc m = m {hsmodImports = filter ((/= loc) . getLoc) (hsmodImports m)}
+                g loc m = m {hsmodImports = filter ((/= loc) . getLoc) (hsmodImports m)}

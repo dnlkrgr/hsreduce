@@ -1,11 +1,7 @@
 module Reduce.Passes.Functions where
 
-import Lens.Micro.Platform
 import Data.List
-import Control.Concurrent.STM
-import GHC
-import Control.Monad.State
-import Control.Monad.Reader
+import GHC hiding (Pass)
 import BasicTypes
 import Outputable
 import Data.Generics.Uniplate.Data
@@ -13,13 +9,11 @@ import Data.Generics.Uniplate.Data
 import Util.Util
 import Util.Types
 
-inline :: R ()
-inline = do
-    printInfo "inlineFunctions"
-
-    ast <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
-
-    forM_ 
+inline :: Pass
+inline = AST "inlineFunctions" $ \ast -> 
+    map (\(funId, lmatches) oldAst ->
+                transformBi (inlineFunctionHelper funId lmatches) oldAst
+        )
         [ (funId, lmatches) 
         | (fb@(FunBind _ (L _ funId) (MG _ lmatches _) _ _) :: HsBindLR GhcPs GhcPs) <- universeBi ast
         , let numOccurence  = length [() | AppP n <- universeBi ast, n == funId] 
@@ -29,13 +23,9 @@ inline = do
         , let lengthOfUses          = numOccurence * (length $ oshow lmatches)
         -- inlining is interesting, if rhs is greater than all uses of the function name, because function def could be deleted
         ,  fbLength >= lengthOfUses ]
-        inlineFunction
 
 pattern AppP :: RdrName -> HsExpr GhcPs
 pattern AppP n <- HsApp _ (L _ (HsVar _ (L _ n))) _
-
-inlineFunction :: (RdrName,  Located [LMatch GhcPs (LHsExpr GhcPs)]) -> R ()
-inlineFunction (funName, lmatches) = liftIO . tryNewState "inlineFunctions" (parsed %~ transformBi (inlineFunctionHelper funName lmatches)) =<< ask
 
 inlineFunctionHelper :: RdrName -> Located [LMatch GhcPs (LHsExpr GhcPs)] -> HsExpr GhcPs -> HsExpr GhcPs
 inlineFunctionHelper funName (L l2 lmatches) old@(HsApp _ (L l1 (HsVar _ (L _ n))) expr)

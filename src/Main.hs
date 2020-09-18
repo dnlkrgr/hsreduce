@@ -33,10 +33,6 @@ allActions = do
     Pragmas.reduce
     Exports.reduce
     mapM_ runPass passes
-    DataTypes.rmvConArgs
-    Functions.inline
-    TypeFamilies.apply
-    Parameters.reduce
 
 passes :: [Pass]
 passes =
@@ -48,7 +44,6 @@ passes =
         , Decls.recCon2Prefix
         , Decls.simplifyConDecl
         , Decls.rmvFunDeps
-        , DataTypes.inline
         , Expr.expr2Undefined
         , Expr.filterExprSubList
         , Expr.simplifyExpr
@@ -66,39 +61,10 @@ passes =
         , Stubbing.familyResultSig
         , Stubbing.tyVarBndr
         , Stubbing.unqualNames
+        , DataTypes.inline
+        , DataTypes.rmvConArgs
+        , TypeFamilies.apply
         , TypeFamilies.rmvEquations
+        , Parameters.reduce
+        , Functions.inline
         ]
-
--- fast :: R ()
--- fast = do
---     Pragmas.reduce
---     Exports.reduce
---     TypeFamilies.apply
-    -- runPass "recCon2Prefix" Decls.recCon2Prefix
-    -- runPass "rmvFunDeps" Decls.rmvFunDeps
-    -- runPass "remove type family equations" TypeFamilies.rmvEquations
-
--- medium :: R ()
--- medium = do
---     -- runPass "expr2Undefined" Expr.expr2Undefined
---     fast
--- 
--- slowest :: R ()
--- slowest = do
---     runPass "filterExprSubList" Expr.filterExprSubList
---     runPass "type2Unit" Types.type2Unit
---     -- runPass "type2WildCard" Types.type2WildCard
---     runPass "pat2Wildcard" Pat.pat2Wildcard
---     runPass "simplifyConDecl" Decls.simplifyConDecl
---     fast
--- 
--- snail :: R ()
--- snail = do
---     runPass "simplifyExpr" Expr.simplifyExpr
---     runPass "simplifyType" Types.simplifyType
---     -- Names.shortenNames
---     Functions.inline
---     DataTypes.rmvConArgs
---     -- Parameters.reduce
---     fast
-

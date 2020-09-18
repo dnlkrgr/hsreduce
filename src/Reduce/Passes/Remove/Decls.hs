@@ -1,12 +1,10 @@
 module Reduce.Passes.Remove.Decls where
 
 import BasicTypes
-import Control.Monad.State.Strict
 import CoreSyn
 import qualified Data.Text as T
 import GHC hiding (Pass, getName)
 import Outputable hiding ((<>))
-import Path
 import TcEvidence
 import Util.Types
 import Util.Util

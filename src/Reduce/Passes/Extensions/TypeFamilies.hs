@@ -1,12 +1,8 @@
 module Reduce.Passes.Extensions.TypeFamilies (rmvEquations, apply) where
 
-import SrcLoc
-import Control.Concurrent.STM
-import Control.Monad.Reader
 import Data.Generics.Uniplate.Data
 import Data.List
 import GHC hiding (Pass)
-import Lens.Micro.Platform
 import Outputable hiding ((<>))
 import Util.Types
 import Util.Util
@@ -27,59 +23,35 @@ rmvEquations = mkPass "typefamilies:rmvEquations" f
                     _ -> TyClD NoExt t
                 g _ t = t
 
-apply :: R ()
-apply = do
-    let passId = "apply type families"
-    printInfo passId
+apply :: Pass
+apply = AST "typefamilies:apply" $ \ast ->
+    concatMap (\FamEqn{..} -> 
+        let index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
+            tycon = unLoc feqn_tycon
 
-    ast <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
-
-    void $ transformBiM applyHelper ast
+        in map (\(L l _) oldAST -> 
+                let c =
+                        if any (isContainedIn feqn_rhs) feqn_pats
+                        then 
+                            -- the rhs is one of the patterns
+                            -- get the index of the pattern
+                            -- find occurrences of the type family
+                            -- replace them by nth pattern
+                            takeNthArgument tycon (length feqn_pats) index
+                        else replaceWithRHs tycon feqn_rhs
+                in transformBi (overwriteAtLoc l c) oldAST
+                )
+                [t | (t :: LHsType GhcPs) <- universeBi ast]
+        )
+        [ f | f@FamEqn{} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi ast]
 
 isContainedIn :: (Outputable.Outputable a1, Outputable.Outputable a2) => a1 -> a2 -> Bool
 isContainedIn feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
 
-applyHelper :: p ~ GhcPs => FamEqn p (HsTyPats p) (LHsType p) -> R (FamEqn p (HsTyPats p) (LHsType p))
-applyHelper f@(FamEqn {..}) = do
-    conf <- ask
-    ast <- liftIO . fmap _parsed $ readTVarIO (_tState conf)
-
-    let index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
-        tycon = unLoc feqn_tycon
-
-    forM_ [ t | (t :: LHsType GhcPs) <- universeBi ast ] $ \(L l _) -> do
-        liftIO $
-            tryNewState
-                "apply type families"
-                ( \oldState ->
-                      let oldAST = oldState ^. parsed
-                          c = if any (isContainedIn feqn_rhs) feqn_pats 
-                                -- the rhs is one of the patterns
-                                -- get the index of the pattern
-                                -- find occurrences of the type family
-                                -- replace them by nth pattern
-                                then takeNthArgument tycon (length feqn_pats) index
-                                else replaceWithRHs tycon feqn_rhs
-
-                          newAST = transformBi (overwriteAtLoc l c) oldAST
-
-                          newState =
-                              oldState
-                                  & parsed .~ newAST
-                                  & numRmvdArgs +~ 1
-                       in newState
-                )
-                conf
-    return f
-    -- the rhs is not found in any of the patterns
-    -- find occurrences of the type family
-    -- replace them by rhs
-applyHelper f = return f
-
 replaceWithRHs :: p ~ GhcPs => IdP p -> LHsType p -> HsType p -> HsType p
 replaceWithRHs tycon (unLoc -> rhs) t
     | oshow tycon `isPrefixOf` oshow t = rhs
-    | oshow tycon `isInfixOf` oshow t  = rhs
+    | oshow tycon `isInfixOf` oshow t = rhs
     | otherwise = t
 
 -- the rhs is one of the patterns sub type expressions

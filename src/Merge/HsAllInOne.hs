@@ -147,7 +147,7 @@ getNameFromEnv rdrEnv imports ours mn maybeName on =
                                       let importMN = is_mod $ is_decl possibleImport
                                   ]
                               Just rdrElement ->
-                                  traceShow "lookupGRE_Name: SUCCESS!"
+                                  traceShow ("lookupGRE_Name: SUCCESS!" :: String)
                                   [ importMN
                                     | possibleImport <- gre_imp rdrElement,
                                       let importMN = is_mod $ is_decl possibleImport

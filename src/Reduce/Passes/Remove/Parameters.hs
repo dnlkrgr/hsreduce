@@ -1,62 +1,51 @@
 module Reduce.Passes.Remove.Parameters (reduce) where
 
-import Control.Concurrent.STM
-import Control.Monad.Reader
 import Data.Generics.Uniplate.Data
 import Debug.Trace
-import GHC
-import Lens.Micro.Platform
+import GHC hiding (Pass)
 import Util.Types
 import Util.Util
 
-passId :: String
-passId = "rmvUnusedParams"
+reduce :: Pass
+reduce = AST "rmvUnusedParams" $ \ast ->
+    concatMap
+        ( \(funId, funMG@(MG _ (L matchesLoc _) _)) ->
+              case matchgroup2WildPatPositions funMG of
+                  Nothing -> []
+                  Just (n, is) ->
+                      map
+                          ( \i oldAST ->
+                                let arst = getPatsLength funId oldAST
+                                 in if length arst == 1
+                                        then
+                                            let nRmvdParams = (length is - head arst)
+                                                newI = i - (traceShow ("nRmvdParams: " <> show nRmvdParams) nRmvdParams)
+                                             in foldr ($) oldAST $
+                                                    [ transformBi $ overwriteAtLoc l (rmvArgsFromExpr funId n i)
+                                                      | L l e <- universeBi oldAST,
+                                                        exprContainsId funId e
+                                                    ]
+                                                        <> [ transformBi $ overwriteAtLoc l (handleTypes newI)
+                                                             | ( L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) ::
+                                                                     LHsDecl GhcPs
+                                                                   ) <-
+                                                                   universeBi oldAST,
+                                                               sigContainsFunId funId s
+                                                           ]
+                                                        <> [transformBi (overwriteAtLoc matchesLoc (handleMatches i))]
+                                        else oldAST
+                          )
+                          is
+        )
+        [(funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast]
 
-reduce :: R ()
-reduce = do
-    printInfo passId
-
-    ast <- fmap _parsed . liftIO . readTVarIO =<< asks _tState
-
-    forM_ [(funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast] rmvUnusedParams_
-
-rmvUnusedParams_ :: (RdrName, MatchGroup GhcPs (LHsExpr GhcPs)) -> R ()
-rmvUnusedParams_ (funId, funMG@(MG _ (L matchesLoc _) _)) =
-    case matchgroup2WildPatPositions funMG of
-        Nothing -> return ()
-        Just (n, is) -> do
-            conf <- ask
-
-            liftIO $ atomically $ modifyTVar (_tState conf) $ \s -> s & numRmvdArgs .~ 0
-
-            forM_ is $ \i ->
-                liftIO $
-                    tryNewState
-                        passId
-                        ( \oldState ->
-                              let oldAST = oldState ^. parsed
-                                  -- change offset based on the number of parameters already removed
-                                  newI = i - fromIntegral (oldState ^. numRmvdArgs) 
-
-                                  newAST =
-                                      foldr ($) oldAST $
-                                          [ transformBi $ overwriteAtLoc l (rmvArgsFromExpr funId n i)
-                                            | L l e <- universeBi oldAST,
-                                              exprContainsId funId e
-                                          ]
-                                              <> [ transformBi $ overwriteAtLoc l (handleTypes newI)
-                                                   | (L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) :: LHsDecl GhcPs) <- universeBi oldAST,
-                                                     sigContainsFunId funId s
-                                                 ]
-                                              <> [transformBi (overwriteAtLoc matchesLoc (handleMatches i))]
-                                  newState =
-                                      oldState
-                                          & parsed .~ newAST
-                                          & numRmvdArgs +~ 1
-                               in newState
-                        )
-                        conf
-rmvUnusedParams_ _ = return ()
+getPatsLength :: RdrName -> ParsedSource -> [Int]
+getPatsLength name ast =
+    [ length . m_pats . unLoc . head . unLoc $ mg_alts funMG
+      | FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs <- universeBi ast,
+        name == funId,
+        length (mg_alts funMG) == 1
+    ]
 
 -- simplifyTySigs
 handleTypes :: Int -> HsType GhcPs -> HsType GhcPs

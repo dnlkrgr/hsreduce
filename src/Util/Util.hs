@@ -54,7 +54,7 @@ tryNewState passId f conf = do
                                 writeTVar (_tState conf) $ newState { _isAlive = True }
 
                                 updateStatistics_ conf passId 1 sizeDiff
-                                traceShow ("+" :: String) $ return True
+                                traceShow ('+' :: Char) $ return True
                             else return False
 
                     unless success $ tryNewState passId f conf
@@ -79,9 +79,6 @@ runPass (AST name pass) = do
     >>= fmap (pass . _parsed) . liftIO . readTVarIO . _tState 
     >>= applyInterestingChanges name 
 runPass _ = return ()
-
--- getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [ParsedSource -> ParsedSource]
--- getProposedChanges pass ast = pass ast
 
 applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R ()
 applyInterestingChanges name proposedChanges = do
@@ -410,46 +407,3 @@ rmvArgsFromExpr conId n i e@(HsApp x la@(L _ a) b)
     | exprContainsId conId e = HsApp x (rmvArgsFromExpr conId (n -1) i <$> la) b
     | otherwise = e
 rmvArgsFromExpr _ _ _ e = e
-
--- realFloor :: T.Text
--- realFloor = "Not in scope: ‘GHC.Real.floor’\nNo module named ‘GHC.Real’ is imported."
---
--- hiddenModule :: T.Text
--- hiddenModule = "Could not load module ‘Data.HashMap.Base’\nit is a hidden module in the package ‘unordered-containers-0.2.10.0’\nit is a hidden module in the package ‘unordered-containers-0.2.10.0’\nUse -v to see a list of the files searched for."
---
--- "Not in scope:\n  type constructor or class \u2018Data.Aeson.Types.ToJSON.ToJSON\u2019\nPerhaps you meant one of these:\n  \u2018Data.Aeson.Types.GToJSON\u2019 (imported from Data.Aeson.Types),\n  \u2018Data.Aeson.Types.GToJSON\u2019 (imported from Data.Aeson.Types),\n  \u2018Data.Aeson.Types.ToJSON\u2019 (imported from Data.Aeson.Types)\nNo module named \u2018Data.Aeson.Types.ToJSON\u2019 is imported."
---
--- -- noSuchModule :: T.Text
--- -- noSuchModule = "Not in scope: ‘Data.Binary.Put.runPutM’\nNo module named ‘Data.Binary.Put’ is imported."
---
---
-dataConstructorNotInScope :: T.Text
-dataConstructorNotInScope = "\8226 Data constructor not in scope:\n    Closed :: (UnBounded Integer :+ ()) -> EndPoint (UnBounded r :+ ())\n\8226 Perhaps you meant one of these:\n    ‘Data.Range.Closed’ (imported from Data.Range),\n    variable ‘Data.Range.isClosed’ (imported from Data.Range)"
-
---
---
-simple :: T.Text
-simple = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.Extensions.GPB’\n Perhaps you meant ‘Text.ProtocolBuffers.Header.GPB’ (imported from Text.ProtocolBuffers.Header)\n No module named ‘Text.ProtocolBuffers.Extensions’ is imported."
-
---
--- noModuleNamed :: T.Text
--- noModuleNamed = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextType’\n Perhaps you meant one of these:\n ‘Text.ProtocolBuffers.Header.TextType’ (imported from Text.ProtocolBuffers.Header),\n ‘Text.ProtocolBuffers.WireMessage.Get’ (imported from Text.ProtocolBuffers.WireMessage)\n No module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
---
--- importedFrom :: T.Text
--- importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
-
-variableNotInScope :: T.Text
-variableNotInScope =
-    "\8226 Variable not in scope:\n    maybe\n      :: t0\n         -> t1 -> Maybe Int -> Either Int Utf8_TextProtocolBuffersBasic\n  "
-        <> "\8226 Perhaps you meant ‘Prelude.maybe’ (imported from Prelude)"
-
---
---
---
--- -- getModuleName :: T.Text -> T.Text
--- -- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
---
--- -- this isn't exactly like the init from Prelude
--- -- safeInit :: [a] -> Maybe [a]
--- -- safeInit [] = Nothing
--- -- safeInit xs = Just $ init xs
