@@ -1,12 +1,19 @@
-module Reduce.Passes.Stubbing where
+module Reduce.Passes.Stubbing
+    ( contexts,
+      simplifyDeriving,
+      simplifyDerivingClause,
+      localBinds,
+      simplifyMatch,
+      simplifyMatches,
+      simplifyLGRHS,
+      tyVarBndr,
+    )
+where
 
 import Bag (bagToList, listToBag)
 import GHC hiding (Pass)
 import Util.Types
 import Util.Util
-
-printStubbingInfo :: R ()
-printStubbingInfo = printInfo "Stubbing Expressions"
 
 -- ******************************
 
@@ -159,13 +166,6 @@ simplifyLGRHS = mkPass "simplifyLGRHS" f
 
 -- ***************************************************************************
 
-familyResultSig :: Pass
-familyResultSig = mkPass "familyResultSig" f
-    where
-        f :: WaysToChange (FamilyResultSig GhcPs)
-        f (NoSig _) = []
-        f (XFamilyResultSig _) = []
-        f _ = [const (NoSig NoExt)]
 
 tyVarBndr :: Pass
 tyVarBndr = mkPass "tyVarBndr" f
@@ -174,12 +174,6 @@ tyVarBndr = mkPass "tyVarBndr" f
         f (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
         f _ = []
 
-unqualNames :: Pass
-unqualNames = mkPass "unqualNames" f
-    where
-        f :: WaysToChange RdrName
-        f (Qual _ on) = [const (Unqual on)]
-        f _ = []
 
 -- ***************************************************************************
 

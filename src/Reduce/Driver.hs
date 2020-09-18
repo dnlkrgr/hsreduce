@@ -19,8 +19,8 @@ import Path.IO
 import Util.Types
 import Util.Util
 
-hsreduce :: Word8 -> FilePath -> FilePath -> R () -> IO ()
-hsreduce (fromIntegral -> numberOfThreads) test filePath allActions = do
+hsreduce :: [R ()] -> Word8 -> FilePath -> FilePath -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
     putStrLn "*******************************************************"
     testAbs <- resolveFile' test
     filePathAbs <- resolveFile' filePath
@@ -55,7 +55,7 @@ hsreduce (fromIntegral -> numberOfThreads) test filePath allActions = do
     updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
 
     -- run the reducing functions
-    void $ runR beginConf $ largestFixpoint allActions
+    runR beginConf $ mapM_ largestFixpoint allActions
     newState <- readTVarIO tState
 
     -- handling of the result and outputting useful information

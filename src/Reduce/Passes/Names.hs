@@ -1,5 +1,6 @@
-module Reduce.Passes.Names (shortenNames) where
+module Reduce.Passes.Names (shortenNames, unqualNames) where
 
+import RdrName
 import Lens.Micro.Platform
 import Data.Char
 import Control.Monad.Random
@@ -11,6 +12,12 @@ import OccName
 import Util.Types
 import Util.Util
 
+unqualNames :: Pass
+unqualNames = mkPass "unqualNames" f
+    where
+        f :: WaysToChange RdrName
+        f (Qual _ on) = [const (Unqual on)]
+        f _ = []
 
 shortenNames :: R ()
 shortenNames = do

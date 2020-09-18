@@ -1,4 +1,4 @@
-module Reduce.Passes.Extensions.TypeFamilies (rmvEquations, apply) where
+module Reduce.Passes.Extensions.TypeFamilies (rmvEquations, apply, familyResultSig) where
 
 import Data.Generics.Uniplate.Data
 import Data.List
@@ -6,6 +6,14 @@ import GHC hiding (Pass)
 import Outputable hiding ((<>))
 import Util.Types
 import Util.Util
+
+familyResultSig :: Pass
+familyResultSig = mkPass "familyResultSig" f
+    where
+        f :: WaysToChange (FamilyResultSig GhcPs)
+        f (NoSig _) = []
+        f (XFamilyResultSig _) = []
+        f _ = [const (NoSig NoExt)]
 
 rmvEquations :: Pass
 rmvEquations = mkPass "typefamilies:rmvEquations" f
@@ -29,7 +37,7 @@ apply = AST "typefamilies:apply" $ \ast ->
         let index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
             tycon = unLoc feqn_tycon
 
-        in map (\(L l _) oldAST -> 
+        in map (\(L l _) -> 
                 let c =
                         if any (isContainedIn feqn_rhs) feqn_pats
                         then 
@@ -39,9 +47,9 @@ apply = AST "typefamilies:apply" $ \ast ->
                             -- replace them by nth pattern
                             takeNthArgument tycon (length feqn_pats) index
                         else replaceWithRHs tycon feqn_rhs
-                in transformBi (overwriteAtLoc l c) oldAST
+                in transformBi (overwriteAtLoc l c)
                 )
-                [t | (t :: LHsType GhcPs) <- universeBi ast]
+                [t | (t :: LHsType GhcPs) <- universeBi ast, isContainedIn tycon t]
         )
         [ f | f@FamEqn{} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi ast]
 

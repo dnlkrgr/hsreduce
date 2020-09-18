@@ -9,35 +9,29 @@ import Util.Util
 reduce :: Pass
 reduce = AST "rmvUnusedParams" $ \ast ->
     concatMap
-        ( \(funId, funMG@(MG _ (L matchesLoc _) _)) ->
-              case matchgroup2WildPatPositions funMG of
-                  Nothing -> []
-                  Just (n, is) ->
-                      map
-                          ( \i oldAST ->
-                                let arst = getPatsLength funId oldAST
-                                 in if length arst == 1
-                                        then
-                                            let nRmvdParams = (length is - head arst)
-                                                newI = i - (traceShow ("nRmvdParams: " <> show nRmvdParams) nRmvdParams)
-                                             in foldr ($) oldAST $
-                                                    [ transformBi $ overwriteAtLoc l (rmvArgsFromExpr funId n i)
-                                                      | L l e <- universeBi oldAST,
-                                                        exprContainsId funId e
-                                                    ]
-                                                        <> [ transformBi $ overwriteAtLoc l (handleTypes newI)
-                                                             | ( L _ (SigD _ s@(TypeSig _ _ (HsWC _ (HsIB _ (L l (HsFunTy _ _ (L _ _))))))) ::
-                                                                     LHsDecl GhcPs
-                                                                   ) <-
-                                                                   universeBi oldAST,
-                                                               sigContainsFunId funId s
-                                                           ]
-                                                        <> [transformBi (overwriteAtLoc matchesLoc (handleMatches i))]
-                                        else oldAST
-                          )
-                          is
+        ( \(funId, funMG@(MG _ (L _ _) _)) ->
+            case matchgroup2WildPatPositions funMG of
+                Nothing -> []
+                Just (n, is) ->
+                    map
+                        ( \i oldAST ->
+                            let patsLengths = getPatsLength funId oldAST
+                             in if length patsLengths == 1
+                                then
+                                    let nRmvdParams = (length is - head patsLengths)
+                                        newI = i - (traceShow ("nRmvdParams: " <> show nRmvdParams) nRmvdParams)
+                                     in 
+                                        transformBi (rmvArgsFromExpr funId n i)
+                                        . transformBi (handleSigs funId newI)
+                                        -- -- TODO: von Matchgroup oder schlimmstenfalls von FunBind aus anfangen
+                                        . transformBi (handleFunBinds funId i)
+                                        $ oldAST
+                                else oldAST
+                        )
+                        is
         )
         [(funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast]
+
 
 getPatsLength :: RdrName -> ParsedSource -> [Int]
 getPatsLength name ast =
@@ -48,10 +42,21 @@ getPatsLength name ast =
     ]
 
 -- simplifyTySigs
+handleSigs :: RdrName -> Int -> Sig GhcPs -> Sig GhcPs
+handleSigs funId i ts@(TypeSig _ [sigId] (HsWC _ (HsIB _ (L l t)))) 
+    | funId == unLoc sigId = TypeSig NoExt [sigId] . HsWC NoExt . HsIB NoExt . L l $ handleTypes i t
+    | otherwise = ts
+handleSigs _ _ d = d
+
 handleTypes :: Int -> HsType GhcPs -> HsType GhcPs
 handleTypes 1 (HsFunTy _ _ (L _ t)) = t
 handleTypes i (HsFunTy x a lt) = HsFunTy x a (handleTypes (i -1) <$> lt)
 handleTypes _ t = t
+
+handleFunBinds :: RdrName -> Int -> HsBind GhcPs -> HsBind GhcPs
+handleFunBinds funId i (FunBind _ bindId (MG _ (L l m) o) a b) 
+    | funId == unLoc bindId = FunBind NoExt bindId (MG NoExt (L l (handleMatches i m)) o) a b
+handleFunBinds _ _ b = b
 
 handleMatches :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
 handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg]

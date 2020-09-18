@@ -1,5 +1,6 @@
 module Main where
 
+import qualified Data.Text as T
 import Data.Foldable
 import Path 
 import Data.Maybe
@@ -92,7 +93,7 @@ main = hspec $ do
                     Nothing -> test
                     Just t  -> fromJust . parseRelFile $ root <> t
 
-            hsreduce 1 (fromRelFile realTest) (fromRelFile src <> ".hs") a
+            hsreduce [a] 1 (fromRelFile realTest) (fromRelFile src <> ".hs")
             fileContent <- readFile newFilePath
 
             return (drop (length root) filePath, (fileContent, expected))

@@ -74,6 +74,8 @@ executable hsreduce
         -threaded 
         -rtsopts
         -with-rtsopts=-T
+        -Wno-missing-methods
+        -Wno-orphans
 
 library lib-hsreduce
     import:
@@ -81,6 +83,7 @@ library lib-hsreduce
     exposed-modules:   
         Merge.HsAllInOne
         Reduce.Driver
+        Reduce.Passes
         Reduce.Passes.Simplify.Expr
         Reduce.Passes.Simplify.Types
         Reduce.Passes.Simplify.Pat

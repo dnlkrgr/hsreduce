@@ -63,13 +63,12 @@ rmvArgsFromPat _ _ p = p
 inline :: Pass
 inline = AST "inlineType" $ \ast ->
     map
-        ( \(nn, argName, mConstrName) oldAst ->
+        ( \(nn, argName, mConstrName) ->
               ( case mConstrName of
                     Nothing -> id
                     Just constrName -> transformBi (inlineTypeAtPat constrName)
               )
-                  . transformBi (inlineTypeAtType nn argName)
-                  $ oldAst
+              . transformBi (inlineTypeAtType nn argName)
         )
         ( [ (unLoc newtypeName, argName, Just constrName)
             | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [PrefixConP constrName [TyVarP argName]] _) :: TyClDecl GhcPs <- universeBi ast

@@ -1,4 +1,4 @@
-module Reduce.Passes.Functions where
+module Reduce.Passes.Functions (inline) where
 
 import Data.List
 import GHC hiding (Pass)
@@ -11,8 +11,8 @@ import Util.Types
 
 inline :: Pass
 inline = AST "inlineFunctions" $ \ast -> 
-    map (\(funId, lmatches) oldAst ->
-                transformBi (inlineFunctionHelper funId lmatches) oldAst
+    map (\(funId, lmatches) ->
+            transformBi (inlineFunctionHelper funId lmatches) 
         )
         [ (funId, lmatches) 
         | (fb@(FunBind _ (L _ funId) (MG _ lmatches _) _ _) :: HsBindLR GhcPs GhcPs) <- universeBi ast
