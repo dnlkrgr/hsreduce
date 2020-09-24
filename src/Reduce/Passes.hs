@@ -19,11 +19,11 @@ import qualified Reduce.Passes.Simplify.Types as Types
 import qualified Reduce.Passes.Stubbing as Stubbing
 
 
-allActions :: [R ()]
+allActions :: [R IO ()]
 allActions = [fast, medium, slow]
 -- allActions = [runPass Parameters.reduce]
 
-fast :: R ()
+fast :: R IO ()
 fast = do
     Pragmas.reduce
     Exports.reduce
@@ -33,7 +33,7 @@ fast = do
         , Decls.rmvDecls Nothing
         ]
 
-medium :: R ()
+medium :: R IO ()
 medium = do
     mapM_ runPass 
         [ Expr.expr2Undefined
@@ -41,7 +41,7 @@ medium = do
         ]
     fast
 
-slow :: R ()
+slow :: R IO ()
 slow = do
     mapM_ runPass
         [ Decls.simplifyDecl Nothing

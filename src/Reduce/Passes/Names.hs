@@ -4,7 +4,7 @@ import RdrName
 import Lens.Micro.Platform
 import Data.Char
 import Control.Monad.Random
-import Control.Concurrent.STM
+import Control.Concurrent.STM.Lifted
 import Data.Generics.Uniplate.Data
 import Control.Monad.Reader
 import OccName
@@ -19,29 +19,27 @@ unqualNames = mkPass "unqualNames" f
         f (Qual _ on) = [const (Unqual on)]
         f _ = []
 
-shortenNames :: R ()
+shortenNames :: R IO ()
 shortenNames = do
     printInfo "shortenNames"
 
     conf        <- ask
-    oldState    <- liftIO . atomically . readTVar $ _tState conf
+    oldState    <- atomically . readTVar $ _tState conf
 
     let oldAST = _parsed oldState
 
     forM_ [ n | n :: OccName <- universeBi oldAST ] shortenNamesHelper 
 
-shortenNamesHelper :: OccName -> R ()
+shortenNamesHelper :: OccName -> R IO ()
 shortenNamesHelper n = do
-    liftIO 
-    . (tryNewState "shortenNames" $ \oldState -> 
+    tryNewState "shortenNames" $ \oldState -> 
         let newState = 
                 oldState 
                     & parsed %~ transformBi (\otherN -> if oshow otherN == oshow n then shortenName (oldState ^. numRenamedNames) n else otherN)
                     & numRenamedNames +~ 1 
         in if showState newState < showState oldState
             then newState
-            else oldState) 
-    =<< ask
+            else oldState
 
 shortenName :: Word -> OccName -> OccName
 shortenName m n 

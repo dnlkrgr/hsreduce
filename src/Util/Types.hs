@@ -1,22 +1,25 @@
 module Util.Types where
 
 import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent.STM.Lifted
+import Control.Monad.Base
 import Control.Monad.Reader
+import Control.Monad.Trans.Control
 import Data.Aeson
 import Data.Csv
 import Data.List
-import qualified Data.Map as M
-import qualified Data.Text as T
 import Data.Time
 import Data.Void
 import Data.Word
 import GHC
 import GHC.LanguageExtensions.Type
+import Katip as K
 import Lens.Micro.Platform
 import Options.Generic
 import Outputable hiding ((<>))
 import Path
+import qualified Data.Map as M
+import qualified Data.Text as T
 import qualified Text.Megaparsec as MP
 
 data CLIOptions w
@@ -31,7 +34,6 @@ data CLIOptions w
 instance ParseRecord (CLIOptions Wrapped)
 
 instance Show (CLIOptions Unwrapped)
-
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving (Eq)
@@ -62,17 +64,6 @@ instance Show Performance where
             ]
             <> "\n"
 
-mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> IO Performance
-mkPerformance oldSize newSize t1 t2 n = do
-    c <- fromIntegral <$> getNumCapabilities
-    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
-    where
-        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word
-        offset =
-            if utctDayTime t2 < utctDayTime t1
-                then 86401
-                else 0
-        duration = utctDayTime t2 + offset - utctDayTime t1
 
 data PassStats = PassStats
     { _passName :: String,
@@ -83,7 +74,6 @@ data PassStats = PassStats
     deriving (Generic, Show)
 
 instance ToNamedRecord PassStats
-
 instance DefaultOrdered PassStats
 
 makeLenses ''PassStats
@@ -113,14 +103,19 @@ data RConf = RConf
       _sourceFile :: Path Rel File,
       _numberOfThreads :: Int,
       _tempDirs :: TChan (Path Abs Dir),
-      _tState :: TVar RState
+      _tState :: TVar RState,
+      logNamespace :: K.Namespace,
+      logContext :: K.LogContexts,
+      logEnv :: K.LogEnv
     }
+    
 
-runR :: RConf -> R a -> IO a
-runR c (R a) = runReaderT a c
+runR :: RConf -> R m a -> m a
+runR conf (R a) = runReaderT a conf
 
-newtype R a = R (ReaderT RConf IO a)
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf)
+newtype R m a = R { unR :: ReaderT RConf m a }
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
+
 
 showState :: RState -> T.Text
 showState (RState [] ps _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
@@ -189,5 +184,48 @@ type Parser = MP.Parsec Void T.Text
 
 type WaysToChange a = a -> [a -> a]
 
-data Pass = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
+data Pass
+    = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
     | Arst String (RState -> [RState -> RState])
+
+
+-- ##### KATIP STUFF
+instance MonadBase b m => MonadBase b (R m) where
+  liftBase = liftBaseDefault
+
+instance MonadTransControl R where
+  type StT R a = StT (ReaderT RConf) a
+  liftWith = defaultLiftWith R unR
+  restoreT = defaultRestoreT R
+
+instance MonadBaseControl b m => MonadBaseControl b (R m) where
+  type StM (R m) a = ComposeSt R m a
+  liftBaseWith = defaultLiftBaseWith
+  restoreM = defaultRestoreM
+
+
+-- These instances get even easier with lenses!
+instance (MonadIO m) => Katip (R m) where
+  getLogEnv = asks logEnv
+  localLogEnv f (R m) = R (local (\s -> s { logEnv = f (logEnv s)}) m)
+
+
+instance (MonadIO m) => KatipContext (R m) where
+  getKatipContext = asks logContext
+  localKatipContext f (R m) = R (local (\s -> s { logContext = f (logContext s)}) m)
+  getKatipNamespace = asks logNamespace
+  localKatipNamespace f (R m) = R (local (\s -> s { logNamespace = f (logNamespace s)}) m)
+-- #####
+
+
+mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> R IO Performance
+mkPerformance oldSize newSize t1 t2 n = do
+    c <- fromIntegral <$> liftIO getNumCapabilities
+    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
+    where
+        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word
+        offset =
+            if utctDayTime t2 < utctDayTime t1
+                then 86401
+                else 0
+        duration = utctDayTime t2 + offset - utctDayTime t1

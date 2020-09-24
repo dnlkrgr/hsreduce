@@ -1,11 +1,12 @@
 module Util.Util where
 
 import Control.Applicative
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import qualified Control.Exception as CE
+import Control.Concurrent.Async.Lifted
+import Control.Concurrent.STM.Lifted
+import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Data.Aeson (decodeStrict)
+import Data.Algorithm.Diff
 import Data.Char
 import Data.Data
 import Data.Either
@@ -13,26 +14,33 @@ import Data.Generics.Aliases (extQ)
 import Data.Generics.Uniplate.Data
 import Data.List.Split
 import Data.Maybe
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.IO as TIO
+import Data.String
 import Debug.Trace
 import FastString
-import GHC hiding (GhcMode, Pass, ghcMode)
+import GHC hiding (GhcMode, Pass, ghcMode, Severity)
+import Katip
 import Lens.Micro.Platform
-import Outputable hiding ((<>))
-import Parser.Parser
+import Outputable hiding (char, space, (<>))
 import Path
 import SrcLoc as SL
 import System.Exit
 import System.Process
-import System.Timeout
-import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec.Char as MC
+import System.Timeout.Lifted
+import Text.Megaparsec.Char
+import Util.Types
 import Util.Types as UT
+import qualified Control.Exception.Lifted as CE
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.IO as TIO
+import qualified Language.Haskell.GHC.ExactPrint as EP
+import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec as MP
+import qualified Text.Megaparsec.Char as MC
 
-tryNewState :: String -> (RState -> RState) -> RConf -> IO ()
-tryNewState passId f conf = do
+tryNewState :: String -> (RState -> RState) -> R IO ()
+tryNewState passId f = do
+    conf <- ask
     oldState <- liftIO . readTVarIO $ _tState conf
 
     let newState = f oldState
@@ -54,12 +62,30 @@ tryNewState passId f conf = do
                                 writeTVar (_tState conf) $ newState { _isAlive = True }
 
                                 updateStatistics_ conf passId 1 sizeDiff
-                                traceShow ('+' :: Char) $ return True
+                                return True
                             else return False
 
-                    unless success $ tryNewState passId f conf
+                    if success 
+                        then logStateDiff NoticeS oldStateS newStateS
+                        else do
+                            logStateDiff DebugS oldStateS newStateS
+                            tryNewState passId f
                 Uninteresting -> updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
+
+
+logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
+logStateDiff severity oldStateS newStateS = do
+    let title = case severity of
+            DebugS -> "TRIED CHANGE"
+            _ -> "APPLIED CHANGE"
+
+    $(logTM) severity title
+    forM_ (filter (\case
+                        Both l r -> l /= r
+                        _ -> True) $ 
+          getDiff (T.lines oldStateS) (T.lines newStateS)) $ \line -> 
+              $(logTM) severity (fromString (show line))
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
 overwriteAtLoc loc f oldValue@(L oldLoc a)
@@ -69,7 +95,7 @@ overwriteAtLoc loc f oldValue@(L oldLoc a)
 mkPass :: Data a => String -> WaysToChange a -> Pass
 mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
 
-runPass :: Pass -> R ()
+runPass :: Pass -> R IO ()
 runPass (AST name pass) = do
     unless isInProduction $ do
         printInfo name
@@ -80,9 +106,10 @@ runPass (AST name pass) = do
     >>= applyInterestingChanges name 
 runPass _ = return ()
 
-applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R ()
+applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R IO ()
 applyInterestingChanges name proposedChanges = do
-    conf <- ask
+    $(logTM) InfoS (fromString $ "# proposed changes: " <> (show $ length proposedChanges))
+
     numberOfThreads <- asks _numberOfThreads
 
     let chunkSize = div (length proposedChanges) numberOfThreads
@@ -99,12 +126,15 @@ applyInterestingChanges name proposedChanges = do
                                 else temp
                         _ -> temp
 
-    -- run one thread for each batch
-    liftIO . forConcurrently_ batches $ \batch -> do
-        -- within a thread check out all the changes
-        forM_ batch $ \c -> tryNewState name (parsed %~ c) conf
+    $(logTM) InfoS (fromString $ "# batches: " <> (show $ length batches))
+    $(logTM) InfoS (fromString $ "batch sizes: " <> (show $ map length batches))
 
-updateStatistics :: RConf -> String -> Word -> Int -> IO ()
+    -- run one thread for each batch
+    forConcurrently_ batches $ \batch -> do
+        -- within a thread check out all the changes
+        forM_ batch $ \c -> tryNewState name (parsed %~ c)
+
+updateStatistics :: RConf -> String -> Word -> Int -> R IO ()
 updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name i sizeDiff
 
 -- 1. if the interestingness test was successful:
@@ -122,49 +152,55 @@ updateStatistics_ conf name i sizeDiff =
             Just (PassStats _ n d r) ->
                 Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
 
-testNewState :: RConf -> RState -> IO Interesting
+testNewState :: RConf -> RState -> R IO Interesting
 testNewState conf newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
         let sourceFile = tempDir </> _sourceFile conf
             test = tempDir </> _test conf
 
         CE.try (do
-            TIO.writeFile (fromAbsFile sourceFile) $ showState newState
+            liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState newState
             runTest test defaultDuration) >>= \case
-            Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
-            Right i -> return i
+                Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
+                Right i -> return i
 
-runTest :: Path Abs File -> Word -> IO Interesting
+runTest :: Path Abs File -> Word -> R IO Interesting
 runTest test duration = do
     let dirName = parent test
     let testName = filename test
 
-    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
+    (timeout (fromIntegral duration) $ liftIO $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
         Nothing -> do
-            putStrLn "error - runTest: timed out"
+            $(logTM) WarningS "runTest: timed out"
             return Uninteresting
         Just (exitCode, _, _) -> return $ case exitCode of
             ExitFailure _ -> Uninteresting
             ExitSuccess -> Interesting
 
-printInfo :: String -> R ()
+printInfo :: String -> R IO ()
 printInfo context = do
     tState <- asks _tState
     oldState <- liftIO . atomically $ readTVar tState
 
-    liftIO . putStrLn $ "\n***" <> context <> "***"
-    liftIO $ putStrLn $ "Size of old state: " <> (show . T.length . showState $ oldState)
+    let info = "state size: " <> (show . T.length . showState $ oldState)
 
-isTestStillFresh :: String -> R ()
+    -- liftIO $ putStrLn $ "\n***" <> context <> "***"
+    -- liftIO $ putStrLn info
+
+    $(logTM) InfoS "****************************************"
+    $(logTM) InfoS (fromString context)
+    $(logTM) InfoS (fromString info)
+
+isTestStillFresh :: String -> R IO ()
 isTestStillFresh context = do
     conf <- ask
     newState <- liftIO . atomically $ readTVar $ _tState conf
-    liftIO $ testNewState conf newState >>= \case
+    testNewState conf newState >>= \case
         Uninteresting -> do
-            results <- replicateM 3 (liftIO $ testNewState conf newState) 
+            results <- replicateM 3 (testNewState conf newState) 
             when (all (== Uninteresting) results) $ do
-                        liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
-                        error $ "Test case is broken at >>>" <> context <> "<<<"
+                liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
+                $(logTM) ErrorS ("Test case is broken at >>>" <> fromString context <> "<<<")
         _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression
@@ -212,7 +248,7 @@ gshows = render `extQ` (shows :: String -> ShowS)
                 isList = constructor "" == "(:)"
 
 
-withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a
+withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> R IO a) -> R IO a
 withTempDir tChan action = do
     tempDir <- atomically $ readTChan tChan
     a <- action tempDir
@@ -348,7 +384,7 @@ importedFromP = do
     fmap T.pack . M.some $ M.satisfy (/= ')')
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
-span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
+span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc) (SL.mkRealSrcLoc n el ec)
     where
         n = mkFastString $ T.unpack f
 
@@ -407,3 +443,46 @@ rmvArgsFromExpr conId n i e@(HsApp x la@(L _ a) b)
     | exprContainsId conId e = HsApp x (rmvArgsFromExpr conId (n -1) i <$> la) b
     | otherwise = e
 rmvArgsFromExpr _ _ _ e = e
+
+
+getPragmas :: Path Abs File -> IO [Pragma]
+getPragmas f =
+    -- filter ((/= "Safe") . showExtension)
+        concat
+        . fromRight []
+        . sequence
+        . filter isRight
+        . map (MP.parse pragmasP (fromAbsFile f))
+        . T.lines
+        <$> TIO.readFile (fromAbsFile f)
+
+pragmasP :: Parser [Pragma]
+pragmasP = do
+    void $ string "{-#"
+    space
+    f <- pragmaType
+    space
+    n <- T.pack <$> some letterChar
+    ns <- many (char ',' >> space >> T.pack <$> some letterChar)
+    space
+    void $ string "#-}"
+    return . map f $ n : ns
+
+pragmaType :: Parser (T.Text -> Pragma)
+pragmaType =
+    ((string "language" <|> string "LANGUAGE") >> return Language)
+        <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return OptionsGhc)
+        <|> ((string "INCLUDE" <|> string "include") >> return Include)
+
+parse :: Path Abs File -> IO RState
+parse fileName = do
+    banner $ "Parsing: " <> fromAbsFile fileName
+
+    let filePath = fromAbsFile fileName
+    p <- EP.parseModule filePath >>= \case
+        Left e -> error . showSDocUnsafe $ ppr e
+        Right p -> return $ snd p
+
+    prags <- getPragmas fileName
+
+    return $ RState prags p False emptyStats 0

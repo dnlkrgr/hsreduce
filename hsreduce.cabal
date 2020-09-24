@@ -14,7 +14,6 @@ common dry
         , Cabal
         , MonadRandom
         , aeson
-        , async
         , bytestring
         , cassava
         , containers
@@ -25,8 +24,13 @@ common dry
         , ghc-paths
         , hashable
         , hie-bios
+        , katip
+        , lifted-async
+        , Diff
+        , lifted-base
         , megaparsec
         , microlens-platform
+        , monad-control
         , mtl
         , optparse-generic
         , path
@@ -34,29 +38,39 @@ common dry
         , process
         , regex
         , split
-        , stm
+        , stm-lifted
         , syb
         , text
         , time
         , uniplate
         , word8
+        , transformers-base
     default-extensions:
+        DataKinds
+        DeriveGeneric
+        FlexibleContexts
+        FlexibleInstances
+        FlexibleInstances         
+        GeneralizedNewtypeDeriving
         GeneralizedNewtypeDeriving 
         LambdaCase
+        MultiParamTypeClasses
+        MultiParamTypeClasses     
         OverloadedStrings 
+        OverloadedStrings         
         PatternSynonyms
         QuasiQuotes
+        Rank2Types  
         RecordWildCards
         ScopedTypeVariables
         TemplateHaskell
-        DeriveGeneric
-        ViewPatterns
+        TemplateHaskell           
         TupleSections
         TypeFamilies
-        Rank2Types  
-        FlexibleInstances
+        TypeFamilies              
         TypeOperators
-        DataKinds
+        UndecidableInstances      
+        ViewPatterns
     default-language:    
         Haskell2010
     ghc-options:       

@@ -3,25 +3,28 @@ module Reduce.Driver
     )
 where
 
-import Control.Concurrent.STM
+import Control.Concurrent.STM.Lifted
+import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
-import qualified Data.ByteString.Lazy as LBS
 import Data.Csv
+import Data.Text(pack)
+import Data.Text.Lazy.Builder
+import Data.Time
+import Data.Word
+import Katip
+import Katip.Scribes.Handle
+import Path
+import Path.IO
+import System.IO
+import Util.Types
+import Util.Util
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Data.Time
-import Data.Word
-import Parser.Parser
-import Path
-import Path.IO
-import Util.Types
-import Util.Util
 
-hsreduce :: [R ()] -> Word8 -> FilePath -> FilePath -> IO ()
+hsreduce :: [R IO ()] -> Word8 -> FilePath -> FilePath -> IO ()
 hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
-    putStrLn "*******************************************************"
     testAbs <- resolveFile' test
     filePathAbs <- resolveFile' filePath
     -- 1. parse the test case once at the beginning so we can work on the AST
@@ -50,31 +53,43 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
 
         atomically $ writeTChan tChan tempDir
 
-    -- recording the size diff of formatting for more accurate statistics
-    let beginConf = (RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState)
-    updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
+    -- KATIP STUFF
+    let mkFileHandle = openFile "hsreduce.log" WriteMode
 
-    -- run the reducing functions
-    runR beginConf $ mapM_ largestFixpoint allActions
-    newState <- readTVarIO tState
+    bracket mkFileHandle hClose $ \_ -> do
+        -- handleScribe <- mkHandleScribe ColorIfTerminal fileHandle (permitItem InfoS) V2
+        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal stdout (permitItem InfoS) V2
+        let mkLogEnv = registerScribe "stdout" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
 
-    -- handling of the result and outputting useful information
-    let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
-        newSize = T.length . showState $ newState
+        bracket mkLogEnv closeScribes $ \le -> do
+            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le
 
-    putStrLn "*******************************************************"
-    putStrLn "\n\nFinished."
-    putStrLn $ "Old size:        " <> show oldSize
-    putStrLn $ "Reduced size:    " <> show newSize
+            -- run the reducing functions
+            runR beginConf $ do
+                updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
+                mapM_ largestFixpoint allActions
 
-    TIO.writeFile (fileName <> "_hsreduce.hs") (showState newState)
+                newState <- readTVarIO tState
 
-    t2 <- getCurrentTime
+                -- handling of the result and outputting useful information
+                let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
+                    newSize = T.length . showState $ newState
 
-    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+                $(logTM) InfoS "*******************************************************"
+                $(logTM) InfoS "Finished."
+                $(logTM) InfoS (LogStr . fromString $ "Old size:        " <> show oldSize)
+                $(logTM) InfoS (LogStr . fromString $ "Reduced size:    " <> show newSize)
 
-    appendFile "hsreduce_performance.csv" $ show perfStats
-    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
+                liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState newState)
+
+                t2 <- liftIO getCurrentTime
+
+                perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+
+                liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
+
+                -- TODO: format this better
+                $(logTM) InfoS (LogStr . fromString . show . map snd . M.toList . _passStats $ _statistics newState)
 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan
@@ -85,15 +100,32 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
 -- 2. set alive variable to false
 -- 3. run reducing function f
 -- 4. check if something interesting happened; if yes, continue
-largestFixpoint :: R () -> R ()
+largestFixpoint :: R IO () -> R IO ()
 largestFixpoint f = do
     tState <- asks _tState
     go tState
     where
         go tState = do
-            liftIO $ putStrLn "\n\n\n***NEW ITERATION***"
+            -- $(logTM) InfoS "***NEW ITERATION***"
             isTestStillFresh "largestFixpoint"
 
-            liftIO . atomically $ modifyTVar tState $ \s -> s {_isAlive = False}
+            atomically $ modifyTVar tState $ \s -> s {_isAlive = False}
             f
-            liftIO (_isAlive <$> readTVarIO tState) >>= flip when (go tState)
+            (_isAlive <$> readTVarIO tState) >>= flip when (go tState)
+
+
+myTimeFormat :: UTCTime -> T.Text
+myTimeFormat = pack . formatTime defaultTimeLocale "%H:%M:%S"
+
+myFormat :: LogItem a => ItemFormatter a
+myFormat withColor _ Item{..} =
+    brackets nowStr 
+    -- <> brackets (mconcat $ map fromText $ intercalateNs _itemNamespace) 
+    <> brackets (fromText (renderSeverity' _itemSeverity))
+    <> brackets (fromText $ "ThreadId " <> getThreadIdText _itemThread)
+    -- <> mconcat ks 
+    -- <> maybe mempty (brackets . fromString . locationToString) _itemLoc
+    <> fromText " " <> (unLogStr _itemMessage)
+  where
+    nowStr = fromText (myTimeFormat _itemTime)
+    renderSeverity' severity = colorBySeverity withColor severity (renderSeverity severity)

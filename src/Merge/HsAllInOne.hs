@@ -17,13 +17,15 @@ import GHC hiding (GhcMode, extensions)
 import GHC.Paths (libdir)
 import GhcPlugins hiding ((<&&>), (<>), GhcMode, count, extensions, getHscEnv, isQual, mkUnqual, qualName)
 import HIE.Bios
-import Parser.Parser (getPragmas)
 import Path ((</>), Abs, File, Path, fromAbsFile, parseAbsFile, parseRelFile, fromAbsDir)
 import TcRnTypes (tcg_rdr_env)
 import Text.EditDistance
 import Util.Types
 import Util.Util
 import Path.IO
+
+namesToDebug :: [String]
+namesToDebug = [".+^"]
 
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
@@ -52,7 +54,7 @@ hsmerge filePath = do
                         (renamedGroups, _, _, _) = fromMaybe (error "HsAllInOne->hsmerge: no renamed source!") $ tm_renamed_source t
                         proposedNameChanges = flip map (universeBi renamedGroups :: [Located Name]) $ \(L l n) ->
                             let temp = name2ProposedChange rdrEnv importsModuleNames ours n
-                             in (l,) $ temp
+                             in (l,) $ (if oshow n `elem` namesToDebug then traceShow (oshow $ (`elem` importsModuleNames) <$> getModuleName n) else id) $ temp
                         -- in (if "Interval" `isInfixOf` oshow n then traceShow (oshow temp) else id) $ (l,) $ temp
                         otherNames = map (fmap snd) proposedNameChanges
                         ambiguousFields = map (fmap snd) $ flip map (universeBi renamedGroups) (ambiguousField2ProposedChanged rdrEnv importsModuleNames ours)
@@ -129,7 +131,7 @@ getNameFromEnv rdrEnv imports ours mn maybeName on =
                     -- $ Qual (if newMN `notElem` ours then newMN else mn) on
     where
         moduleNamesFromEnv =
-            sortOn (levenshteinDistance defaultEditCosts (oshow mn) . oshow) . nub $
+            sortOn (levenshteinDistance defaultEditCosts (oshow mn) . oshow) . (if oshow on `elem` namesToDebug then (\l -> traceShow (oshow l) l) else id) . nub $
                 ( case maybeName of
                       Nothing ->
                           [ importMN
@@ -147,7 +149,6 @@ getNameFromEnv rdrEnv imports ours mn maybeName on =
                                       let importMN = is_mod $ is_decl possibleImport
                                   ]
                               Just rdrElement ->
-                                  traceShow ("lookupGRE_Name: SUCCESS!" :: String)
                                   [ importMN
                                     | possibleImport <- gre_imp rdrElement,
                                       let importMN = is_mod $ is_decl possibleImport
