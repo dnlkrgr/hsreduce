@@ -46,7 +46,8 @@ apply = AST "typefamilies:apply" $ \ast ->
                             -- find occurrences of the type family
                             -- replace them by nth pattern
                             takeNthArgument tycon (length feqn_pats) index
-                        else replaceWithRHs tycon feqn_rhs
+                        else 
+                            replaceWithRHs tycon feqn_rhs
                 in transformBi (overwriteAtLoc l c)
                 )
                 [t | (t :: LHsType GhcPs) <- universeBi ast, isContainedIn tycon t]
@@ -58,20 +59,23 @@ isContainedIn feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
 
 replaceWithRHs :: p ~ GhcPs => IdP p -> LHsType p -> HsType p -> HsType p
 replaceWithRHs tycon (unLoc -> rhs) t
-    | oshow tycon `isPrefixOf` oshow t = rhs
-    | oshow tycon `isInfixOf` oshow t = rhs
-    | otherwise = t
+    | typeContainsTyCon tycon t, not $ tycon `isContainedIn` rhs = rhs
+    | otherwise = t                
 
 -- the rhs is one of the patterns sub type expressions
 -- get the index of the pattern
 -- find occurrences of the sub type expression
 -- replace them by the right hand side
 
+typeContainsTyCon :: RdrName -> HsType GhcPs -> Bool
+typeContainsTyCon tycon (HsTyVar _ _ (L _ name)) = tycon == name
+typeContainsTyCon tycon (HsAppTy _ (L _ t) _) = typeContainsTyCon tycon t
+typeContainsTyCon _ _ = False
+
 -- TODO: see if we have a HsAppTy and count the arguments
 takeNthArgument :: p ~ GhcPs => IdP p -> Int -> Int -> HsType p -> HsType p
 takeNthArgument tycon n i t
-    | oshow tycon `isInfixOf` oshow t = takeNthArgumentHelper n i t
-    | oshow tycon `isPrefixOf` oshow t = takeNthArgumentHelper n i t
+    | typeContainsTyCon tycon t = takeNthArgumentHelper n i t
     | otherwise = t
 
 takeNthArgumentHelper :: Int -> Int -> HsType GhcPs -> HsType GhcPs

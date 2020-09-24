@@ -1,5 +1,7 @@
 module Main where
 
+import Test.HUnit.Lang
+import System.Timeout
 import qualified Data.Text as T
 import Data.Foldable
 import Path 
@@ -8,12 +10,13 @@ import Control.Monad
 import Test.Hspec
 
 import Reduce.Driver (hsreduce)
-import qualified Reduce.Passes.Remove.Imports        as Imports
-import qualified Reduce.Passes.Remove.Pragmas        as Pragmas
-import qualified Reduce.Passes.Remove.Exports        as Exports
-import qualified Reduce.Passes.Remove.Decls          as Decls
-import qualified Reduce.Passes.Remove.Parameters     as Parameters
-import qualified Reduce.Passes.Stubbing              as Stubbing 
+import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
+import qualified Reduce.Passes.Remove.Imports          as Imports
+import qualified Reduce.Passes.Remove.Pragmas          as Pragmas
+import qualified Reduce.Passes.Remove.Exports          as Exports
+import qualified Reduce.Passes.Remove.Decls            as Decls
+import qualified Reduce.Passes.Remove.Parameters       as Parameters
+import qualified Reduce.Passes.Stubbing                as Stubbing 
     ( contexts,
       simplifyDeriving,
       simplifyDerivingClause,
@@ -23,8 +26,8 @@ import qualified Reduce.Passes.Stubbing              as Stubbing
       rmvGuards,
       tyVarBndr,
     )
-import qualified Reduce.Passes.DataTypes             as DataTypes
-import qualified Reduce.Passes.Simplify.Expr as Expr
+import qualified Reduce.Passes.DataTypes      as DataTypes
+import qualified Reduce.Passes.Simplify.Expr  as Expr
 import qualified Reduce.Passes.Simplify.Types as Types
 import Util.Util
 
@@ -122,6 +125,11 @@ main = hspec $ do
                     runPass Stubbing.rmvRHSs,           
                     Nothing,                
                     "module RHSs where\narst | 3 > 5 = \"arst\"")
+                -- TODO: add timeout to test
+                , ("TypeFamilies",   
+                    runPass TypeFamilies.apply,           
+                    Nothing,                
+                    "{-# LANGUAGE TypeFamilies #-}\nimport GHC.Generics\nmain = undefined\ntype family F a b where\n  F a b = a\narst :: Int -> String\narst = undefined\ntype family G a b where\n  G a b = String\nbrst :: String -> String\nbrst = undefined\ntype family Zip a b where\n  Zip (_ s) (_ m t) = M1 () m (Zip s t)\n")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title
@@ -134,10 +142,14 @@ main = hspec $ do
                     Nothing -> test
                     Just t  -> fromJust . parseRelFile $ root <> t
 
-            hsreduce [a] 1 (fromRelFile realTest) (fromRelFile src <> ".hs")
+            timeout (10 * 1000 * 1000) (hsreduce [a] 1 (fromRelFile realTest) (fromRelFile src <> ".hs")) >>= \case
+                Nothing -> assertFailure "test case timed out"
+                Just () -> return ()
+
             fileContent <- readFile newFilePath
 
             return (drop (length root) filePath, (fileContent, expected))
+
 
         forM_ results (\(filePath, (fileContent, expected)) -> it filePath $ fileContent `shouldBe` expected)
 

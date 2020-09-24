@@ -66,9 +66,9 @@ slow = do
         , DataTypes.inline
         , DataTypes.rmvConArgs
         , Imports.unqualImport
-        -- , TypeFamilies.apply
+        , TypeFamilies.apply
         , TypeFamilies.rmvEquations
-        , Parameters.reduce
+        -- , Parameters.reduce
         , Functions.inline
         ]
     medium

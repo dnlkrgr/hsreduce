@@ -11,6 +11,7 @@ common dry
         src
     build-depends:       
         base
+        , HUnit
         , Cabal
         , MonadRandom
         , aeson

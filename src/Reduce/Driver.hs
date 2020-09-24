@@ -3,11 +3,12 @@ module Reduce.Driver
     )
 where
 
+import qualified Data.ByteString.Lazy as LBS
+import Data.Csv
 import Control.Concurrent.STM.Lifted
 import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
-import Data.Csv
 import Data.Text(pack)
 import Data.Text.Lazy.Builder
 import Data.Time
@@ -87,9 +88,7 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
                 perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
 
                 liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
-
-                -- TODO: format this better
-                $(logTM) InfoS (LogStr . fromString . show . map snd . M.toList . _passStats $ _statistics newState)
+                liftIO . LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan
