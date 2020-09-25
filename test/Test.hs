@@ -27,6 +27,7 @@ import qualified Reduce.Passes.Stubbing                as Stubbing
       tyVarBndr,
     )
 import qualified Reduce.Passes.DataTypes      as DataTypes
+import qualified Reduce.Passes.Functions      as Functions
 import qualified Reduce.Passes.Simplify.Expr  as Expr
 import qualified Reduce.Passes.Simplify.Types as Types
 import Util.Util
@@ -130,6 +131,10 @@ main = hspec $ do
                     runPass TypeFamilies.apply,           
                     Nothing,                
                     "{-# LANGUAGE TypeFamilies #-}\nimport GHC.Generics\nmain = undefined\ntype family F a b where\n  F a b = a\narst :: Int -> String\narst = undefined\ntype family G a b where\n  G a b = String\nbrst :: String -> String\nbrst = undefined\ntype family Zip a b where\n  Zip (_ s) (_ m t) = M1 () m (Zip s t)\n")
+                , ("EtaReduceMatches",   
+                    runPass Functions.etaReduceMatches,           
+                    Nothing,                
+                    "module EtaReduceMatches where\narst = brst\nbrst v = \"the end\"")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

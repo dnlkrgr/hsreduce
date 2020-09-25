@@ -5,7 +5,7 @@ import Util.Types
 import Util.Util
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
-import qualified Reduce.Passes.Functions as Functions (inline)
+import qualified Reduce.Passes.Functions as Functions (inline, etaReduceMatches)
 import qualified Reduce.Passes.Names as Names (unqualNames)
 import qualified Reduce.Passes.Remove.Decls as Decls
 import qualified Reduce.Passes.Remove.Exports as Exports (reduce)
@@ -69,6 +69,7 @@ slow = do
         , TypeFamilies.apply
         , TypeFamilies.rmvEquations
         -- , Parameters.reduce
+        , Functions.etaReduceMatches
         , Functions.inline
         ]
     medium

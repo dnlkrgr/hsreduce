@@ -1,4 +1,4 @@
-module Reduce.Passes.Functions (inline) where
+module Reduce.Passes.Functions (inline, etaReduceMatches) where
 
 import Data.List
 import GHC hiding (Pass)
@@ -8,6 +8,20 @@ import Data.Generics.Uniplate.Data
 
 import Util.Util
 import Util.Types
+
+-- function with:
+-- - one match
+-- - without guards
+-- - with one rhs
+-- - where the body is applying some function to an argument
+etaReduceMatches :: Pass
+etaReduceMatches = mkPass "etaReduceMatches" f
+  where 
+      f :: p ~ GhcPs => WaysToChange [LMatch p (LHsExpr p)]
+      f [L l1 m@(Match { m_pats = pats, m_grhss = g@(GRHSs { grhssGRHSs = [L l2 (GRHS _ guards (L l3 (HsApp _ lExpr rExpr)))] }) })] 
+          | oshow (last pats) == oshow rExpr = [const [L l1 (m { m_pats = init pats, m_grhss = g { grhssGRHSs = [L l2 (GRHS NoExt guards (L l3 (unLoc lExpr)))]}})]]
+          | otherwise = []
+      f _ = []
 
 inline :: Pass
 inline = AST "inlineFunctions" $ \ast -> 
