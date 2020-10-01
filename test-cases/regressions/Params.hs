@@ -1,6 +1,12 @@
 module Params where
 
-brst = arst () ()
+brst = arst '1' 2 "3"
 
-arst :: () -> () -> ()
-arst _ _ = undefined
+arst :: Char -> Int -> String -> ()
+arst '4' _ "6" = undefined
+
+crst = undefined <@@> [3]
+_ <@@> rhs = undefined
+
+toListOf l = foldrOf l undefined ()
+foldrOf l _ _ = undefined . l

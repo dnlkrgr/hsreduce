@@ -31,10 +31,6 @@ data CLIOptions w
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     deriving (Generic)
 
-instance ParseRecord (CLIOptions Wrapped)
-
-instance Show (CLIOptions Unwrapped)
-
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving (Eq)
 
@@ -229,3 +225,7 @@ mkPerformance oldSize newSize t1 t2 n = do
                 then 86401
                 else 0
         duration = utctDayTime t2 + offset - utctDayTime t1
+
+
+instance ParseRecord (CLIOptions Wrapped)
+instance Show (CLIOptions Unwrapped)

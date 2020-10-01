@@ -1,6 +1,7 @@
-{-# language TypeFamilies #-}
+{-# language TypeFamilies, DataKinds, PolyKinds, UndecidableInstances #-}
 
 import GHC.Generics
+import GHC.TypeLits
 
 main = undefined
 
@@ -18,3 +19,15 @@ brst = undefined
 
 type family Zip a b where
   Zip (_ s) (_ m t) = M1 () m (Zip s t)
+
+type family IfEq a b t f where
+  IfEq a a t _ = t
+
+type family LookupParam (a :: k) (p :: Nat) :: Maybe Nat where
+  LookupParam (a (_ (m))) n = IfEq m n ('Just 0) ('Just 1)
+
+type family MaybeAdd b where
+  MaybeAdd b = 'Just (b)
+
+type family AnotherLookupParam (p :: Nat) :: Maybe Nat where
+  AnotherLookupParam n = MaybeAdd 1

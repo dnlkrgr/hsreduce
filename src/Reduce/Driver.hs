@@ -58,8 +58,7 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
     let mkFileHandle = openFile "hsreduce.log" WriteMode
 
     bracket mkFileHandle hClose $ \_ -> do
-        -- handleScribe <- mkHandleScribe ColorIfTerminal fileHandle (permitItem InfoS) V2
-        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal stdout (permitItem InfoS) V2
+        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal stdout (permitItem DebugS) V2
         let mkLogEnv = registerScribe "stdout" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
 
         bracket mkLogEnv closeScribes $ \le -> do

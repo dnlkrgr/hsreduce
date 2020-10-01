@@ -9,44 +9,48 @@ import Util.Util
 reduce :: Pass
 reduce = AST "rmvUnusedParams" $ \ast ->
     concatMap
-        ( \(funId, funMG@(MG _ (L _ _) _)) ->
+        ( \(funId, funMG) ->
               case matchgroup2WildPatPositions funMG of
                   Nothing -> []
-                  Just (n, is) ->
+                  Just (oldPatsLength, indices) ->
                       map
                           ( \i oldAST ->
                                 let patsLengths = getPatsLength funId oldAST
-                                 in if length patsLengths == 1
+                                 in if length patsLengths >= 1
                                         then
-                                            let nRmvdParams = (n - head patsLengths)
-                                                newI = i - (traceShow ("nRmvdParams: " <> show nRmvdParams) nRmvdParams)
-                                             in
-                                                -- traceShow ("funId: " <> oshow funId) $
-                                                -- traceShow ("length is: " <> (show $ length is)) $
-                                                -- traceShow ("head patsLengths: " <> (show $ head patsLengths)) $
-                                                -- traceShow ("nRmvdParams: " <> show nRmvdParams) $
-                                                -- traceShow ("i: " <> show i) $
-                                                -- traceShow ("newI: " <> show newI) $
+                                            let newPatsLength = head patsLengths
+                                                nRmvdParams = (oldPatsLength - newPatsLength)
+                                                newI = i - nRmvdParams -- (traceShow ("nRmvdParams: " <> show nRmvdParams) nRmvdParams)
+                                             in -- traceShow ("funId: " <> oshow funId)
+                                                --     $ traceShow ("length indices: " <> (show $ length indices))
+                                                --     $ traceShow ("oldPatsLength: " <> (show $ oldPatsLength))
+                                                --     $ traceShow ("newPatsLengths: " <> (show $ newPatsLength))
+                                                --     $ traceShow ("nRmvdParams: " <> show nRmvdParams)
+                                                --     $ traceShow ("i: " <> show i)
+                                                --     $ traceShow ("newI: " <> show newI)
 
-                                                transformBi (rmvArgsFromExpr funId n i)
-                                                   . transformBi (handleSigs funId newI)
-                                                   . transformBi (handleFunBinds funId i)
-                                                   $ oldAST
+                                                transformBi (rmvArgsFromExpr funId newPatsLength newI)
+                                                    . transformBi (handleSigs funId newI)
+                                                    . transformBi (handleFunBinds funId newI)
+                                                    $ oldAST
                                         else oldAST
                           )
-                          is
+                          indices
         )
-        [(funId, funMG) | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast]
+        [ (funId, funMG)
+          | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast
+            -- infix matches can't be handled yet, GHC panics when trying to print what hsreduce produces
+            , all (not . isInfixMatch) . map unLoc . unLoc $ mg_alts funMG
+        ]
 
 getPatsLength :: RdrName -> ParsedSource -> [Int]
 getPatsLength name ast =
-    [ length . m_pats . unLoc . head . unLoc $ mg_alts funMG
+    [ length . m_pats . unLoc $ alternatives
       | FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs <- universeBi ast,
         name == funId,
-        length (mg_alts funMG) == 1
+        alternatives <- unLoc $ mg_alts funMG
     ]
 
--- simplifyTySigs
 handleSigs :: RdrName -> Int -> Sig GhcPs -> Sig GhcPs
 handleSigs funId i ts@(TypeSig _ [sigId] (HsWC _ (HsIB _ (L l t))))
     | funId == unLoc sigId = TypeSig NoExt [sigId] . HsWC NoExt . HsIB NoExt . L l $ handleTypes i t
@@ -68,9 +72,10 @@ handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt 
     where
         f =
             map snd
-            . filter ((== i) . fst)
-            . zip [1 ..]
+                . filter ((/= i) . fst)
+                . zip [1 ..]
 
+-- get indices of wildcard patterns
 matchgroup2WildPatPositions :: MatchGroup GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
 matchgroup2WildPatPositions mg
     | not (null pats) && all (== head pats) pats = Just $ head pats
@@ -78,6 +83,7 @@ matchgroup2WildPatPositions mg
     where
         pats = map (match2WildPatPositions . unLoc) . unLoc $ mg_alts mg
 
+-- get indices of wildcard patterns
 match2WildPatPositions :: Match GhcPs (LHsExpr GhcPs) -> (Int, [Int])
 match2WildPatPositions m = (length pats, map fst . filter (p . unLoc . snd) $ zip [1 ..] pats)
     where

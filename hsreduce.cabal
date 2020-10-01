@@ -106,6 +106,7 @@ library lib-hsreduce
         Reduce.Passes.Extensions.TypeFamilies
         Reduce.Passes.Stubbing
         Reduce.Passes.DataTypes
+        Reduce.Passes.Typeclasses
         Reduce.Passes.Names
         Reduce.Passes.Functions
         Reduce.Passes.Remove.Decls

@@ -20,29 +20,32 @@ import qualified Reduce.Passes.Stubbing as Stubbing
 
 
 allActions :: [R IO ()]
-allActions = [fast, medium, slow]
--- allActions = [runPass Parameters.reduce]
+-- allActions = pure $ mapM_ runPass [Functions.etaReduceMatches, Parameters.reduce, Functions.inline]
+allActions = [fast, medium, slow, slowest]
+-- allActions = [slowest]
 
 fast :: R IO ()
 fast = do
-    Pragmas.reduce
-    Exports.reduce
     mapM_ runPass 
-        [ Imports.rmvImports
-        , Decls.rmvSigs Nothing
+        [ Decls.rmvSigs Nothing
         , Decls.rmvDecls Nothing
         ]
 
 medium :: R IO ()
 medium = do
     mapM_ runPass 
-        [ Expr.expr2Undefined
-        , Types.type2Unit
-        ]
+        [ Expr.expr2Undefined ]
     fast
 
 slow :: R IO ()
 slow = do
+    mapM_ runPass 
+        [ Types.type2Unit
+        ]
+    medium
+
+slowest :: R IO ()
+slowest = do
     mapM_ runPass
         [ Decls.simplifyDecl Nothing
         , Decls.recCon2Prefix
@@ -68,11 +71,14 @@ slow = do
         , Imports.unqualImport
         , TypeFamilies.apply
         , TypeFamilies.rmvEquations
-        -- , Parameters.reduce
+        , Parameters.reduce
         , Functions.etaReduceMatches
         , Functions.inline
+        , Imports.rmvImports
         ]
-    medium
+    slow
+    Pragmas.reduce
+    Exports.reduce
 
 
 allPasses :: [Pass]

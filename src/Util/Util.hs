@@ -1,8 +1,10 @@
 module Util.Util where
 
+import Data.List
 import Control.Applicative
 import Control.Concurrent.Async.Lifted
 import Control.Concurrent.STM.Lifted
+import qualified Control.Exception.Lifted as CE
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Data.Aeson (decodeStrict)
@@ -15,28 +17,27 @@ import Data.Generics.Uniplate.Data
 import Data.List.Split
 import Data.Maybe
 import Data.String
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.IO as TIO
 import Debug.Trace
 import FastString
-import GHC hiding (GhcMode, Pass, ghcMode, Severity)
+import GHC hiding (GhcMode, Pass, Severity, ghcMode)
 import Katip
+import qualified Language.Haskell.GHC.ExactPrint as EP
 import Lens.Micro.Platform
-import Outputable hiding (char, space, (<>))
+import Outputable hiding ((<>), char, space)
 import Path
 import SrcLoc as SL
 import System.Exit
 import System.Process
 import System.Timeout.Lifted
-import Text.Megaparsec.Char
-import Util.Types
-import Util.Types as UT
-import qualified Control.Exception.Lifted as CE
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.IO as TIO
-import qualified Language.Haskell.GHC.ExactPrint as EP
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec as MP
+import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char as MC
+import Util.Types
+import Util.Types as UT
 
 tryNewState :: String -> (RState -> RState) -> R IO ()
 tryNewState passId f = do
@@ -59,20 +60,19 @@ tryNewState passId f = do
                         -- is the state we worked still the same?
                         if oldStateS == currentCommonStateS
                             then do
-                                writeTVar (_tState conf) $ newState { _isAlive = True }
+                                writeTVar (_tState conf) $ newState {_isAlive = True}
 
                                 updateStatistics_ conf passId 1 sizeDiff
                                 return True
                             else return False
 
-                    if success 
+                    if success
                         then logStateDiff NoticeS oldStateS newStateS
-                        else do
-                            logStateDiff DebugS oldStateS newStateS
-                            tryNewState passId f
-                Uninteresting -> updateStatistics conf passId 0 0
+                        else tryNewState passId f
+                Uninteresting -> do
+                    -- logStateDiff DebugS oldStateS newStateS
+                    updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
-
 
 logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
 logStateDiff severity oldStateS newStateS = do
@@ -81,11 +81,16 @@ logStateDiff severity oldStateS newStateS = do
             _ -> "APPLIED CHANGE"
 
     $(logTM) severity title
-    forM_ (filter (\case
-                        Both l r -> l /= r
-                        _ -> True) $ 
-          getDiff (T.lines oldStateS) (T.lines newStateS)) $ \line -> 
-              $(logTM) severity (fromString (show line))
+    forM_
+        ( filter
+              ( \case
+                    Both l r -> l /= r
+                    _ -> True
+              )
+              $ getDiff (T.lines oldStateS) (T.lines newStateS)
+        )
+        $ \line ->
+            $(logTM) severity (fromString (show line))
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
 overwriteAtLoc loc f oldValue@(L oldLoc a)
@@ -96,14 +101,15 @@ mkPass :: Data a => String -> WaysToChange a -> Pass
 mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
 
 runPass :: Pass -> R IO ()
-runPass (AST name pass) = do
-    unless isInProduction $ do
-        printInfo name
-        isTestStillFresh name
+runPass (AST name pass) =
+    do
+        unless isInProduction $ do
+            printInfo name
+            isTestStillFresh name
 
-    ask
-    >>= fmap (pass . _parsed) . liftIO . readTVarIO . _tState 
-    >>= applyInterestingChanges name 
+        ask
+        >>= fmap (pass . _parsed) . liftIO . readTVarIO . _tState
+        >>= applyInterestingChanges name
 runPass _ = return ()
 
 applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R IO ()
@@ -158,9 +164,12 @@ testNewState conf newState =
         let sourceFile = tempDir </> _sourceFile conf
             test = tempDir </> _test conf
 
-        CE.try (do
-            liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState newState
-            runTest test defaultDuration) >>= \case
+        CE.try
+            ( do
+                  liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState newState
+                  runTest test defaultDuration
+            )
+            >>= \case
                 Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
                 Right i -> return i
 
@@ -197,10 +206,11 @@ isTestStillFresh context = do
     newState <- liftIO . atomically $ readTVar $ _tState conf
     testNewState conf newState >>= \case
         Uninteresting -> do
-            results <- replicateM 3 (testNewState conf newState) 
+            results <- replicateM 3 (testNewState conf newState)
             when (all (== Uninteresting) results) $ do
                 liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
-                $(logTM) ErrorS ("Test case is broken at >>>" <> fromString context <> "<<<")
+                $(logTM) ErrorS (fromString $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<")
+                error $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<"
         _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression
@@ -246,7 +256,6 @@ gshows = render `extQ` (shows :: String -> ShowS)
                 -- isTuple     = all (==',') (filter (not . flip elem "()") (constructor ""))
                 -- isNull      = null (filter (not . flip elem "[]") (constructor ""))
                 isList = constructor "" == "(:)"
-
 
 withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> R IO a) -> R IO a
 withTempDir tChan action = do
@@ -439,16 +448,26 @@ exprContainsId _ _ = False
 -- i: index of pattern we wish to remove
 rmvArgsFromExpr :: RdrName -> Int -> Int -> HsExpr GhcPs -> HsExpr GhcPs
 rmvArgsFromExpr conId n i e@(HsApp x la@(L _ a) b)
-    | exprContainsId conId e, n == i = a
-    | exprContainsId conId e = HsApp x (rmvArgsFromExpr conId (n -1) i <$> la) b
+    | exprContainsId conId e,
+      exprFitsNumberOfPatterns n e,
+      n == i =
+        a
+    | exprContainsId conId e, 
+    exprFitsNumberOfPatterns n e
+    = HsApp x (rmvArgsFromExpr conId (n - 1) i <$> la) b
+
     | otherwise = e
 rmvArgsFromExpr _ _ _ e = e
 
+exprFitsNumberOfPatterns :: Int -> HsExpr GhcPs -> Bool
+exprFitsNumberOfPatterns n (HsApp _ l _) = exprFitsNumberOfPatterns (n-1) (unLoc l)
+exprFitsNumberOfPatterns 0 _ = True
+exprFitsNumberOfPatterns _ _ = False
 
 getPragmas :: Path Abs File -> IO [Pragma]
 getPragmas f =
     -- filter ((/= "Safe") . showExtension)
-        concat
+    concat
         . fromRight []
         . sequence
         . filter isRight

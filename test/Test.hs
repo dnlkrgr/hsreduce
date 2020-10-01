@@ -26,6 +26,7 @@ import qualified Reduce.Passes.Stubbing                as Stubbing
       rmvGuards,
       tyVarBndr,
     )
+import qualified Reduce.Passes.Typeclasses      as Typeclasses
 import qualified Reduce.Passes.DataTypes      as DataTypes
 import qualified Reduce.Passes.Functions      as Functions
 import qualified Reduce.Passes.Simplify.Expr  as Expr
@@ -82,18 +83,6 @@ main = hspec $ do
                     mapM_ runPass [Types.type2Unit, Expr.expr2Undefined],            
                     Nothing,                
                     "module Unit where\narst :: ()\narst = undefined")
-                , ("Params",        
-                    runPass Parameters.reduce,          
-                    Nothing,                
-                    "module Params where\nbrst = arst\narst :: ()\narst = undefined")
-                , ("ConArgs",       
-                    runPass DataTypes.rmvConArgs,       
-                    Nothing,                
-                    "module Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst () () -> Arst () ()\ne (Arst) = Arst")
-                , ("InlineTypes",   
-                    runPass DataTypes.inline,           
-                    Nothing,                
-                    "module Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()")
                 , ("Contexts",   
                     runPass Stubbing.contexts,           
                     Nothing,                
@@ -126,15 +115,34 @@ main = hspec $ do
                     runPass Stubbing.rmvRHSs,           
                     Nothing,                
                     "module RHSs where\narst | 3 > 5 = \"arst\"")
-                -- TODO: add timeout to test
                 , ("TypeFamilies",   
                     runPass TypeFamilies.apply,           
+                    Just "typefamilies.sh",                
+                    "{-# LANGUAGE TypeFamilies, DataKinds, PolyKinds, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\nmain = undefined\ntype family F a b where\n  F a b = a\narst :: Int -> String\narst = undefined\ntype family G a b where\n  G a b = String\nbrst :: String -> String\nbrst = undefined\ntype family Zip a b where\n  Zip (_ s) (_ m t) = M1 () m (Zip s t)\ntype family IfEq a b t f where\n  IfEq a a t _ = t\ntype family LookupParam (a :: k) (p :: Nat) :: Maybe Nat where\n  LookupParam (a (_ (m))) n = ('Just 0)\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\n")
+                , ("Expr",   
+                    mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
+                    Just "expr.sh",                
+                    "module Expr where\nmain = do brst\nbrst = undefined\ncrst = \"arst\"")
+                , ("Functions",   
+                    mapM_ runPass [Functions.etaReduceMatches, Functions.inline],
                     Nothing,                
-                    "{-# LANGUAGE TypeFamilies #-}\nimport GHC.Generics\nmain = undefined\ntype family F a b where\n  F a b = a\narst :: Int -> String\narst = undefined\ntype family G a b where\n  G a b = String\nbrst :: String -> String\nbrst = undefined\ntype family Zip a b where\n  Zip (_ s) (_ m t) = M1 () m (Zip s t)\n")
-                , ("EtaReduceMatches",   
-                    runPass Functions.etaReduceMatches,           
+                    "module Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"")
+                , ("ConArgs",       
+                    runPass DataTypes.rmvConArgs,       
                     Nothing,                
-                    "module EtaReduceMatches where\narst = brst\nbrst v = \"the end\"")
+                    "module Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst () () -> Arst () ()\ne (Arst) = Arst")
+                , ("InlineTypes",   
+                    runPass DataTypes.inline,           
+                    Nothing,                
+                    "module Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()")
+                , ("Params",        
+                    runPass Parameters.reduce,          
+                    Just "params.sh",
+                    "module Params where\nbrst = arst '1' \"3\"\narst :: Char -> String -> ()\narst '4' \"6\" = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l")
+                -- , ("Typeclasses",   
+                --     runPass Typeclasses.deleteTyClMethods,
+                --     Just "typeclasses.sh",                
+                --     "")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

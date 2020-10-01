@@ -45,12 +45,18 @@ apply = AST "typefamilies:apply" $ \ast ->
                             -- get the index of the pattern
                             -- find occurrences of the type family
                             -- replace them by nth pattern
-                            takeNthArgument tycon (length feqn_pats) index
+
+                            -- traceShow (oshow tTemp)
+                            -- . traceShow (oshow tycon)
+                            -- . traceShow (oshow feqn_pats)
+                            -- . traceShow (oshow feqn_rhs)
+                            -- . traceShow (oshow $ takeNthArgument (length feqn_pats) index tTemp)
+                            takeNthArgument (length feqn_pats) index
                         else 
                             replaceWithRHs tycon feqn_rhs
                 in transformBi (overwriteAtLoc l c)
                 )
-                [t | (t :: LHsType GhcPs) <- universeBi ast, isContainedIn tycon t]
+                [t | (t :: LHsType GhcPs) <- universeBi ast, typeContainsTyCon tycon (unLoc t)]
         )
         [ f | f@FamEqn{} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi ast]
 
@@ -59,7 +65,7 @@ isContainedIn feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
 
 replaceWithRHs :: p ~ GhcPs => IdP p -> LHsType p -> HsType p -> HsType p
 replaceWithRHs tycon (unLoc -> rhs) t
-    | typeContainsTyCon tycon t, not $ tycon `isContainedIn` rhs = rhs
+    | not $ tycon `isContainedIn` rhs = rhs
     | otherwise = t                
 
 -- the rhs is one of the patterns sub type expressions
@@ -67,19 +73,14 @@ replaceWithRHs tycon (unLoc -> rhs) t
 -- find occurrences of the sub type expression
 -- replace them by the right hand side
 
+-- TODO: see if we have a HsAppTy and count the arguments
+takeNthArgument :: Int -> Int -> HsType GhcPs -> HsType GhcPs
+takeNthArgument n i (HsAppTy _ (L _ a) (L _ b))
+    | n == i = b
+    | otherwise = takeNthArgument (n -1) i a
+takeNthArgument _ _ t = t
+
 typeContainsTyCon :: RdrName -> HsType GhcPs -> Bool
 typeContainsTyCon tycon (HsTyVar _ _ (L _ name)) = tycon == name
 typeContainsTyCon tycon (HsAppTy _ (L _ t) _) = typeContainsTyCon tycon t
 typeContainsTyCon _ _ = False
-
--- TODO: see if we have a HsAppTy and count the arguments
-takeNthArgument :: p ~ GhcPs => IdP p -> Int -> Int -> HsType p -> HsType p
-takeNthArgument tycon n i t
-    | typeContainsTyCon tycon t = takeNthArgumentHelper n i t
-    | otherwise = t
-
-takeNthArgumentHelper :: Int -> Int -> HsType GhcPs -> HsType GhcPs
-takeNthArgumentHelper n i (HsAppTy _ (L _ a) (L _ b))
-    | n == i = b
-    | otherwise = takeNthArgumentHelper (n -1) i a
-takeNthArgumentHelper _ _ t = t

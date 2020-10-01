@@ -52,11 +52,11 @@ simplifyExpr :: Pass
 simplifyExpr = mkPass "simplifyExpr" f
     where
         f :: WaysToChange (HsExpr GhcPs)
-        f (SingleCase body) = map const [body]
+        f (SingleCase body) = [const body]
         f (HsIf _ _ _ (L _ ls) (L _ rs)) = map const [ls, rs]
         f (HsApp _ (L _ l) (L _ r)) = map const [l, r]
         f (HsAppType _ (L _ e) _) = [const e]
-        f (OpApp _ _ (L _ l) (L _ r)) = map const [l, r]
+        f (OpApp _ (L _ o) (L _ l) (L _ r)) = map const [o, l, r]
         f (HsLet _ _ (L _ e)) = [const e]
         f (ExprWithTySig _ (L _ e) _) = [const e]
         f (HsStatic _ (L _ e)) = [const e]
@@ -64,7 +64,6 @@ simplifyExpr = mkPass "simplifyExpr" f
         f (HsTick _ _ (L _ e)) = [const e]
         f (HsBinTick _ _ _ (L _ e)) = [const e]
         f (EAsPat _ _ (L _ e)) = [const e]
-        f (EViewPat _ _ (L _ e)) = [const e]
         f (ELazyPat _ (L _ e)) = [const e]
         f (HsWrap _ _ e) = [const e]
         f _ = []
