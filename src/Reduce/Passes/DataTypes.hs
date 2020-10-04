@@ -42,16 +42,16 @@ pattern TyVarP name <- L _ (HsTyVar _ _ (L _ name))
 
 rmvArgsFromConDecl :: RdrName -> Int -> ConDecl GhcPs -> ConDecl GhcPs
 rmvArgsFromConDecl conId i c@(ConDeclH98 x n fa tvs ctxt (PrefixCon args) doc)
-    | conId == unLoc n = ConDeclH98 x n fa tvs ctxt (PrefixCon $ delete i args) doc
+    | conId == unLoc n = ConDeclH98 x n fa tvs ctxt (PrefixCon $ deleteAt i args) doc
     | otherwise = c
 rmvArgsFromConDecl conId i c@(ConDeclH98 x n fa tvs ctxt (RecCon (L l args)) doc)
-    | conId == unLoc n = ConDeclH98 x n fa tvs ctxt (RecCon . L l $ delete i args) doc
+    | conId == unLoc n = ConDeclH98 x n fa tvs ctxt (RecCon . L l $ deleteAt i args) doc
     | otherwise = c
 rmvArgsFromConDecl _ _ c = c
 
 rmvArgsFromPat :: RdrName -> Int -> Pat GhcPs -> Pat GhcPs
 rmvArgsFromPat constrName n p@(ConPatIn (L l name) (PrefixCon args))
-    | constrName == name = ConPatIn (L l name) (PrefixCon $ delete n args)
+    | constrName == name = ConPatIn (L l name) (PrefixCon $ deleteAt n args)
     | otherwise = p
 rmvArgsFromPat _ _ p = p
 

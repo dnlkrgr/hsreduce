@@ -5,7 +5,7 @@ import Util.Types
 import Util.Util
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
-import qualified Reduce.Passes.Functions as Functions (inline, etaReduceMatches)
+import qualified Reduce.Passes.Functions as Functions (inline, etaReduceMatches, rmvMatches, rmvRHSs, rmvGuards)
 import qualified Reduce.Passes.Names as Names (unqualNames)
 import qualified Reduce.Passes.Remove.Decls as Decls
 import qualified Reduce.Passes.Remove.Exports as Exports (reduce)
@@ -21,8 +21,9 @@ import qualified Reduce.Passes.Typeclasses as Typeclasses
 
 
 allActions :: [R IO ()]
+allActions = [runPass Typeclasses.handleMultiParams ]
 -- allActions = pure $ mapM_ runPass [Functions.etaReduceMatches, Parameters.reduce, Functions.inline]
-allActions = [fast, medium, slow, slowest]
+-- allActions = [fast, medium, slow, slowest]
 -- allActions = [slowest]
 
 fast :: R IO ()
@@ -51,7 +52,6 @@ slowest = do
         [ Decls.simplifyDecl Nothing
         , Decls.recCon2Prefix
         , Decls.simplifyConDecl
-        , Decls.rmvFunDeps
         , Expr.filterExprSubList
         , Expr.simplifyExpr
         -- , Types.type2WildCard
@@ -61,9 +61,9 @@ slowest = do
         , Stubbing.simplifyDeriving
         , Stubbing.simplifyDerivingClause
         , Stubbing.localBinds
-        , Stubbing.rmvRHSs
-        , Stubbing.rmvMatches
-        , Stubbing.rmvGuards
+        , Functions.rmvRHSs
+        , Functions.rmvMatches
+        , Functions.rmvGuards
         , TypeFamilies.familyResultSig
         , Stubbing.tyVarBndr
         , Names.unqualNames
@@ -76,7 +76,9 @@ slowest = do
         , Functions.etaReduceMatches
         , Functions.inline
         , Imports.rmvImports
+        , Typeclasses.rmvFunDeps
         , Typeclasses.rmvTyClMethods
+        , Typeclasses.handleMultiParams
         ]
     slow
     Pragmas.reduce
@@ -91,7 +93,7 @@ allPasses =
         , Decls.simplifyDecl Nothing
         , Decls.recCon2Prefix
         , Decls.simplifyConDecl
-        , Decls.rmvFunDeps
+        , Typeclasses.rmvFunDeps
         , Expr.expr2Undefined
         , Expr.filterExprSubList
         , Expr.simplifyExpr
@@ -103,9 +105,9 @@ allPasses =
         , Stubbing.simplifyDeriving
         , Stubbing.simplifyDerivingClause
         , Stubbing.localBinds
-        , Stubbing.rmvRHSs
-        , Stubbing.rmvMatches
-        , Stubbing.rmvGuards
+        , Functions.rmvRHSs
+        , Functions.rmvMatches
+        , Functions.rmvGuards
         , Stubbing.tyVarBndr
         , Names.unqualNames
         , DataTypes.inline

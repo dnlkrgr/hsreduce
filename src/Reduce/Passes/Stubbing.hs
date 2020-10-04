@@ -3,9 +3,6 @@ module Reduce.Passes.Stubbing
       simplifyDeriving,
       simplifyDerivingClause,
       localBinds,
-      rmvRHSs,
-      rmvMatches,
-      rmvGuards,
       tyVarBndr,
     )
 where
@@ -114,58 +111,8 @@ localBinds = mkPass "localBinds" f
         f _ = [const (EmptyLocalBinds NoExt)]
 
 -- ***************************************************************************
-
--- MATCHES
-
--- ***************************************************************************
-
-rmvRHSs :: Pass
-rmvRHSs = mkPass "rmvRHSs" f
-    where
-        f :: WaysToChange (Match GhcPs (LHsExpr GhcPs))
-        f (Match _ _ _ (GRHSs _ [] _)) = []
-        f mm = handleSubList g p mm
-            where
-                p = \case
-                    -- reverse because the lower have to be tried first
-                    MatchP iterGRHSs _ -> map getLoc . reverse $ iterGRHSs
-                    _ -> []
-                g grhsLoc = \case
-                    m@(Match _ _ _ (GRHSs _ grhss lb)) ->
-                        let newGRHSs = filter ((/= grhsLoc) . getLoc) grhss
-                         in case newGRHSs of
-                                [] -> m
-                                _ -> m {m_grhss = GRHSs NoExt newGRHSs lb}
-                    m -> m
-
-rmvMatches :: Pass
-rmvMatches = mkPass "rmvMatches" f
-    where
-        f :: WaysToChange [LMatch GhcPs (LHsExpr GhcPs)]
-        f = handleSubList (\loc -> filter ((/= loc) . getLoc)) (map getLoc)
-
--- <> [ filter (\(L _ (Match _ _ _ grhss@GRHSs{})) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined")
--- ,  filter (\(L _ (Match _ _ _ (GRHSs _ grhs _))) -> not (all ( ("undefined" `isSubsequenceOf`) . showSDocUnsafe . pprGRHS LambdaExpr . unLoc) grhs))]
-
-rmvGuards :: Pass
-rmvGuards = mkPass "rmvGuards" f
-    where
-        f :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
-        f (GRHS _ [] _) = []
-        f g@(GRHS _ _ body) = [const (GRHS NoExt [] body)] <> handleSubList h p g
-            where
-                p (GRHS _ stmts _) = map getLoc stmts
-                p _ = []
-                h loc (GRHS _ s b) = GRHS NoExt (filter ((/= loc) . getLoc) s) b
-                h _ _ = g
-        f _ = []
-
--- ***************************************************************************
-
 -- MISC
-
 -- ***************************************************************************
-
 
 tyVarBndr :: Pass
 tyVarBndr = mkPass "tyVarBndr" f
@@ -174,12 +121,3 @@ tyVarBndr = mkPass "tyVarBndr" f
         f (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
         f _ = []
 
-
--- ***************************************************************************
-
--- PATTERN SYNONYMS
-
--- ***************************************************************************
-
-pattern MatchP :: [LGRHS GhcPs (LHsExpr GhcPs)] -> LHsLocalBinds GhcPs -> Match GhcPs (LHsExpr GhcPs)
-pattern MatchP grhss binds <- Match _ _ _ (GRHSs _ grhss binds)

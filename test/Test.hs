@@ -143,6 +143,10 @@ main = hspec $ do
                     runPass Typeclasses.rmvTyClMethods,
                     Just "typeclasses.sh",                
                     "module Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show")
+                , ("MultiParams",   
+                    runPass Typeclasses.handleMultiParams,
+                    Just "multiparams.sh",                
+                    "")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

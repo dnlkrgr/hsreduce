@@ -435,8 +435,8 @@ pattern UnitTypeP :: HsType GhcPs
 pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
 
 -- delete at Index i, starting from 1 not from 0
-delete :: Int -> [a] -> [a]
-delete i as = take (i -1) as <> drop i as
+deleteAt :: Int -> [a] -> [a]
+deleteAt i as = take (i -1) as <> drop i as
 
 exprContainsId :: RdrName -> HsExpr GhcPs -> Bool
 exprContainsId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a

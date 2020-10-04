@@ -36,15 +36,3 @@ simplifyConDecl = mkPass "simplifyConDecl" f
                                   RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
                                   a -> a
                             }
-
-rmvFunDeps :: Pass
-rmvFunDeps = mkPass "rmvFunDeps" f
-    where
-        f :: WaysToChange (HsDecl GhcPs)
-        f = handleSubList g p
-          where
-            p (TyClD _ d@ClassDecl{}) = map getLoc $ tcdFDs d 
-            p _ = []
-
-            g loc (TyClD _ d@ClassDecl{}) = TyClD NoExt $ d { tcdFDs = filter ((/= loc) . getLoc) $ tcdFDs d }
-            g _ t = t
