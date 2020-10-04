@@ -1,4 +1,4 @@
-module Reduce.Passes.Remove.Exports (reduce) where
+module Reduce.Passes.Exports (reduce) where
 
 import Control.Concurrent.STM.Lifted
 import Control.Monad.Reader

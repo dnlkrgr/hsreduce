@@ -1,4 +1,4 @@
-module Reduce.Passes.Simplify.Types where
+module Reduce.Passes.Types where
 
 import BasicTypes
 import GHC hiding (Pass)

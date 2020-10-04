@@ -1,4 +1,4 @@
-module Reduce.Passes.Remove.Imports where
+module Reduce.Passes.Imports where
 
 import GHC hiding (Pass)
 import Util.Types

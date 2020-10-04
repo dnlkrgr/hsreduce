@@ -1,4 +1,4 @@
-module Reduce.Passes.Remove.Parameters (reduce) where
+module Reduce.Passes.Parameters (reduce) where
 
 import Data.Generics.Uniplate.Data
 import GHC hiding (Pass)

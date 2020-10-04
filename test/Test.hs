@@ -14,21 +14,26 @@ import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
 import qualified Reduce.Passes.Remove.Imports          as Imports
 import qualified Reduce.Passes.Remove.Pragmas          as Pragmas
 import qualified Reduce.Passes.Remove.Exports          as Exports
-import qualified Reduce.Passes.Remove.Decls            as Decls
+import qualified Reduce.Passes.Decls                   as Decls
 import qualified Reduce.Passes.Remove.Parameters       as Parameters
 import qualified Reduce.Passes.Stubbing                as Stubbing 
     ( contexts,
       simplifyDeriving,
       simplifyDerivingClause,
       localBinds,
+      tyVarBndr,
+    )
+import qualified Reduce.Passes.Typeclasses    as Typeclasses
+import qualified Reduce.Passes.DataTypes      as DataTypes
+import qualified Reduce.Passes.Functions      as Functions
+    (
       rmvRHSs,
       rmvMatches,
       rmvGuards,
-      tyVarBndr,
+      inline,
+      etaReduceMatches,
+
     )
-import qualified Reduce.Passes.Typeclasses      as Typeclasses
-import qualified Reduce.Passes.DataTypes      as DataTypes
-import qualified Reduce.Passes.Functions      as Functions
 import qualified Reduce.Passes.Simplify.Expr  as Expr
 import qualified Reduce.Passes.Simplify.Types as Types
 import Util.Util
@@ -104,15 +109,15 @@ main = hspec $ do
                     Nothing,                
                     "module LocalBinds where\narst = undefined")
                 , ("Matches",   
-                    runPass Stubbing.rmvMatches,           
+                    runPass Functions.rmvMatches,           
                     Nothing,                
                     "module Matches where")
                 , ("Guards",   
-                    runPass Stubbing.rmvGuards,           
+                    runPass Functions.rmvGuards,           
                     Nothing,                
                     "module Guards where\narst = \"crst\"")
                 , ("RHSs",   
-                    runPass Stubbing.rmvRHSs,           
+                    runPass Functions.rmvRHSs,           
                     Nothing,                
                     "module RHSs where\narst | 3 > 5 = \"arst\"")
                 , ("TypeFamilies",   
@@ -146,7 +151,7 @@ main = hspec $ do
                 , ("MultiParams",   
                     runPass Typeclasses.handleMultiParams,
                     Just "multiparams.sh",                
-                    "")
+                    "{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}\nmodule MultiParams where\nclass Arst where\n  inRelation :: a -> b -> Bool\ninstance Arst where\n  inRelation _ _ = True\n")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

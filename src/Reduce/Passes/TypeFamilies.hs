@@ -1,4 +1,4 @@
-module Reduce.Passes.Extensions.TypeFamilies (rmvEquations, apply, familyResultSig) where
+module Reduce.Passes.TypeFamilies (rmvEquations, apply, familyResultSig) where
 
 import Data.Generics.Uniplate.Data
 import Data.List

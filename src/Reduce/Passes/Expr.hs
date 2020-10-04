@@ -1,4 +1,4 @@
-module Reduce.Passes.Simplify.Expr where
+module Reduce.Passes.Expr where
 
 import GHC hiding (Pass)
 import OccName (mkOccName, varName)

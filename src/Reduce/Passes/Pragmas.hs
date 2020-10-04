@@ -1,4 +1,4 @@
-module Reduce.Passes.Remove.Pragmas (reduce) where
+module Reduce.Passes.Pragmas (reduce) where
 
 import Control.Concurrent.STM.Lifted
 import Control.Monad.Reader
