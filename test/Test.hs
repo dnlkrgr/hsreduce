@@ -139,10 +139,10 @@ main = hspec $ do
                     runPass Parameters.reduce,          
                     Just "params.sh",
                     "module Params where\nbrst = arst '1' \"3\"\narst :: Char -> String -> ()\narst '4' \"6\" = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l")
-                -- , ("Typeclasses",   
-                --     runPass Typeclasses.deleteTyClMethods,
-                --     Just "typeclasses.sh",                
-                --     "")
+                , ("Typeclasses",   
+                    runPass Typeclasses.rmvTyClMethods,
+                    Just "typeclasses.sh",                
+                    "module Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

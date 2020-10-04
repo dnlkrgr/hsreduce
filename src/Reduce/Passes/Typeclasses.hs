@@ -1,35 +1,40 @@
-module Reduce.Passes.Typeclasses where
+module Reduce.Passes.Typeclasses (rmvTyClMethods) where
 
 import Bag
 import Data.Generics.Uniplate.Data
 import GHC hiding (Pass)
 import Util.Types
 
-deleteTyClMethods :: Pass
-deleteTyClMethods = AST "deleteTyClMethods" $ \ast ->
+rmvTyClMethods :: Pass
+rmvTyClMethods = AST "rmvTyClMethods" $ \ast ->
     map
-        ( \funId oldAst -> 
-            transformBi (deleteMethodFromClass funId)
-            . transformBi (deleteMethodFromInstance funId)
+        ( \sigId oldAst -> 
+            transformBi (rmvNameFromSigs sigId)
+            . transformBi (rmvNameFromFunbinds sigId)
             $ oldAst
-            -- TODO: only delete methods for appropriate class name!
             -- maybe also necessary: delete inline
+            -- maybe also necessary: delete default methods
+            -- maybe also necessary: delete associated types
         )
-        [ unLoc $ fun_id f
+        [ sigId
           | d@ClassDecl {} :: TyClDecl GhcPs <- universeBi ast,
-            f@FunBind {} <- map unLoc . bagToList $ tcdMeths d
+            ClassOpSig _ _ sigIds _ :: Sig GhcPs <- map unLoc $ tcdSigs d,
+            sigId <- map unLoc sigIds
         ]
 
-deleteMethodFromInstance :: RdrName -> ClsInstDecl GhcPs -> ClsInstDecl GhcPs
-deleteMethodFromInstance funId d@ClsInstDecl{} = d { cid_binds = listToBag . filter (f funId) . bagToList $ cid_binds d }
+rmvNameFromFunbinds :: RdrName -> LHsBinds GhcPs -> LHsBinds GhcPs
+rmvNameFromFunbinds sigId = listToBag . filter (f sigId) . bagToList
   where
-      f funName (L _ fb@FunBind{}) = unLoc (fun_id fb) == funName
+      f sigName (L _ fb@FunBind{}) = unLoc (fun_id fb) /= sigName
       f _ _ = True
-deleteMethodFromInstance _ d = d 
 
-deleteMethodFromClass :: RdrName -> TyClDecl GhcPs -> TyClDecl GhcPs
-deleteMethodFromClass funId d@ClassDecl{} = d { tcdMeths = listToBag . filter (f funId) . bagToList $ tcdMeths d}
+-- might be dangerous, because it's such a general function
+rmvNameFromSigs :: RdrName -> [LSig GhcPs] -> [LSig GhcPs]
+rmvNameFromSigs sigId = filter (f sigId) . map (m sigId)
   where
-      f funName (L _ fb@FunBind{}) = unLoc (fun_id fb) == funName
+      f _ (L _ (ClassOpSig _ _ [] _)) = False
+      f sigName (L _ (InlineSig _ otherId _)) = sigName /= unLoc otherId
       f _ _ = True
-deleteMethodFromClass _ d = d 
+
+      m sigName (L l (ClassOpSig _ b methodIds t)) = L l $ ClassOpSig NoExt b (filter ((/= sigName) . unLoc) methodIds) t
+      m _ s = s

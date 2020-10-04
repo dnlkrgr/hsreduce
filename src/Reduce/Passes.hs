@@ -17,6 +17,7 @@ import qualified Reduce.Passes.Simplify.Expr as Expr
 import qualified Reduce.Passes.Simplify.Pat as Pat
 import qualified Reduce.Passes.Simplify.Types as Types
 import qualified Reduce.Passes.Stubbing as Stubbing
+import qualified Reduce.Passes.Typeclasses as Typeclasses
 
 
 allActions :: [R IO ()]
@@ -75,6 +76,7 @@ slowest = do
         , Functions.etaReduceMatches
         , Functions.inline
         , Imports.rmvImports
+        , Typeclasses.rmvTyClMethods
         ]
     slow
     Pragmas.reduce

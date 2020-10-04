@@ -1,7 +1,6 @@
 module Reduce.Passes.Remove.Parameters (reduce) where
 
 import Data.Generics.Uniplate.Data
-import Debug.Trace
 import GHC hiding (Pass)
 import Util.Types
 import Util.Util

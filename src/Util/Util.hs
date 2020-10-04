@@ -1,6 +1,5 @@
 module Util.Util where
 
-import Data.List
 import Control.Applicative
 import Control.Concurrent.Async.Lifted
 import Control.Concurrent.STM.Lifted
@@ -70,7 +69,7 @@ tryNewState passId f = do
                         then logStateDiff NoticeS oldStateS newStateS
                         else tryNewState passId f
                 Uninteresting -> do
-                    -- logStateDiff DebugS oldStateS newStateS
+                    logStateDiff DebugS oldStateS newStateS
                     updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
 
