@@ -11,10 +11,10 @@ common dry
         src
     build-depends:       
         base
+        , HUnit
         , Cabal
         , MonadRandom
         , aeson
-        , async
         , bytestring
         , cassava
         , containers
@@ -25,8 +25,13 @@ common dry
         , ghc-paths
         , hashable
         , hie-bios
+        , katip
+        , lifted-async
+        , Diff
+        , lifted-base
         , megaparsec
         , microlens-platform
+        , monad-control
         , mtl
         , optparse-generic
         , path
@@ -34,29 +39,39 @@ common dry
         , process
         , regex
         , split
-        , stm
+        , stm-lifted
         , syb
         , text
         , time
         , uniplate
         , word8
+        , transformers-base
     default-extensions:
+        DataKinds
+        DeriveGeneric
+        FlexibleContexts
+        FlexibleInstances
+        FlexibleInstances         
+        GeneralizedNewtypeDeriving
         GeneralizedNewtypeDeriving 
         LambdaCase
+        MultiParamTypeClasses
+        MultiParamTypeClasses     
         OverloadedStrings 
+        OverloadedStrings         
         PatternSynonyms
         QuasiQuotes
+        Rank2Types  
         RecordWildCards
         ScopedTypeVariables
         TemplateHaskell
-        DeriveGeneric
-        ViewPatterns
+        TemplateHaskell           
         TupleSections
         TypeFamilies
-        Rank2Types  
-        FlexibleInstances
+        TypeFamilies              
         TypeOperators
-        DataKinds
+        UndecidableInstances      
+        ViewPatterns
     default-language:    
         Haskell2010
     ghc-options:       
@@ -74,6 +89,8 @@ executable hsreduce
         -threaded 
         -rtsopts
         -with-rtsopts=-T
+        -Wno-missing-methods
+        -Wno-orphans
 
 library lib-hsreduce
     import:
@@ -81,20 +98,21 @@ library lib-hsreduce
     exposed-modules:   
         Merge.HsAllInOne
         Reduce.Driver
-        Reduce.Passes.Simplify.Expr
-        Reduce.Passes.Simplify.Types
-        Reduce.Passes.Simplify.Pat
-        Reduce.Passes.Simplify.Decls
-        Reduce.Passes.Extensions.TypeFamilies
+        Reduce.Passes
+        Reduce.Passes.Expr
+        Reduce.Passes.Types
+        Reduce.Passes.Pat
+        Reduce.Passes.Decls
+        Reduce.Passes.TypeFamilies
         Reduce.Passes.Stubbing
         Reduce.Passes.DataTypes
+        Reduce.Passes.Typeclasses
         Reduce.Passes.Names
         Reduce.Passes.Functions
-        Reduce.Passes.Remove.Decls
-        Reduce.Passes.Remove.Imports
-        Reduce.Passes.Remove.Exports
-        Reduce.Passes.Remove.Pragmas
-        Reduce.Passes.Remove.Parameters
+        Reduce.Passes.Imports
+        Reduce.Passes.Exports
+        Reduce.Passes.Pragmas
+        Reduce.Passes.Parameters
         Util.Util
         Util.Types
     other-modules:

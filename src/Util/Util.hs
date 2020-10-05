@@ -1,38 +1,107 @@
 module Util.Util where
 
 import Control.Applicative
-import Control.Concurrent.Async
-import Control.Concurrent.STM
-import qualified Control.Exception as CE
+    ( Applicative(liftA2), Alternative((<|>), many, some) )
+import Control.Concurrent.Async.Lifted ( forConcurrently_ )
+import Control.Concurrent.STM.Lifted
+    ( STM,
+      readTVar,
+      writeTVar,
+      readTChan,
+      writeTChan,
+      modifyTVar,
+      readTVarIO,
+      atomically,
+      TChan )
+import qualified Control.Exception.Lifted as CE
+import Control.Monad.IO.Class ( MonadIO(..) )
 import Control.Monad.Reader
+    ( unless,
+      void,
+      when,
+      replicateM,
+      forM_,
+      asks,
+      MonadReader(ask) )
 import Data.Aeson (decodeStrict)
-import Data.Char
-import Data.Data
-import Data.Either
+import Data.Algorithm.Diff ( getDiff, PolyDiff(Both) )
+import Data.Char ( isAlphaNum )
+import Data.Data ( Data(gmapQ, toConstr), showConstr )
+import Data.Either ( fromRight, isRight )
 import Data.Generics.Aliases (extQ)
-import Data.Generics.Uniplate.Data
-import Data.List.Split
-import Data.Maybe
+import Data.Generics.Uniplate.Data ( transformBi, universeBi )
+import Data.List.Split ( chunksOf )
+import Data.Maybe ( fromMaybe, isJust )
+import Data.String ( IsString(fromString) )
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Debug.Trace
-import FastString
-import GHC hiding (GhcMode, Pass, ghcMode)
-import Lens.Micro.Platform
-import Outputable hiding ((<>))
-import Parser.Parser
+import Debug.Trace ( traceShow )
+import FastString ( mkFastString )
+import GHC
+    ( unLoc,
+      ParsedSource,
+      HsExpr(HsApp, HsVar),
+      GhcPs,
+      RdrName,
+      GenLocated(L),
+      Located,
+      SrcSpan )
+import Katip
+    ( logTM, Severity(ErrorS, NoticeS, DebugS, WarningS, InfoS) )
+import qualified Language.Haskell.GHC.ExactPrint as EP
+import Lens.Micro.Platform ( (&), (%~), at )
+import Outputable ( Outputable(ppr), showSDocUnsafe )
 import Path
+    ( (</>),
+      filename,
+      fromAbsDir,
+      fromAbsFile,
+      fromRelFile,
+      parent,
+      Path,
+      Abs,
+      Dir,
+      File )
 import SrcLoc as SL
-import System.Exit
+    ( 
+      RealSrcSpan,
+      mkRealSrcLoc,
+      mkRealSrcSpan )
+import System.Exit ( ExitCode(ExitSuccess, ExitFailure) )
 import System.Process
-import System.Timeout
+    ( CreateProcess(cwd), readCreateProcessWithExitCode, shell )
+import System.Timeout.Lifted ( timeout )
 import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec as MP
+import Text.Megaparsec.Char ( char, letterChar, space, string )
 import qualified Text.Megaparsec.Char as MC
-import Util.Types as UT
+import Util.Types
+    ( PassStats(PassStats),
+      Pragma(..),
+      RState(RState, _isAlive, _parsed),
+      passStats,
+      emptyStats,
+      Pass(AST),
+      WaysToChange,
+      Parser,
+      Interesting(..),
+      GhcMode(..),
+      Tool(..),
+      GhcOutput(reason, doc),
+      Span(Span),
+      R,
+      RConf(_numberOfThreads, _tempDirs, _test, _tState, _sourceFile),
+      parsed,
+      statistics,
+      showState,
+      showExtension )
+import qualified Util.Types as UT
+    
 
-tryNewState :: String -> (RState -> RState) -> RConf -> IO ()
-tryNewState passId f conf = do
+tryNewState :: String -> (RState -> RState) -> R IO ()
+tryNewState passId f = do
+    conf <- ask
     oldState <- liftIO . readTVarIO $ _tState conf
 
     let newState = f oldState
@@ -51,29 +120,62 @@ tryNewState passId f conf = do
                         -- is the state we worked still the same?
                         if oldStateS == currentCommonStateS
                             then do
-                                writeTVar (_tState conf) newState
+                                writeTVar (_tState conf) $ newState {_isAlive = True}
 
                                 updateStatistics_ conf passId 1 sizeDiff
-                                traceShow ("+" :: String) $ return True
+                                return True
                             else return False
 
-                    unless success $ tryNewState passId f conf
-                Uninteresting -> updateStatistics conf passId 0 0
+                    if success
+                        then logStateDiff NoticeS oldStateS newStateS
+                        else tryNewState passId f
+                Uninteresting -> do
+                    logStateDiff DebugS oldStateS newStateS
+                    updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
 
-runPass :: Data a => String -> WaysToChange a -> R ()
-runPass name pass = do
-    unless isInProduction $ do
-        printInfo name
-        isTestStillFresh name
+logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
+logStateDiff severity oldStateS newStateS = do
+    let title = case severity of
+            DebugS -> "TRIED CHANGE"
+            _ -> "APPLIED CHANGE"
 
-    ask
-    >>= fmap (getProposedChanges pass . _parsed) . liftIO . readTVarIO . _tState 
-    >>= applyInterestingChanges name 
+    $(logTM) severity title
+    forM_
+        ( filter
+              ( \case
+                    Both l r -> l /= r
+                    _ -> True
+              )
+              $ getDiff (T.lines oldStateS) (T.lines newStateS)
+        )
+        $ \line ->
+            $(logTM) severity (fromString (show line))
 
-applyInterestingChanges :: Data a => String -> [Located a -> Located a] -> R ()
+overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
+overwriteAtLoc loc f oldValue@(L oldLoc a)
+    | loc == oldLoc = L loc $ f a
+    | otherwise = oldValue
+
+mkPass :: Data a => String -> WaysToChange a -> Pass
+mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
+
+runPass :: Pass -> R IO ()
+runPass (AST name pass) =
+    do
+        unless isInProduction $ do
+            printInfo name
+            isTestStillFresh name
+
+        ask
+        >>= fmap (pass . _parsed) . liftIO . readTVarIO . _tState
+        >>= applyInterestingChanges name
+runPass _ = return ()
+
+applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R IO ()
 applyInterestingChanges name proposedChanges = do
-    conf <- ask
+    $(logTM) InfoS (fromString $ "# proposed changes: " <> (show $ length proposedChanges))
+
     numberOfThreads <- asks _numberOfThreads
 
     let chunkSize = div (length proposedChanges) numberOfThreads
@@ -90,12 +192,15 @@ applyInterestingChanges name proposedChanges = do
                                 else temp
                         _ -> temp
 
-    -- run one thread for each batch
-    liftIO . forConcurrently_ batches $ \batch -> do
-        -- within a thread check out all the changes
-        forM_ batch $ \c -> tryNewState name (parsed %~ transformBi c) conf
+    $(logTM) InfoS (fromString $ "# batches: " <> (show $ length batches))
+    $(logTM) InfoS (fromString $ "batch sizes: " <> (show $ map length batches))
 
-updateStatistics :: RConf -> String -> Word -> Int -> IO ()
+    -- run one thread for each batch
+    forConcurrently_ batches $ \batch -> do
+        -- within a thread check out all the changes
+        forM_ batch $ \c -> tryNewState name (parsed %~ c)
+
+updateStatistics :: RConf -> String -> Word -> Int -> R IO ()
 updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name i sizeDiff
 
 -- 1. if the interestingness test was successful:
@@ -113,67 +218,66 @@ updateStatistics_ conf name i sizeDiff =
             Just (PassStats _ n d r) ->
                 Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
 
-overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
-overwriteAtLoc loc f oldValue@(L oldLoc a)
-    | loc == oldLoc = L loc $ f a
-    | otherwise = oldValue
-
-testNewState :: RConf -> RState -> IO Interesting
+testNewState :: RConf -> RState -> R IO Interesting
 testNewState conf newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
         let sourceFile = tempDir </> _sourceFile conf
             test = tempDir </> _test conf
 
-        (CE.try . TIO.writeFile (fromAbsFile sourceFile) . showState $ newState) >>= \case
-            Left (e :: CE.SomeException) -> traceShow ("testNewStateFlex, EXCEPTION:" :: String) . traceShow (show e) $ return Uninteresting
-            Right _ -> runTest test defaultDuration
+        CE.try
+            ( do
+                  liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState newState
+                  runTest test defaultDuration
+            )
+            >>= \case
+                Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
+                Right i -> return i
 
-runTest :: Path Abs File -> Word -> IO Interesting
+runTest :: Path Abs File -> Word -> R IO Interesting
 runTest test duration = do
     let dirName = parent test
     let testName = filename test
 
-    (timeout (fromIntegral duration) $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
+    (timeout (fromIntegral duration) $ liftIO $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
         Nothing -> do
-            putStrLn "error - runTest: timed out"
+            $(logTM) WarningS "runTest: timed out"
             return Uninteresting
         Just (exitCode, _, _) -> return $ case exitCode of
             ExitFailure _ -> Uninteresting
             ExitSuccess -> Interesting
 
-printInfo :: String -> R ()
+printInfo :: String -> R IO ()
 printInfo context = do
     tState <- asks _tState
     oldState <- liftIO . atomically $ readTVar tState
 
-    liftIO . putStrLn $ "\n***" <> context <> "***"
-    liftIO $ putStrLn $ "Size of old state: " <> (show . T.length . showState $ oldState)
+    let info = "state size: " <> (show . T.length . showState $ oldState)
 
-isTestStillFresh :: String -> R ()
+    -- liftIO $ putStrLn $ "\n***" <> context <> "***"
+    -- liftIO $ putStrLn info
+
+    $(logTM) InfoS "****************************************"
+    $(logTM) InfoS (fromString context)
+    $(logTM) InfoS (fromString info)
+
+isTestStillFresh :: String -> R IO ()
 isTestStillFresh context = do
     conf <- ask
     newState <- liftIO . atomically $ readTVar $ _tState conf
-    liftIO $
-        testNewState conf newState >>= \case
-            Uninteresting -> do
+    testNewState conf newState >>= \case
+        Uninteresting -> do
+            results <- replicateM 3 (testNewState conf newState)
+            when (all (== Uninteresting) results) $ do
                 liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
-                error $ "Test case is broken at >>>" <> context <> "<<<"
-            _ -> return ()
-
-getProposedChanges :: Data a => WaysToChange a -> ParsedSource -> [Located a -> Located a]
-getProposedChanges pass ast = concat [map (overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
-
-mkPass :: Data a => ParsedSource -> String -> WaysToChange a -> [Pass]
-mkPass ast name pass = concat [map (Pass name . transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast]
+                $(logTM) ErrorS (fromString $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<")
+                error $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<"
+        _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression
 -- p: preprocessing (getting to the list)
 -- f: filtering and returning a valid expression again
 handleSubList :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
 handleSubList f p = map f . p
-
--- minireduce :: Data a => (Located a -> R (Located a)) -> R ()
--- minireduce pass = void . (transformBiM pass) =<< gets _parsed
 
 modname2components :: T.Text -> [T.Text]
 modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)
@@ -213,8 +317,7 @@ gshows = render `extQ` (shows :: String -> ShowS)
                 -- isNull      = null (filter (not . flip elem "[]") (constructor ""))
                 isList = constructor "" == "(:)"
 
-
-withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> IO a) -> IO a
+withTempDir :: TChan (Path Abs Dir) -> (Path Abs Dir -> R IO a) -> R IO a
 withTempDir tChan action = do
     tempDir <- atomically $ readTChan tChan
     a <- action tempDir
@@ -350,7 +453,7 @@ importedFromP = do
     fmap T.pack . M.some $ M.satisfy (/= ')')
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
-span2SrcSpan (Span f sl sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl sc) (SL.mkRealSrcLoc n el ec)
+span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc) (SL.mkRealSrcLoc n el ec)
     where
         n = mkFastString $ T.unpack f
 
@@ -389,12 +492,9 @@ lshow = showSDocUnsafe . ppr . unLoc
 isOperator :: String -> Bool
 isOperator = not . any isAlphaNum
 
-pattern UnitTypeP :: HsType GhcPs
-pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
-
 -- delete at Index i, starting from 1 not from 0
-delete :: Int -> [a] -> [a]
-delete i as = take (i -1) as <> drop i as
+deleteAt :: Int -> [a] -> [a]
+deleteAt i as = take (i -1) as <> drop i as
 
 exprContainsId :: RdrName -> HsExpr GhcPs -> Bool
 exprContainsId n (HsApp _ (L _ (HsVar _ (L _ a))) _) = n == a
@@ -405,50 +505,60 @@ exprContainsId _ _ = False
 -- i: index of pattern we wish to remove
 rmvArgsFromExpr :: RdrName -> Int -> Int -> HsExpr GhcPs -> HsExpr GhcPs
 rmvArgsFromExpr conId n i e@(HsApp x la@(L _ a) b)
-    | exprContainsId conId e, n == i = a
-    | exprContainsId conId e = HsApp x (rmvArgsFromExpr conId (n -1) i <$> la) b
+    | exprContainsId conId e,
+      exprFitsNumberOfPatterns n e,
+      n == i =
+        a
+    | exprContainsId conId e, 
+    exprFitsNumberOfPatterns n e
+    = HsApp x (rmvArgsFromExpr conId (n - 1) i <$> la) b
+
     | otherwise = e
 rmvArgsFromExpr _ _ _ e = e
 
--- realFloor :: T.Text
--- realFloor = "Not in scope: ‘GHC.Real.floor’\nNo module named ‘GHC.Real’ is imported."
---
--- hiddenModule :: T.Text
--- hiddenModule = "Could not load module ‘Data.HashMap.Base’\nit is a hidden module in the package ‘unordered-containers-0.2.10.0’\nit is a hidden module in the package ‘unordered-containers-0.2.10.0’\nUse -v to see a list of the files searched for."
---
--- "Not in scope:\n  type constructor or class \u2018Data.Aeson.Types.ToJSON.ToJSON\u2019\nPerhaps you meant one of these:\n  \u2018Data.Aeson.Types.GToJSON\u2019 (imported from Data.Aeson.Types),\n  \u2018Data.Aeson.Types.GToJSON\u2019 (imported from Data.Aeson.Types),\n  \u2018Data.Aeson.Types.ToJSON\u2019 (imported from Data.Aeson.Types)\nNo module named \u2018Data.Aeson.Types.ToJSON\u2019 is imported."
---
--- -- noSuchModule :: T.Text
--- -- noSuchModule = "Not in scope: ‘Data.Binary.Put.runPutM’\nNo module named ‘Data.Binary.Put’ is imported."
---
---
-dataConstructorNotInScope :: T.Text
-dataConstructorNotInScope = "\8226 Data constructor not in scope:\n    Closed :: (UnBounded Integer :+ ()) -> EndPoint (UnBounded r :+ ())\n\8226 Perhaps you meant one of these:\n    ‘Data.Range.Closed’ (imported from Data.Range),\n    variable ‘Data.Range.isClosed’ (imported from Data.Range)"
+exprFitsNumberOfPatterns :: Int -> HsExpr GhcPs -> Bool
+exprFitsNumberOfPatterns n (HsApp _ l _) = exprFitsNumberOfPatterns (n-1) (unLoc l)
+exprFitsNumberOfPatterns 0 _ = True
+exprFitsNumberOfPatterns _ _ = False
 
---
---
-simple :: T.Text
-simple = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.Extensions.GPB’\n Perhaps you meant ‘Text.ProtocolBuffers.Header.GPB’ (imported from Text.ProtocolBuffers.Header)\n No module named ‘Text.ProtocolBuffers.Extensions’ is imported."
+getPragmas :: Path Abs File -> IO [Pragma]
+getPragmas f =
+    -- filter ((/= "Safe") . showExtension)
+    concat
+        . fromRight []
+        . sequence
+        . filter isRight
+        . map (MP.parse pragmasP (fromAbsFile f))
+        . T.lines
+        <$> TIO.readFile (fromAbsFile f)
 
---
--- noModuleNamed :: T.Text
--- noModuleNamed = "Not in scope:\n type constructor or class ‘Text.ProtocolBuffers.TextMessage.TextType’\n Perhaps you meant one of these:\n ‘Text.ProtocolBuffers.Header.TextType’ (imported from Text.ProtocolBuffers.Header),\n ‘Text.ProtocolBuffers.WireMessage.Get’ (imported from Text.ProtocolBuffers.WireMessage)\n No module named ‘Text.ProtocolBuffers.TextMessage’ is imported."
---
--- importedFrom :: T.Text
--- importedFrom = "Not in scope: type constructor or class ‘Data’\nPerhaps you meant ‘Text.ProtocolBuffers.Header.Data’ (imported from Text.ProtocolBuffers.Header)"
+pragmasP :: Parser [Pragma]
+pragmasP = do
+    void $ string "{-#"
+    space
+    f <- pragmaType
+    space
+    n <- T.pack <$> some letterChar
+    ns <- many (char ',' >> space >> T.pack <$> some letterChar)
+    space
+    void $ string "#-}"
+    return . map f $ n : ns
 
-variableNotInScope :: T.Text
-variableNotInScope =
-    "\8226 Variable not in scope:\n    maybe\n      :: t0\n         -> t1 -> Maybe Int -> Either Int Utf8_TextProtocolBuffersBasic\n  "
-        <> "\8226 Perhaps you meant ‘Prelude.maybe’ (imported from Prelude)"
+pragmaType :: Parser (T.Text -> Pragma)
+pragmaType =
+    ((string "language" <|> string "LANGUAGE") >> return Language)
+        <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return OptionsGhc)
+        <|> ((string "INCLUDE" <|> string "include") >> return Include)
 
---
---
---
--- -- getModuleName :: T.Text -> T.Text
--- -- getModuleName = T.intercalate "." . fromMaybe [] . safeInit . T.words . T.map (\c -> if c == '.' then ' ' else c) . trace'' "getModuleName" show
---
--- -- this isn't exactly like the init from Prelude
--- -- safeInit :: [a] -> Maybe [a]
--- -- safeInit [] = Nothing
--- -- safeInit xs = Just $ init xs
+parse :: Path Abs File -> IO RState
+parse fileName = do
+    banner $ "Parsing: " <> fromAbsFile fileName
+
+    let filePath = fromAbsFile fileName
+    p <- EP.parseModule filePath >>= \case
+        Left e -> error . showSDocUnsafe $ ppr e
+        Right p -> return $ snd p
+
+    prags <- getPragmas fileName
+
+    return $ RState prags p False emptyStats 0

@@ -1,12 +1,14 @@
 module Main where
 
-import Reduce.Driver
 import Merge.HsAllInOne
-import Util.Types
 import Options.Generic
 
+import Reduce.Driver
+import Reduce.Passes
+import Util.Types
+
 main :: IO ()
-main = do
+main =
     unwrapRecord "hsreduce" >>= \case
-        Reduce {..} -> hsreduce numberOfThreads test sourceFile Nothing
+        Reduce {..} -> hsreduce allActions numberOfThreads test sourceFile
         Merge {..} -> hsmerge sourceFile

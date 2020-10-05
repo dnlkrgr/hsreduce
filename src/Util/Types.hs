@@ -1,22 +1,62 @@
 module Util.Types where
 
-import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.STM.Lifted (TChan, TVar)
+import Control.Monad.Base (MonadBase (..), liftBaseDefault)
 import Control.Monad.Reader
-import Data.Aeson
-import Data.Csv
-import Data.List
+    ( MonadIO (..),
+      MonadReader (local),
+      MonadTrans,
+      ReaderT (..),
+      asks,
+    )
+import Control.Monad.Trans.Control
+    ( ComposeSt,
+      MonadBaseControl (..),
+      MonadTransControl (..),
+      defaultLiftBaseWith,
+      defaultLiftWith,
+      defaultRestoreM,
+      defaultRestoreT,
+    )
+import Data.Aeson (FromJSON)
+import Data.Csv (DefaultOrdered, ToNamedRecord)
+import Data.List (intercalate)
 import qualified Data.Map as M
 import qualified Data.Text as T
-import Data.Time
-import Data.Void
-import Data.Word
-import GHC
+import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
+import Data.Void (Void)
+import Data.Word (Word8)
+import GHC (ParsedSource, unLoc)
 import GHC.LanguageExtensions.Type
-import Lens.Micro.Platform
+    ( Extension
+          ( AllowAmbiguousTypes,
+            ConstraintKinds,
+            RankNTypes,
+            TypeApplications,
+            TypeFamilies,
+            TypeInType,
+            TypeOperators
+          ),
+    )
+import Katip as K
+    ( Katip (..),
+      KatipContext (..),
+      LogContexts,
+      LogEnv,
+      Namespace,
+    )
+import Lens.Micro.Platform (makeLenses)
 import Options.Generic
-import Outputable hiding ((<>))
-import Path
+    ( Generic,
+      ParseRecord,
+      Unwrapped,
+      Wrapped,
+      type (:::),
+      type (<?>),
+    )
+import Outputable (Outputable (ppr), showSDocUnsafe)
+import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
 data CLIOptions w
@@ -27,14 +67,6 @@ data CLIOptions w
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     deriving (Generic)
-
-instance ParseRecord (CLIOptions Wrapped)
-
-instance Show (CLIOptions Unwrapped)
-
-type WaysToChange a = a -> [a -> a]
-
-data Pass = Pass String (ParsedSource -> ParsedSource)
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving (Eq)
@@ -65,18 +97,6 @@ instance Show Performance where
             ]
             <> "\n"
 
-mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> IO Performance
-mkPerformance oldSize newSize t1 t2 n = do
-    c <- fromIntegral <$> getNumCapabilities
-    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
-    where
-        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word
-        offset =
-            if utctDayTime t2 < utctDayTime t1
-                then 86401
-                else 0
-        duration = utctDayTime t2 + offset - utctDayTime t1
-
 data PassStats = PassStats
     { _passName :: String,
       _successfulAttempts :: Word,
@@ -104,12 +124,9 @@ emptyStats = Statistics M.empty
 data RState = RState
     { _pragmas :: [Pragma],
       _parsed :: ParsedSource,
-      _typechecked :: Maybe TypecheckedModule,
       _isAlive :: Bool,
       _statistics :: Statistics,
-      _numRenamedNames :: Word,
-      _numRmvdArgs :: Word,
-      _hscEnv :: Maybe HscEnv
+      _numRenamedNames :: Word
     }
 
 makeLenses ''RState
@@ -119,18 +136,21 @@ data RConf = RConf
       _sourceFile :: Path Rel File,
       _numberOfThreads :: Int,
       _tempDirs :: TChan (Path Abs Dir),
-      _tState :: TVar RState
+      _tState :: TVar RState,
+      logNamespace :: K.Namespace,
+      logContext :: K.LogContexts,
+      logEnv :: K.LogEnv
     }
 
-runR :: RConf -> R a -> IO a
-runR c (R a) = runReaderT a c
+runR :: RConf -> R m a -> m a
+runR conf (R a) = runReaderT a conf
 
-newtype R a = R (ReaderT RConf IO a)
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf)
+newtype R m a = R {unR :: ReaderT RConf m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
 
 showState :: RState -> T.Text
-showState (RState [] ps _ _ _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _ _ _) =
+showState (RState [] ps _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _) =
     T.unlines $
         ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
@@ -166,7 +186,7 @@ instance Show ProjectType where
     show Library = "library"
 
 data Interesting = Interesting | Uninteresting
-    deriving (Show)
+    deriving (Eq, Show)
 
 pragma2Extension :: Pragma -> Maybe Extension
 pragma2Extension (Language e) =
@@ -192,3 +212,52 @@ instance Show Pragma where
     show (Include i) = "{-# INCLUDE " ++ T.unpack i ++ " #-}"
 
 type Parser = MP.Parsec Void T.Text
+
+type WaysToChange a = a -> [a -> a]
+
+data Pass
+    = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
+    | Arst String (RState -> [RState -> RState])
+
+-- ##### KATIP STUFF
+instance MonadBase b m => MonadBase b (R m) where
+    liftBase = liftBaseDefault
+
+instance MonadTransControl R where
+    type StT R a = StT (ReaderT RConf) a
+    liftWith = defaultLiftWith R unR
+    restoreT = defaultRestoreT R
+
+instance MonadBaseControl b m => MonadBaseControl b (R m) where
+    type StM (R m) a = ComposeSt R m a
+    liftBaseWith = defaultLiftBaseWith
+    restoreM = defaultRestoreM
+
+-- These instances get even easier with lenses!
+instance (MonadIO m) => Katip (R m) where
+    getLogEnv = asks logEnv
+    localLogEnv f (R m) = R (local (\s -> s {logEnv = f (logEnv s)}) m)
+
+instance (MonadIO m) => KatipContext (R m) where
+    getKatipContext = asks logContext
+    localKatipContext f (R m) = R (local (\s -> s {logContext = f (logContext s)}) m)
+    getKatipNamespace = asks logNamespace
+    localKatipNamespace f (R m) = R (local (\s -> s {logNamespace = f (logNamespace s)}) m)
+
+-- #####
+
+mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> R IO Performance
+mkPerformance oldSize newSize t1 t2 n = do
+    c <- fromIntegral <$> liftIO getNumCapabilities
+    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
+    where
+        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word
+        offset =
+            if utctDayTime t2 < utctDayTime t1
+                then 86401
+                else 0
+        duration = utctDayTime t2 + offset - utctDayTime t1
+
+instance ParseRecord (CLIOptions Wrapped)
+
+instance Show (CLIOptions Unwrapped)

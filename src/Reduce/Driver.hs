@@ -3,54 +3,84 @@ module Reduce.Driver
     )
 where
 
-import Control.Concurrent.STM
-import Control.Monad
-import Control.Monad.Reader
 import qualified Data.ByteString.Lazy as LBS
-import Data.Csv
+import Data.Csv ( encodeDefaultOrderedByName )
+import Control.Concurrent.STM.Lifted
+    ( newTVar,
+      newTChan,
+      readTChan,
+      writeTChan,
+      modifyTVar,
+      readTVarIO,
+      atomically )
+import Control.Exception ( bracket )
+import Control.Monad ( when, forM_ )
+import Control.Monad.Reader ( asks, MonadIO(liftIO) )
+import Data.Text(pack)
+import Data.Text.Lazy.Builder ( fromText, fromString )
+import Data.Time
+    ( UTCTime, getCurrentTime, formatTime, defaultTimeLocale )
+import Data.Word ( Word8 )
+import Katip
+    ( closeScribes,
+      defaultScribeSettings,
+      initLogEnv,
+      permitItem,
+      registerScribe,
+      renderSeverity,
+      logTM,
+      Item(Item, _itemLoc, _itemNamespace, _itemTime, _itemMessage,
+           _itemPayload, _itemProcess, _itemHost, _itemThread, _itemSeverity,
+           _itemEnv, _itemApp),
+      LogItem,
+      LogStr(LogStr, unLogStr),
+      Severity(InfoS, DebugS),
+      ThreadIdText(getThreadIdText),
+      Verbosity(V2),
+      )
+import Katip.Scribes.Handle
+    ( mkHandleScribeWithFormatter,
+      ColorStrategy(ColorIfTerminal),
+      ItemFormatter,
+      brackets,
+      colorBySeverity )
+import Path
+    ( (</>), absdir, dirname, filename, fromAbsFile, parent )
+import Path.IO
+    ( copyDirRecur,
+      copyFile,
+      createTempDir,
+      listDir,
+      removeDirRecur,
+      resolveFile' )
+import System.IO ( stdout, IOMode(WriteMode), hClose, openFile )
+import Util.Types
+    ( Statistics(_passStats),
+      RState(_statistics, _isAlive),
+      R,
+      RConf(RConf, _tState),
+      runR,
+      showState,
+      mkPerformance )
+import Util.Util ( updateStatistics, isTestStillFresh, parse )
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Data.Time
-import Parser.Parser
-import Path
-import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
-import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
-import qualified Reduce.Passes.Functions as Functions (inline)
-import qualified Reduce.Passes.Names as Names (shortenNames)
-import qualified Reduce.Passes.Remove.Decls as Decls (fast, recCon2Prefix, slow)
-import qualified Reduce.Passes.Remove.Exports as Exports (reduce)
-import qualified Reduce.Passes.Remove.Imports as Imports (reduce)
-import qualified Reduce.Passes.Remove.Parameters as Parameters (reduce)
-import qualified Reduce.Passes.Remove.Pragmas as Pragmas (reduce)
-import qualified Reduce.Passes.Simplify.Decls as Decls
-import qualified Reduce.Passes.Simplify.Expr as Expr
-import qualified Reduce.Passes.Simplify.Pat as Pat
-import qualified Reduce.Passes.Simplify.Types as Types
-import qualified Reduce.Passes.Stubbing as Stubbing (slow, slowest)
-import Util.Types
-import Util.Util
-import Data.Word
-import Path.IO
 
-
-hsreduce :: Word8 -> FilePath -> FilePath -> (Maybe (R ())) -> IO ()
-hsreduce (fromIntegral -> numberOfThreads) test filePath mAction = do
-    putStrLn "*******************************************************"
+hsreduce :: [R IO ()] -> Word8 -> FilePath -> FilePath -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
     testAbs <- resolveFile' test
     filePathAbs <- resolveFile' filePath
     -- 1. parse the test case once at the beginning so we can work on the AST
     -- 2. record all the files in the current directory
     -- 3. record the starting time
 
-
     fileContent <- TIO.readFile $ fromAbsFile filePathAbs
-    beginState <- parse True filePathAbs
+    beginState <- parse filePathAbs
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
-    let 
-        sourceDir = parent testAbs
+    let sourceDir = parent testAbs
         oldSize = T.length fileContent
     files <- listDir sourceDir
 
@@ -67,99 +97,76 @@ hsreduce (fromIntegral -> numberOfThreads) test filePath mAction = do
 
         atomically $ writeTChan tChan tempDir
 
-    -- recording the size diff of formatting for more accurate statistics
-    let beginConf = (RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState)
-    updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
+    -- KATIP STUFF
+    let mkFileHandle = openFile "hsreduce.log" WriteMode
 
-    -- run the reducing functions
-    case mAction of
-        Nothing -> void $ runR beginConf allActions
-        Just oneAction -> void $ runR beginConf oneAction
-    newState <- readTVarIO tState
+    bracket mkFileHandle hClose $ \_ -> do
+        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal stdout (permitItem DebugS) V2
+        let mkLogEnv = registerScribe "stdout" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
 
-    -- handling of the result and outputting useful information
-    let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
-        newSize = T.length . showState $ newState
+        bracket mkLogEnv closeScribes $ \le -> do
+            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le
 
-    putStrLn "*******************************************************"
-    putStrLn "\n\nFinished."
-    putStrLn $ "Old size:        " <> show oldSize
-    putStrLn $ "Reduced size:    " <> show newSize
+            -- run the reducing functions
+            runR beginConf $ do
+                updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
+                mapM_ largestFixpoint allActions
 
-    TIO.writeFile (fileName <> "_hsreduce.hs") (showState newState)
+                newState <- readTVarIO tState
 
-    t2 <- getCurrentTime
+                -- handling of the result and outputting useful information
+                let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
+                    newSize = T.length . showState $ newState
 
-    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+                $(logTM) InfoS "*******************************************************"
+                $(logTM) InfoS "Finished."
+                $(logTM) InfoS (LogStr . fromString $ "Old size:        " <> show oldSize)
+                $(logTM) InfoS (LogStr . fromString $ "Reduced size:    " <> show newSize)
 
-    appendFile "hsreduce_performance.csv" $ show perfStats
-    LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
+                liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState newState)
+
+                t2 <- liftIO getCurrentTime
+
+                perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+
+                liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
+                liftIO . LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan
         removeDirRecur t
 
 
-allActions :: R ()
-allActions =
-    forM_ passes $ \pass -> do
-        liftIO $ putStrLn "\n\n*** Increasing granularity ***"
-        largestFixpoint pass
-    where
-        passes = [fast, medium, slowest, snail]
-
-
-fast :: R ()
-fast = do
-    TypeFamilies.apply
-    runPass "recCon2Prefix" Decls.recCon2Prefix
-    runPass "rmvFunDeps" Decls.rmvFunDeps
-    runPass "remove type family equations" TypeFamilies.rmvEquations
-    Imports.reduce
-    Pragmas.reduce
-    Exports.reduce
-    Decls.fast
-
-medium :: R ()
-medium = do
-    runPass "expr2Undefined" Expr.expr2Undefined
-    fast
-    Decls.slow
-
-slowest :: R ()
-slowest = do
-    runPass "filterExprSubList" Expr.filterExprSubList
-    runPass "type2Unit" Types.type2Unit
-    runPass "pat2Wildcard" Pat.pat2Wildcard
-    runPass "simplifyConDecl" Decls.simplifyConDecl
-    Stubbing.slow
-    fast
-
-snail :: R ()
-snail = do
-    runPass "simplifyExpr" Expr.simplifyExpr
-    runPass "simplifyType" Types.simplifyType
-    Stubbing.slowest
-    -- Names.shortenNames
-    DataTypes.inline
-    Functions.inline
-    DataTypes.rmvConArgs
-    -- Parameters.reduce
-    fast
-
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
 -- 2. set alive variable to false
 -- 3. run reducing function f
 -- 4. check if something interesting happened; if yes, continue
-largestFixpoint :: R () -> R ()
+largestFixpoint :: R IO () -> R IO ()
 largestFixpoint f = do
     tState <- asks _tState
     go tState
     where
         go tState = do
-            liftIO $ putStrLn "\n\n\n***NEW ITERATION***"
+            -- $(logTM) InfoS "***NEW ITERATION***"
             isTestStillFresh "largestFixpoint"
 
-            liftIO . atomically $ modifyTVar tState $ \s -> s {_isAlive = False}
+            atomically $ modifyTVar tState $ \s -> s {_isAlive = False}
             f
-            liftIO (fmap _isAlive . atomically $ readTVar tState) >>= flip when (go tState)
+            (_isAlive <$> readTVarIO tState) >>= flip when (go tState)
+
+
+myTimeFormat :: UTCTime -> T.Text
+myTimeFormat = pack . formatTime defaultTimeLocale "%H:%M:%S"
+
+myFormat :: LogItem a => ItemFormatter a
+myFormat withColor _ Item{..} =
+    brackets nowStr 
+    -- <> brackets (mconcat $ map fromText $ intercalateNs _itemNamespace) 
+    <> brackets (fromText (renderSeverity' _itemSeverity))
+    <> brackets (fromText $ "ThreadId " <> getThreadIdText _itemThread)
+    -- <> mconcat ks 
+    -- <> maybe mempty (brackets . fromString . locationToString) _itemLoc
+    <> fromText " " <> (unLogStr _itemMessage)
+  where
+    nowStr = fromText (myTimeFormat _itemTime)
+    renderSeverity' severity = colorBySeverity withColor severity (renderSeverity severity)

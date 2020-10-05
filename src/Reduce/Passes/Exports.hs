@@ -1,19 +1,53 @@
-module Reduce.Passes.Remove.Exports (reduce) where
+module Reduce.Passes.Exports (reduce) where
 
-import Control.Concurrent.STM
-import Control.Monad.Reader
-import Data.Maybe
+import Control.Concurrent.STM.Lifted
+    ( atomically,
+      readTVar,
+      writeTVar,
+    )
+import Control.Monad.Reader (MonadReader (ask), asks)
+import Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import GHC
-import Path
+    ( GenLocated (L),
+      GhcPs,
+      HsBindLR (FunBind),
+      HsDecl (TyClD, ValD),
+      HsModule (hsmodDecls, hsmodExports, hsmodName),
+      IE (IEThingAbs, IEThingAll, IEVar),
+      IEWrappedName (IEName),
+      LIE,
+      NoExt (NoExt),
+      isSynDecl,
+      mkModuleName,
+      noLoc,
+      noSrcSpan,
+      tcdName,
+      unLoc,
+    )
+import Katip (Severity (InfoS), logTM)
+import Path (fromRelFile)
 import Util.Types
+    ( Pass,
+      R,
+      RConf (_sourceFile, _tState),
+      RState (_parsed),
+      WaysToChange,
+      showState,
+    )
 import Util.Util
+    ( handleSubList,
+      mkPass,
+      oshow,
+      runPass,
+      updateStatistics,
+    )
 
-reduce :: R ()
+reduce :: R IO ()
 reduce = do
     conf <- ask
     let tState = _tState conf
-    oldState <- liftIO . atomically $ readTVar tState
+    oldState <- atomically $ readTVar tState
 
     let L l oldModule = _parsed oldState
         maybeModName = hsmodName oldModule
@@ -22,7 +56,7 @@ reduce = do
 
     case maybeExports of
         Nothing -> do
-            liftIO $ putStrLn "\n\n***making exports explicit***"
+            $(logTM) InfoS "making exports explicit"
 
             modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
 
@@ -34,16 +68,19 @@ reduce = do
                 newModule = oldModule {hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName}
                 newState = oldState {_parsed = L l newModule}
 
-            liftIO . atomically $ writeTVar tState newState
-            liftIO $ updateStatistics conf "mkExportsExplicit" 1 (T.length (showState newState) - T.length (showState oldState))
+            atomically $ writeTVar tState newState
+            updateStatistics conf "mkExportsExplicit" 1 (T.length (showState newState) - T.length (showState oldState))
         -- TODO: if no exports were removed, turn it into Nothing again
 
         Just _ -> return ()
 
-    runPass "rmvExports" removeExports
+    runPass removeExports
 
-removeExports :: WaysToChange [LIE GhcPs]
-removeExports = handleSubList (\e -> filter ((/= e) . oshow)) (map oshow)
+removeExports :: Pass
+removeExports = mkPass "rmvExports" f
+    where
+        f :: WaysToChange [LIE GhcPs]
+        f = handleSubList (\e -> filter ((/= e) . oshow)) (map oshow)
 
 -- | turn decl into a fitting export, somehow type synonyms and
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)

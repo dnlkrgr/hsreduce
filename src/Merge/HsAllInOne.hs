@@ -1,8 +1,8 @@
 module Merge.HsAllInOne where
 
 import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void, when)
-import Data.Bifunctor
-import Data.Generics.Uniplate.Data
+import Data.Bifunctor (Bifunctor (first))
+import Data.Generics.Uniplate.Data (transformBi, universeBi)
 import Data.Hashable (hash)
 import Data.List (nub, sortOn)
 import qualified Data.Map as M
@@ -13,17 +13,111 @@ import Data.Traversable (for)
 import Data.Void (Void)
 import Debug.Trace (traceShow)
 import Digraph (flattenSCC)
-import GHC hiding (GhcMode, extensions)
+import GHC
+    ( AmbiguousFieldOcc (Ambiguous, Unambiguous),
+      ClsInstDecl,
+      FamEqn (FamEqn, feqn_tycon),
+      FieldOcc (FieldOcc),
+      GhcPs,
+      GhcRn,
+      HsBindLR (FunBind, fun_id, fun_matches),
+      HsMatchContext,
+      HsModule (HsModule, hsmodDecls, hsmodImports),
+      HsSplice,
+      HsTyPats,
+      ImportDecl
+          ( ideclAs,
+            ideclHiding,
+            ideclName,
+            ideclQualified,
+            ideclSafe
+          ),
+      LHsType,
+      LImportDecl,
+      LoadHowMuch (LoadAllTargets),
+      ModSummary (ms_location, ms_mod),
+      ParsedModule (pm_parsed_source),
+      RealSrcLoc,
+      RealSrcSpan,
+      Sig (ClassOpSig, TypeSig),
+      SrcSpan,
+      TypecheckedModule
+          ( tm_internals_,
+            tm_parsed_module,
+            tm_renamed_source
+          ),
+      getModuleGraph,
+      load,
+      mkModuleName,
+      moduleNameString,
+      noLoc,
+      parseModule,
+      runGhc,
+      setTargets,
+      srcLocCol,
+      srcLocLine,
+      topSortModuleGraph,
+      typecheckModule,
+      unLoc,
+    )
 import GHC.Paths (libdir)
-import GhcPlugins hiding ((<&&>), (<>), GhcMode, count, extensions, getHscEnv, isQual, mkUnqual, qualName)
+import GhcPlugins
+    ( GenLocated (L),
+      GlobalRdrElt (gre_imp, gre_name),
+      GlobalRdrEnv,
+      HasOccName (occName),
+      ImpDeclSpec (is_mod),
+      ImportSpec (is_decl),
+      Located,
+      ModLocation (ml_hs_file),
+      Module (moduleName),
+      ModuleName,
+      Name,
+      OccName (occNameSpace),
+      RdrName (Qual, Unqual),
+      getRdrName,
+      isBuiltInSyntax,
+      isSystemName,
+      liftIO,
+      lookupGRE_Name,
+      lookupGlobalRdrEnv,
+      mkOccName,
+      nameModule_maybe,
+      occNameString,
+      pprNameUnqualified,
+      rdrNameOcc,
+      realSrcSpanEnd,
+      realSrcSpanStart,
+      showSDocUnsafe,
+    )
 import HIE.Bios
-import Parser.Parser (getPragmas)
-import Path ((</>), Abs, File, Path, fromAbsFile, parseAbsFile, parseRelFile, fromAbsDir)
+    ( Cradle (cradleRootDir),
+      CradleLoadResult (CradleFail, CradleSuccess),
+      findCradle,
+      getCompilerOptions,
+      initSession,
+      loadCradle,
+    )
+import Path ((</>), Abs, File, Path, fromAbsDir, fromAbsFile, parseAbsFile, parseRelFile)
+import Path.IO (getCurrentDir)
 import TcRnTypes (tcg_rdr_env)
-import Text.EditDistance
+import Text.EditDistance (defaultEditCosts, levenshteinDistance)
 import Util.Types
+    ( GhcMode (Indent, PerhapsYouMeant),
+      Pragma,
+      Tool (Ghc),
+    )
 import Util.Util
-import Path.IO
+    ( banner,
+      getGhcOutput,
+      getPragmas,
+      isOperator,
+      oshow,
+      removeInternal,
+    )
+
+namesToDebug :: [String]
+namesToDebug = [".+^"]
 
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
@@ -52,7 +146,7 @@ hsmerge filePath = do
                         (renamedGroups, _, _, _) = fromMaybe (error "HsAllInOne->hsmerge: no renamed source!") $ tm_renamed_source t
                         proposedNameChanges = flip map (universeBi renamedGroups :: [Located Name]) $ \(L l n) ->
                             let temp = name2ProposedChange rdrEnv importsModuleNames ours n
-                             in (l,) $ temp
+                             in (l,) $ (if oshow n `elem` namesToDebug then traceShow (oshow $ (`elem` importsModuleNames) <$> getModuleName n) else id) $ temp
                         -- in (if "Interval" `isInfixOf` oshow n then traceShow (oshow temp) else id) $ (l,) $ temp
                         otherNames = map (fmap snd) proposedNameChanges
                         ambiguousFields = map (fmap snd) $ flip map (universeBi renamedGroups) (ambiguousField2ProposedChanged rdrEnv importsModuleNames ours)
@@ -126,10 +220,11 @@ getNameFromEnv rdrEnv imports ours mn maybeName on =
                 --     . traceShow (oshow newMN)
                 --     . traceShow (newMN `elem` ours)
                 Unqual on
-                    -- $ Qual (if newMN `notElem` ours then newMN else mn) on
     where
+        -- \ $ Qual (if newMN `notElem` ours then newMN else mn) on
+
         moduleNamesFromEnv =
-            sortOn (levenshteinDistance defaultEditCosts (oshow mn) . oshow) . nub $
+            sortOn (levenshteinDistance defaultEditCosts (oshow mn) . oshow) . (if oshow on `elem` namesToDebug then (\l -> traceShow (oshow l) l) else id) . nub $
                 ( case maybeName of
                       Nothing ->
                           [ importMN
@@ -147,7 +242,6 @@ getNameFromEnv rdrEnv imports ours mn maybeName on =
                                       let importMN = is_mod $ is_decl possibleImport
                                   ]
                               Just rdrElement ->
-                                  traceShow "lookupGRE_Name: SUCCESS!"
                                   [ importMN
                                     | possibleImport <- gre_imp rdrElement,
                                       let importMN = is_mod $ is_decl possibleImport
@@ -340,36 +434,36 @@ cleanUp tool mode sourcePath = do
             when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
 
 replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
-replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent
-    = T.unlines $ prevLines <> [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] <> succLines
-  where
-      contentLines   = T.lines fileContent
-      lineStart      = srcLocLine startLoc
-      colStart       = srcLocCol  startLoc
-      colEnd         = srcLocCol  endLoc
-      currentIndex   = lineStart-1
-      prevLines      = take currentIndex contentLines
-      succLines      = drop lineStart contentLines
-      currentLine    = contentLines !! currentIndex
-      oldName        = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
-      prefix         = T.take (colStart-1) currentLine
-      suffix         = T.drop (colEnd-1) currentLine
-      isInfix        = (==2) . T.length . T.filter (=='`') . T.drop (colStart-1) . T.take (colEnd-1) $ currentLine
-      realNewName    = 
-          if "Internal" `elem` T.words oldName
-          then removeInternal id oldName
-          else newName
-      newLineContent =
-          if isInfix
-          then prefix <> "`" <> realNewName <> "`" <> suffix
-          else prefix <> realNewName <> suffix
+replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent =
+    T.unlines $ prevLines <> [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] <> succLines
+    where
+        contentLines = T.lines fileContent
+        lineStart = srcLocLine startLoc
+        colStart = srcLocCol startLoc
+        colEnd = srcLocCol endLoc
+        currentIndex = lineStart -1
+        prevLines = take currentIndex contentLines
+        succLines = drop lineStart contentLines
+        currentLine = contentLines !! currentIndex
+        oldName = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
+        prefix = T.take (colStart -1) currentLine
+        suffix = T.drop (colEnd -1) currentLine
+        isInfix = (== 2) . T.length . T.filter (== '`') . T.drop (colStart -1) . T.take (colEnd -1) $ currentLine
+        realNewName =
+            if "Internal" `elem` T.words oldName
+                then removeInternal id oldName
+                else newName
+        newLineContent =
+            if isInfix
+                then prefix <> "`" <> realNewName <> "`" <> suffix
+                else prefix <> realNewName <> suffix
 
 insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 insertIndent (_, (startLoc, _)) fileContent =
     T.unlines $ prevLines <> [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] <> succLines
     where
         contentLines = T.lines fileContent
-        lineStart      = srcLocLine startLoc
+        lineStart = srcLocLine startLoc
         currentIndex = lineStart -1
         prevLines = take currentIndex contentLines
         succLines = drop lineStart contentLines
@@ -379,5 +473,5 @@ insertIndent (_, (startLoc, _)) fileContent =
 span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
 span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
-instance Eq (ImportDecl GhcPs) where
+instance {-# OVERLAPPABLE #-} Eq (ImportDecl GhcPs) where
     i1 == i2 = oshow i1 == oshow i2
