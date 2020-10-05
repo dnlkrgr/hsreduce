@@ -1,9 +1,25 @@
 module Reduce.Passes.Functions (inline, etaReduceMatches, rmvMatches, rmvRHSs, rmvGuards) where
 
-import Data.Generics.Uniplate.Data
-import GHC hiding (Pass)
-import Util.Types
-import Util.Util
+import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import GHC
+    ( GRHS (GRHS),
+      GRHSs (GRHSs, grhssGRHSs),
+      GenLocated (L),
+      GhcPs,
+      HsBindLR (FunBind),
+      HsExpr (HsApp, HsVar),
+      LGRHS,
+      LHsExpr,
+      LHsLocalBinds,
+      LMatch,
+      Match (Match, m_grhss, m_pats),
+      MatchGroup (MG),
+      NoExt (NoExt),
+      getLoc,
+      unLoc,
+    )
+import Util.Types (Pass (AST), WaysToChange)
+import Util.Util (handleSubList, mkPass, oshow)
 
 -- function with:
 -- - one match
@@ -36,12 +52,11 @@ inline = AST "inlineFunctions" $ \ast ->
             length (grhssGRHSs $ m_grhss $ head $ matches) == 1,
             GRHS _ [] body :: GRHS GhcPs (LHsExpr GhcPs) <- unLoc . head . grhssGRHSs . m_grhss <$> matches
         ]
-
-replaceFunIdWithBody :: RdrName -> LHsExpr GhcPs -> HsExpr GhcPs -> HsExpr GhcPs
-replaceFunIdWithBody funName (L _ body) old@(HsVar _ (L _ n))
-    | funName == n = body
-    | otherwise = old
-replaceFunIdWithBody _ _ old = old
+    where
+        replaceFunIdWithBody funName (L _ body) old@(HsVar _ (L _ n))
+            | funName == n = body
+            | otherwise = old
+        replaceFunIdWithBody _ _ old = old
 
 -- ***************************************************************************
 
@@ -89,7 +104,6 @@ rmvGuards = mkPass "rmvGuards" f
                 h loc (GRHS _ s b) = GRHS NoExt (filter ((/= loc) . getLoc) s) b
                 h _ _ = g
         f _ = []
-
 
 -- ***************************************************************************
 

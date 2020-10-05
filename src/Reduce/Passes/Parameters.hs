@@ -1,9 +1,28 @@
 module Reduce.Passes.Parameters (reduce) where
 
-import Data.Generics.Uniplate.Data
-import GHC hiding (Pass)
-import Util.Types
-import Util.Util
+import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import GHC
+    ( GenLocated (L),
+      GhcPs,
+      HsBind,
+      HsBindLR (FunBind),
+      HsImplicitBndrs (HsIB),
+      HsType (HsFunTy),
+      HsWildCardBndrs (HsWC),
+      LHsExpr,
+      LMatch,
+      Match (Match, m_pats),
+      MatchGroup (MG, mg_alts),
+      NoExt (NoExt),
+      ParsedSource,
+      Pat (WildPat),
+      RdrName,
+      Sig (TypeSig),
+      isInfixMatch,
+      unLoc,
+    )
+import Util.Types (Pass (AST))
+import Util.Util (rmvArgsFromExpr)
 
 reduce :: Pass
 reduce = AST "rmvUnusedParams" $ \ast ->
@@ -37,9 +56,9 @@ reduce = AST "rmvUnusedParams" $ \ast ->
                           indices
         )
         [ (funId, funMG)
-          | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast
+          | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast,
             -- infix matches can't be handled yet, GHC panics when trying to print what hsreduce produces
-            , all (not . isInfixMatch) . map unLoc . unLoc $ mg_alts funMG
+            all (not . isInfixMatch) . map unLoc . unLoc $ mg_alts funMG
         ]
 
 getPatsLength :: RdrName -> ParsedSource -> [Int]

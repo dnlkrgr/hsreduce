@@ -1,10 +1,50 @@
 module Reduce.Passes.Typeclasses (rmvFunDeps, rmvTyClMethods, handleMultiParams) where
 
-import Bag
-import Data.Generics.Uniplate.Data
-import GHC hiding (Pass)
-import Util.Types
-import Util.Util
+import Bag (bagToList, listToBag)
+import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import GHC
+    ( ClsInstDecl
+          ( ClsInstDecl,
+            cid_binds,
+            cid_datafam_insts,
+            cid_ext,
+            cid_overlap_mode,
+            cid_poly_ty,
+            cid_sigs,
+            cid_tyfam_insts
+          ),
+      GenLocated (L),
+      GhcPs,
+      HsBindLR (FunBind, fun_id),
+      HsDecl (TyClD),
+      HsImplicitBndrs (HsIB),
+      HsType (HsAppTy, HsTyVar),
+      LHsBinds,
+      LHsQTyVars (hsq_explicit),
+      LSig,
+      NoExt (NoExt),
+      ParsedSource,
+      RdrName,
+      Sig (ClassOpSig, InlineSig),
+      TyClDecl
+          ( ClassDecl,
+            tcdATDefs,
+            tcdATs,
+            tcdCExt,
+            tcdCtxt,
+            tcdDocs,
+            tcdFDs,
+            tcdFixity,
+            tcdLName,
+            tcdMeths,
+            tcdSigs,
+            tcdTyVars
+          ),
+      getLoc,
+      unLoc,
+    )
+import Util.Types (Pass (AST), WaysToChange)
+import Util.Util (deleteAt, handleSubList, mkPass)
 
 -- rmvTyClParams :: Pass
 -- rmvTyClParams
@@ -43,7 +83,7 @@ rmvArgsFromClass _ _ d = d
 rmvArgsFromInstance :: RdrName -> Int -> Int -> ClsInstDecl GhcPs -> ClsInstDecl GhcPs
 rmvArgsFromInstance className n i d@ClsInstDecl {..} =
     case cid_poly_ty of
-        HsIB _ body -> d { cid_poly_ty = HsIB NoExt $ rmvArgsFromType className n i <$> body}
+        HsIB _ body -> d {cid_poly_ty = HsIB NoExt $ rmvArgsFromType className n i <$> body}
         _ -> d
 rmvArgsFromInstance _ _ _ d = d
 
@@ -55,15 +95,14 @@ rmvArgsFromType conId n i e@(HsAppTy x la@(L _ a) b)
       typeFitsNumberOfParams n e,
       n == i =
         a
-    | typeContainsTyCon conId e, 
-    typeFitsNumberOfParams n e
-    = HsAppTy x (rmvArgsFromType conId (n - 1) i <$> la) b
-
+    | typeContainsTyCon conId e,
+      typeFitsNumberOfParams n e =
+        HsAppTy x (rmvArgsFromType conId (n - 1) i <$> la) b
     | otherwise = e
 rmvArgsFromType _ _ _ e = e
 
 typeFitsNumberOfParams :: Int -> HsType GhcPs -> Bool
-typeFitsNumberOfParams n (HsAppTy _ l _) = typeFitsNumberOfParams (n-1) (unLoc l)
+typeFitsNumberOfParams n (HsAppTy _ l _) = typeFitsNumberOfParams (n -1) (unLoc l)
 typeFitsNumberOfParams 0 _ = True
 typeFitsNumberOfParams _ _ = False
 
@@ -113,9 +152,8 @@ rmvFunDeps = mkPass "rmvFunDeps" f
     where
         f :: WaysToChange (HsDecl GhcPs)
         f = handleSubList g p
-          where
-            p (TyClD _ d@ClassDecl{}) = map getLoc $ tcdFDs d 
-            p _ = []
-
-            g loc (TyClD _ d@ClassDecl{}) = TyClD NoExt $ d { tcdFDs = filter ((/= loc) . getLoc) $ tcdFDs d }
-            g _ t = t
+            where
+                p (TyClD _ d@ClassDecl {}) = map getLoc $ tcdFDs d
+                p _ = []
+                g loc (TyClD _ d@ClassDecl {}) = TyClD NoExt $ d {tcdFDs = filter ((/= loc) . getLoc) $ tcdFDs d}
+                g _ t = t

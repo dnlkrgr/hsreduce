@@ -8,9 +8,24 @@ module Reduce.Passes.Stubbing
 where
 
 import Bag (bagToList, listToBag)
-import GHC hiding (Pass)
-import Util.Types
-import Util.Util
+import GHC
+    ( GhcPs,
+      HsContext,
+      HsDerivingClause (HsDerivingClause),
+      HsIPBinds (IPBinds),
+      HsImplicitBndrs (HsIB),
+      HsLocalBinds,
+      HsLocalBindsLR (EmptyLocalBinds, HsIPBinds, HsValBinds),
+      HsTyVarBndr (KindedTyVar, UserTyVar),
+      HsValBindsLR (ValBinds),
+      LHsDerivingClause,
+      NoExt (NoExt),
+      SrcSpan,
+      getLoc,
+      unLoc,
+    )
+import Util.Types (Pass, WaysToChange)
+import Util.Util (handleSubList, mkPass)
 
 -- ******************************
 
@@ -112,6 +127,7 @@ localBinds = mkPass "localBinds" f
 
 -- ***************************************************************************
 -- MISC
+
 -- ***************************************************************************
 
 tyVarBndr :: Pass
@@ -120,4 +136,3 @@ tyVarBndr = mkPass "tyVarBndr" f
         f :: WaysToChange (HsTyVarBndr GhcPs)
         f (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
         f _ = []
-

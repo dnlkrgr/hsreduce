@@ -1,18 +1,57 @@
-module Reduce.Passes.Decls where
+module Reduce.Passes.Decls (rmvSigs, rmvDecls, simplifyDecl, recCon2Prefix, simplifyConDecl) where
 
-import BasicTypes
-import CoreSyn
+import BasicTypes (Origin)
+import CoreSyn (Tickish)
 import qualified Data.Text as T
-import GHC hiding (Pass, getName)
-import Outputable hiding ((<>))
-import TcEvidence
-import Util.Types
-import Util.Util
-
+import GHC
+    ( ConDecl
+          ( ConDeclGADT,
+            XConDecl,
+            con_args,
+            con_forall,
+            con_mb_cxt,
+            con_qvars
+          ),
+      ConDeclField (cd_fld_type),
+      GenLocated (L),
+      GhcPs,
+      HsBindLR (FunBind),
+      HsConDetails (PrefixCon, RecCon),
+      HsDataDefn (dd_cons),
+      HsDecl (SigD, TyClD, ValD),
+      HsMatchContext (LambdaExpr),
+      HsModule (hsmodDecls),
+      Id,
+      IdP,
+      LBangType,
+      LConDeclField,
+      LHsDecl,
+      LHsExpr,
+      LHsQTyVars (HsQTvs, hsq_explicit),
+      LHsSigWcType,
+      LMatch,
+      Located,
+      Match (Match),
+      MatchGroup (MG),
+      NoExt (NoExt),
+      Sig (TypeSig),
+      SrcSpan,
+      TyClDecl (DataDecl, tcdDataDefn),
+      getLoc,
+      pprGRHSs,
+      tcdName,
+      unLoc,
+    )
+import Outputable (showSDocUnsafe)
+import TcEvidence (HsWrapper)
+import Util.Types (Pass, WaysToChange)
+import Util.Util ((<&&>), handleSubList, mkPass, oshow)
 
 -- ***************************************************************************
 -- SIGNATURES
+
 -- ***************************************************************************
+
 rmvSigs :: Maybe [T.Text] -> Pass
 rmvSigs mb = mkPass "rmvSigs" (f mb)
     where
@@ -22,7 +61,9 @@ rmvSigs mb = mkPass "rmvSigs" (f mb)
 
 -- ***************************************************************************
 -- UNUSED DECLS IN MODULE
+
 -- ***************************************************************************
+
 rmvDecls :: Maybe [T.Text] -> Pass
 rmvDecls mb = mkPass "rmvDecls" (f mb)
     where
@@ -33,7 +74,9 @@ rmvDecls mb = mkPass "rmvDecls" (f mb)
 
 -- ***************************************************************************
 -- HsDecls
+
 -- ***************************************************************************
+
 simplifyDecl :: Maybe [T.Text] -> Pass
 simplifyDecl mb = mkPass "simplifyDecl" (f mb)
     where
@@ -41,9 +84,6 @@ simplifyDecl mb = mkPass "simplifyDecl" (f mb)
         f (Just bns) (TypeSigDeclP ids swt) =
             let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
              in [const (TypeSigDeclX newFunIds swt)]
-        f _ (FunDeclP fid loc mtchs mo fw ft) =
-            let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
-             in [const (FunDeclP fid loc nMtchs mo fw ft)]
         f _ t@(TypeSigDeclP {}) =
             handleSubList transformTypeSig typeSig2Ids t
             where
@@ -53,6 +93,9 @@ simplifyDecl mb = mkPass "simplifyDecl" (f mb)
                 transformTypeSig e = \case
                     TypeSigDeclP ids swt -> TypeSigDeclX (filter (/= e) ids) swt
                     d -> d
+        f _ (FunDeclP fid loc mtchs mo fw ft) =
+            let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
+             in [const (FunDeclP fid loc nMtchs mo fw ft)]
         f _ t@(TyClD {}) =
             handleSubList delCons decl2ConsStrings t
             where
@@ -66,7 +109,9 @@ simplifyDecl mb = mkPass "simplifyDecl" (f mb)
 
 -- ***************************************************************************
 -- RECORD CON
+
 -- ***************************************************************************
+
 recCon2Prefix :: Pass
 recCon2Prefix = mkPass "recCon2Prefix" f
     where
@@ -74,15 +119,14 @@ recCon2Prefix = mkPass "recCon2Prefix" f
         f (RecCon rec) = [const (PrefixCon . map (cd_fld_type . unLoc) $ unLoc rec)]
         f _ = []
 
-
-
 -- ***************************************************************************
 -- HELPER FUNCTIONS & OTHER STUFF
+
 -- ***************************************************************************
+
 isSig :: LHsDecl GhcPs -> Bool
 isSig (L _ (SigD _ _)) = True
 isSig _ = False
-
 
 defaultBehavior :: WaysToChange (HsModule GhcPs)
 defaultBehavior = handleSubList rmvOneDecl (map getLoc . hsmodDecls)
@@ -103,6 +147,7 @@ getName _ = Nothing
 
 -- ***************************************************************************
 -- PATTERNS
+
 -- ***************************************************************************
 
 pattern SimplSigP, SimplFunP :: Located (IdP GhcPs) -> HsDecl GhcPs

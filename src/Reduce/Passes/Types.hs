@@ -1,10 +1,30 @@
 module Reduce.Passes.Types where
 
-import BasicTypes
-import GHC hiding (Pass)
+import BasicTypes (PromotionFlag (NotPromoted))
+import GHC
+    ( GenLocated (L),
+      GhcPs,
+      HsTupleSort (HsBoxedTuple),
+      HsType
+          ( HsAppTy,
+            HsForAllTy,
+            HsKindSig,
+            HsOpTy,
+            HsQualTy,
+            HsTupleTy,
+            HsTyVar,
+            HsWildCardTy
+          ),
+      NoExt (NoExt),
+      RdrName (Unqual),
+      SrcSpan,
+      getLoc,
+      noLoc,
+      unLoc,
+    )
 import OccName (mkVarOcc)
-import Util.Types
-import Util.Util
+import Util.Types (Pass, WaysToChange)
+import Util.Util (handleSubList, mkPass)
 
 type2Unit :: Pass
 type2Unit = mkPass "type2Unit" f
@@ -35,13 +55,11 @@ simplifyType = mkPass "simplifyType" f
         f (HsOpTy _ (L _ l) _ (L _ r)) = map const [l, r]
         f (HsKindSig _ (L _ t) _) = map const [t]
         f _ = []
-
         pType :: HsType p -> [SrcSpan]
         pType = \case
             (HsForAllTy _ bndrs _) -> map getLoc bndrs
             (HsQualTy _ ctxt _) -> map getLoc $ unLoc ctxt
             _ -> []
-
         fType :: SrcSpan -> HsType p -> HsType p
         fType loc = \case
             (HsForAllTy x bndrs body) -> HsForAllTy x (filter ((/= loc) . getLoc) bndrs) body
@@ -51,3 +69,6 @@ simplifyType = mkPass "simplifyType" f
 pattern ForallTypeP, QualTypeP :: HsType GhcPs -> HsType GhcPs
 pattern ForallTypeP body <- HsForAllTy _ _ (L _ body)
 pattern QualTypeP body <- HsQualTy _ _ (L _ body)
+
+pattern UnitTypeP :: HsType GhcPs
+pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []

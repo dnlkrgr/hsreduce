@@ -10,12 +10,12 @@ import Control.Monad
 import Test.Hspec
 
 import Reduce.Driver (hsreduce)
-import qualified Reduce.Passes.Extensions.TypeFamilies as TypeFamilies
-import qualified Reduce.Passes.Remove.Imports          as Imports
-import qualified Reduce.Passes.Remove.Pragmas          as Pragmas
-import qualified Reduce.Passes.Remove.Exports          as Exports
+import qualified Reduce.Passes.TypeFamilies as TypeFamilies
+import qualified Reduce.Passes.Imports          as Imports
+import qualified Reduce.Passes.Pragmas          as Pragmas
+import qualified Reduce.Passes.Exports          as Exports
 import qualified Reduce.Passes.Decls                   as Decls
-import qualified Reduce.Passes.Remove.Parameters       as Parameters
+import qualified Reduce.Passes.Parameters       as Parameters
 import qualified Reduce.Passes.Stubbing                as Stubbing 
     ( contexts,
       simplifyDeriving,
@@ -34,8 +34,8 @@ import qualified Reduce.Passes.Functions      as Functions
       etaReduceMatches,
 
     )
-import qualified Reduce.Passes.Simplify.Expr  as Expr
-import qualified Reduce.Passes.Simplify.Types as Types
+import qualified Reduce.Passes.Expr  as Expr
+import qualified Reduce.Passes.Types as Types
 import Util.Util
 
 

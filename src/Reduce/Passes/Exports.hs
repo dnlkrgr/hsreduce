@@ -1,14 +1,47 @@
 module Reduce.Passes.Exports (reduce) where
 
 import Control.Concurrent.STM.Lifted
-import Control.Monad.Reader
-import Data.Maybe
-import GHC hiding (Pass)
-import Katip
-import Path
-import Util.Types
-import Util.Util
+    ( atomically,
+      readTVar,
+      writeTVar,
+    )
+import Control.Monad.Reader (MonadReader (ask), asks)
+import Data.Maybe (mapMaybe)
 import qualified Data.Text as T
+import GHC
+    ( GenLocated (L),
+      GhcPs,
+      HsBindLR (FunBind),
+      HsDecl (TyClD, ValD),
+      HsModule (hsmodDecls, hsmodExports, hsmodName),
+      IE (IEThingAbs, IEThingAll, IEVar),
+      IEWrappedName (IEName),
+      LIE,
+      NoExt (NoExt),
+      isSynDecl,
+      mkModuleName,
+      noLoc,
+      noSrcSpan,
+      tcdName,
+      unLoc,
+    )
+import Katip (Severity (InfoS), logTM)
+import Path (fromRelFile)
+import Util.Types
+    ( Pass,
+      R,
+      RConf (_sourceFile, _tState),
+      RState (_parsed),
+      WaysToChange,
+      showState,
+    )
+import Util.Util
+    ( handleSubList,
+      mkPass,
+      oshow,
+      runPass,
+      updateStatistics,
+    )
 
 reduce :: R IO ()
 reduce = do

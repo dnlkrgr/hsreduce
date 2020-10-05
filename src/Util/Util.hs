@@ -1,42 +1,103 @@
 module Util.Util where
 
 import Control.Applicative
-import Control.Concurrent.Async.Lifted
+    ( Applicative(liftA2), Alternative((<|>), many, some) )
+import Control.Concurrent.Async.Lifted ( forConcurrently_ )
 import Control.Concurrent.STM.Lifted
+    ( STM,
+      readTVar,
+      writeTVar,
+      readTChan,
+      writeTChan,
+      modifyTVar,
+      readTVarIO,
+      atomically,
+      TChan )
 import qualified Control.Exception.Lifted as CE
-import Control.Monad.IO.Class
+import Control.Monad.IO.Class ( MonadIO(..) )
 import Control.Monad.Reader
+    ( unless,
+      void,
+      when,
+      replicateM,
+      forM_,
+      asks,
+      MonadReader(ask) )
 import Data.Aeson (decodeStrict)
-import Data.Algorithm.Diff
-import Data.Char
-import Data.Data
-import Data.Either
+import Data.Algorithm.Diff ( getDiff, PolyDiff(Both) )
+import Data.Char ( isAlphaNum )
+import Data.Data ( Data(gmapQ, toConstr), showConstr )
+import Data.Either ( fromRight, isRight )
 import Data.Generics.Aliases (extQ)
-import Data.Generics.Uniplate.Data
-import Data.List.Split
-import Data.Maybe
-import Data.String
+import Data.Generics.Uniplate.Data ( transformBi, universeBi )
+import Data.List.Split ( chunksOf )
+import Data.Maybe ( fromMaybe, isJust )
+import Data.String ( IsString(fromString) )
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Debug.Trace
-import FastString
-import GHC hiding (GhcMode, Pass, Severity, ghcMode)
+import Debug.Trace ( traceShow )
+import FastString ( mkFastString )
+import GHC
+    ( unLoc,
+      ParsedSource,
+      HsExpr(HsApp, HsVar),
+      GhcPs,
+      RdrName,
+      GenLocated(L),
+      Located,
+      SrcSpan )
 import Katip
+    ( logTM, Severity(ErrorS, NoticeS, DebugS, WarningS, InfoS) )
 import qualified Language.Haskell.GHC.ExactPrint as EP
-import Lens.Micro.Platform
-import Outputable hiding ((<>), char, space)
+import Lens.Micro.Platform ( (&), (%~), at )
+import Outputable ( Outputable(ppr), showSDocUnsafe )
 import Path
+    ( (</>),
+      filename,
+      fromAbsDir,
+      fromAbsFile,
+      fromRelFile,
+      parent,
+      Path,
+      Abs,
+      Dir,
+      File )
 import SrcLoc as SL
-import System.Exit
+    ( 
+      RealSrcSpan,
+      mkRealSrcLoc,
+      mkRealSrcSpan )
+import System.Exit ( ExitCode(ExitSuccess, ExitFailure) )
 import System.Process
-import System.Timeout.Lifted
+    ( CreateProcess(cwd), readCreateProcessWithExitCode, shell )
+import System.Timeout.Lifted ( timeout )
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec as MP
-import Text.Megaparsec.Char
+import Text.Megaparsec.Char ( char, letterChar, space, string )
 import qualified Text.Megaparsec.Char as MC
 import Util.Types
-import Util.Types as UT
+    ( PassStats(PassStats),
+      Pragma(..),
+      RState(RState, _isAlive, _parsed),
+      passStats,
+      emptyStats,
+      Pass(AST),
+      WaysToChange,
+      Parser,
+      Interesting(..),
+      GhcMode(..),
+      Tool(..),
+      GhcOutput(reason, doc),
+      Span(Span),
+      R,
+      RConf(_numberOfThreads, _tempDirs, _test, _tState, _sourceFile),
+      parsed,
+      statistics,
+      showState,
+      showExtension )
+import qualified Util.Types as UT
+    
 
 tryNewState :: String -> (RState -> RState) -> R IO ()
 tryNewState passId f = do
@@ -430,9 +491,6 @@ lshow = showSDocUnsafe . ppr . unLoc
 -- TODO: use syntax from Haskell2010 report
 isOperator :: String -> Bool
 isOperator = not . any isAlphaNum
-
-pattern UnitTypeP :: HsType GhcPs
-pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
 
 -- delete at Index i, starting from 1 not from 0
 deleteAt :: Int -> [a] -> [a]

@@ -5,6 +5,7 @@
 , MonadRandom, mtl, optparse-generic, path, path-io, process, regex
 , split, stdenv, stm-lifted, syb, text, time, transformers-base
 , uniplate, word8
+, haskell-language-server
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -19,6 +20,7 @@ mkDerivation {
     monad-control MonadRandom mtl optparse-generic path path-io process
     regex split stm-lifted syb text time transformers-base uniplate
     word8
+    haskell-language-server
   ];
   executableHaskellDepends = [
     aeson base bytestring Cabal cassava containers Diff edit-distance

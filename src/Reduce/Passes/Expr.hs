@@ -1,9 +1,48 @@
 module Reduce.Passes.Expr where
 
-import GHC hiding (Pass)
+import GHC
+    ( GRHS (GRHS),
+      GRHSs (GRHSs),
+      GenLocated (L),
+      GhcPs,
+      HsExpr
+          ( EAsPat,
+            ELazyPat,
+            ExplicitList,
+            ExplicitTuple,
+            ExprWithTySig,
+            HsApp,
+            HsAppType,
+            HsArrApp,
+            HsArrForm,
+            HsBinTick,
+            HsCase,
+            HsDo,
+            HsIf,
+            HsLet,
+            HsMultiIf,
+            HsStatic,
+            HsTick,
+            HsVar,
+            HsWrap,
+            OpApp,
+            RecordCon,
+            RecordUpd
+          ),
+      HsLocalBindsLR (EmptyLocalBinds),
+      HsRecFields (rec_flds),
+      Match (Match),
+      MatchGroup (MG, mg_alts),
+      NoExt (NoExt),
+      RdrName (Unqual),
+      SrcSpan,
+      getLoc,
+      noLoc,
+      unLoc,
+    )
 import OccName (mkOccName, varName)
-import Util.Types
-import Util.Util
+import Util.Types (Pass, WaysToChange)
+import Util.Util (handleSubList, mkPass, oshow)
 
 expr2Undefined :: Pass
 expr2Undefined = mkPass "expr2Undefined" f

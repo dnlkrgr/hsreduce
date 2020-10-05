@@ -1,8 +1,8 @@
 module Reduce.Passes.Pat where
 
-import GHC hiding (Pass)
-import Util.Types
-import Util.Util
+import GHC (GhcPs, NoExt (NoExt), Pat (WildPat))
+import Util.Types (Pass, WaysToChange)
+import Util.Util (mkPass)
 
 pat2Wildcard :: Pass
 pat2Wildcard = mkPass "pat2Wildcard" f

@@ -4,22 +4,65 @@ module Reduce.Driver
 where
 
 import qualified Data.ByteString.Lazy as LBS
-import Data.Csv
+import Data.Csv ( encodeDefaultOrderedByName )
 import Control.Concurrent.STM.Lifted
-import Control.Exception
-import Control.Monad
-import Control.Monad.Reader
+    ( newTVar,
+      newTChan,
+      readTChan,
+      writeTChan,
+      modifyTVar,
+      readTVarIO,
+      atomically )
+import Control.Exception ( bracket )
+import Control.Monad ( when, forM_ )
+import Control.Monad.Reader ( asks, MonadIO(liftIO) )
 import Data.Text(pack)
-import Data.Text.Lazy.Builder
+import Data.Text.Lazy.Builder ( fromText, fromString )
 import Data.Time
-import Data.Word
+    ( UTCTime, getCurrentTime, formatTime, defaultTimeLocale )
+import Data.Word ( Word8 )
 import Katip
+    ( closeScribes,
+      defaultScribeSettings,
+      initLogEnv,
+      permitItem,
+      registerScribe,
+      renderSeverity,
+      logTM,
+      Item(Item, _itemLoc, _itemNamespace, _itemTime, _itemMessage,
+           _itemPayload, _itemProcess, _itemHost, _itemThread, _itemSeverity,
+           _itemEnv, _itemApp),
+      LogItem,
+      LogStr(LogStr, unLogStr),
+      Severity(InfoS, DebugS),
+      ThreadIdText(getThreadIdText),
+      Verbosity(V2),
+      )
 import Katip.Scribes.Handle
+    ( mkHandleScribeWithFormatter,
+      ColorStrategy(ColorIfTerminal),
+      ItemFormatter,
+      brackets,
+      colorBySeverity )
 import Path
+    ( (</>), absdir, dirname, filename, fromAbsFile, parent )
 import Path.IO
-import System.IO
+    ( copyDirRecur,
+      copyFile,
+      createTempDir,
+      listDir,
+      removeDirRecur,
+      resolveFile' )
+import System.IO ( stdout, IOMode(WriteMode), hClose, openFile )
 import Util.Types
-import Util.Util
+    ( Statistics(_passStats),
+      RState(_statistics, _isAlive),
+      R,
+      RConf(RConf, _tState),
+      runR,
+      showState,
+      mkPerformance )
+import Util.Util ( updateStatistics, isTestStillFresh, parse )
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO

@@ -1,25 +1,62 @@
 module Util.Types where
 
-import Control.Concurrent
-import Control.Concurrent.STM.Lifted
-import Control.Monad.Base
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.STM.Lifted (TChan, TVar)
+import Control.Monad.Base (MonadBase (..), liftBaseDefault)
 import Control.Monad.Reader
+    ( MonadIO (..),
+      MonadReader (local),
+      MonadTrans,
+      ReaderT (..),
+      asks,
+    )
 import Control.Monad.Trans.Control
-import Data.Aeson
-import Data.Csv
-import Data.List
-import Data.Time
-import Data.Void
-import Data.Word
-import GHC
-import GHC.LanguageExtensions.Type
-import Katip as K
-import Lens.Micro.Platform
-import Options.Generic
-import Outputable hiding ((<>))
-import Path
+    ( ComposeSt,
+      MonadBaseControl (..),
+      MonadTransControl (..),
+      defaultLiftBaseWith,
+      defaultLiftWith,
+      defaultRestoreM,
+      defaultRestoreT,
+    )
+import Data.Aeson (FromJSON)
+import Data.Csv (DefaultOrdered, ToNamedRecord)
+import Data.List (intercalate)
 import qualified Data.Map as M
 import qualified Data.Text as T
+import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
+import Data.Void (Void)
+import Data.Word (Word8)
+import GHC (ParsedSource, unLoc)
+import GHC.LanguageExtensions.Type
+    ( Extension
+          ( AllowAmbiguousTypes,
+            ConstraintKinds,
+            RankNTypes,
+            TypeApplications,
+            TypeFamilies,
+            TypeInType,
+            TypeOperators
+          ),
+    )
+import Katip as K
+    ( Katip (..),
+      KatipContext (..),
+      LogContexts,
+      LogEnv,
+      Namespace,
+    )
+import Lens.Micro.Platform (makeLenses)
+import Options.Generic
+    ( Generic,
+      ParseRecord,
+      Unwrapped,
+      Wrapped,
+      type (:::),
+      type (<?>),
+    )
+import Outputable (Outputable (ppr), showSDocUnsafe)
+import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
 data CLIOptions w
@@ -60,7 +97,6 @@ instance Show Performance where
             ]
             <> "\n"
 
-
 data PassStats = PassStats
     { _passName :: String,
       _successfulAttempts :: Word,
@@ -70,6 +106,7 @@ data PassStats = PassStats
     deriving (Generic, Show)
 
 instance ToNamedRecord PassStats
+
 instance DefaultOrdered PassStats
 
 makeLenses ''PassStats
@@ -104,14 +141,12 @@ data RConf = RConf
       logContext :: K.LogContexts,
       logEnv :: K.LogEnv
     }
-    
 
 runR :: RConf -> R m a -> m a
 runR conf (R a) = runReaderT a conf
 
-newtype R m a = R { unR :: ReaderT RConf m a }
+newtype R m a = R {unR :: ReaderT RConf m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
-
 
 showState :: RState -> T.Text
 showState (RState [] ps _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
@@ -184,35 +219,32 @@ data Pass
     = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
     | Arst String (RState -> [RState -> RState])
 
-
 -- ##### KATIP STUFF
 instance MonadBase b m => MonadBase b (R m) where
-  liftBase = liftBaseDefault
+    liftBase = liftBaseDefault
 
 instance MonadTransControl R where
-  type StT R a = StT (ReaderT RConf) a
-  liftWith = defaultLiftWith R unR
-  restoreT = defaultRestoreT R
+    type StT R a = StT (ReaderT RConf) a
+    liftWith = defaultLiftWith R unR
+    restoreT = defaultRestoreT R
 
 instance MonadBaseControl b m => MonadBaseControl b (R m) where
-  type StM (R m) a = ComposeSt R m a
-  liftBaseWith = defaultLiftBaseWith
-  restoreM = defaultRestoreM
-
+    type StM (R m) a = ComposeSt R m a
+    liftBaseWith = defaultLiftBaseWith
+    restoreM = defaultRestoreM
 
 -- These instances get even easier with lenses!
 instance (MonadIO m) => Katip (R m) where
-  getLogEnv = asks logEnv
-  localLogEnv f (R m) = R (local (\s -> s { logEnv = f (logEnv s)}) m)
-
+    getLogEnv = asks logEnv
+    localLogEnv f (R m) = R (local (\s -> s {logEnv = f (logEnv s)}) m)
 
 instance (MonadIO m) => KatipContext (R m) where
-  getKatipContext = asks logContext
-  localKatipContext f (R m) = R (local (\s -> s { logContext = f (logContext s)}) m)
-  getKatipNamespace = asks logNamespace
-  localKatipNamespace f (R m) = R (local (\s -> s { logNamespace = f (logNamespace s)}) m)
--- #####
+    getKatipContext = asks logContext
+    localKatipContext f (R m) = R (local (\s -> s {logContext = f (logContext s)}) m)
+    getKatipNamespace = asks logNamespace
+    localKatipNamespace f (R m) = R (local (\s -> s {logNamespace = f (logNamespace s)}) m)
 
+-- #####
 
 mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> R IO Performance
 mkPerformance oldSize newSize t1 t2 n = do
@@ -226,6 +258,6 @@ mkPerformance oldSize newSize t1 t2 n = do
                 else 0
         duration = utctDayTime t2 + offset - utctDayTime t1
 
-
 instance ParseRecord (CLIOptions Wrapped)
+
 instance Show (CLIOptions Unwrapped)

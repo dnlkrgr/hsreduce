@@ -1,9 +1,26 @@
 module Reduce.Passes.DataTypes (inline, rmvConArgs) where
 
-import Data.Generics.Uniplate.Data
-import GHC hiding (Pass)
-import Util.Types
-import Util.Util
+import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import GHC
+    ( ConDecl (ConDeclH98),
+      ConDeclField (cd_fld_type),
+      GenLocated (L),
+      GhcPs,
+      HsConDetails (PrefixCon, RecCon),
+      HsDataDefn (HsDataDefn),
+      HsType (HsTyVar),
+      LBangType,
+      LConDecl,
+      LConDeclField,
+      LHsType,
+      ParsedSource,
+      Pat (ConPatIn),
+      RdrName,
+      TyClDecl (DataDecl, SynDecl),
+      unLoc,
+    )
+import Util.Types (Pass (AST))
+import Util.Util (deleteAt, rmvArgsFromExpr)
 
 rmvConArgs :: Pass
 rmvConArgs = AST "rmvConArgs" $ \ast ->
@@ -68,7 +85,7 @@ inline = AST "inlineType" $ \ast ->
                     Nothing -> id
                     Just constrName -> transformBi (inlineTypeAtPat constrName)
               )
-              . transformBi (inlineTypeAtType nn argName)
+                  . transformBi (inlineTypeAtType nn argName)
         )
         ( [ (unLoc newtypeName, argName, Just constrName)
             | DataDecl _ newtypeName _ _ (HsDataDefn _ _ _ _ _ [PrefixConP constrName [TyVarP argName]] _) :: TyClDecl GhcPs <- universeBi ast
