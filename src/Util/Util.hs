@@ -1,103 +1,110 @@
 module Util.Util where
 
 import Control.Applicative
-    ( Applicative(liftA2), Alternative((<|>), many, some) )
-import Control.Concurrent.Async.Lifted ( forConcurrently_ )
+    ( Alternative ((<|>)),
+      Applicative (liftA2),
+    )
+import Control.Concurrent.Async.Lifted (forConcurrently_)
 import Control.Concurrent.STM.Lifted
     ( STM,
-      readTVar,
-      writeTVar,
-      readTChan,
-      writeTChan,
-      modifyTVar,
-      readTVarIO,
+      TChan,
       atomically,
-      TChan )
+      modifyTVar,
+      readTChan,
+      readTVar,
+      readTVarIO,
+      writeTChan,
+      writeTVar,
+    )
 import qualified Control.Exception.Lifted as CE
-import Control.Monad.IO.Class ( MonadIO(..) )
+import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader
-    ( unless,
+    ( MonadReader (ask),
+      asks,
+      forM_,
+      replicateM,
+      unless,
       void,
       when,
-      replicateM,
-      forM_,
-      asks,
-      MonadReader(ask) )
+    )
 import Data.Aeson (decodeStrict)
-import Data.Algorithm.Diff ( getDiff, PolyDiff(Both) )
-import Data.Char ( isAlphaNum )
-import Data.Data ( Data(gmapQ, toConstr), showConstr )
-import Data.Either ( fromRight, isRight )
+import Data.Algorithm.Diff (PolyDiff (Both), getDiff)
+import Data.Char (isAlphaNum)
+import Data.Data (Data (gmapQ, toConstr), showConstr)
+import Data.Either (fromRight, isRight)
 import Data.Generics.Aliases (extQ)
-import Data.Generics.Uniplate.Data ( transformBi, universeBi )
-import Data.List.Split ( chunksOf )
-import Data.Maybe ( fromMaybe, isJust )
-import Data.String ( IsString(fromString) )
+import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import Data.List.Split (chunksOf)
+import Data.Maybe (fromMaybe, isJust)
+import Data.String (IsString (fromString))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
-import Debug.Trace ( traceShow )
-import FastString ( mkFastString )
+import Debug.Trace (traceShow)
+import FastString (mkFastString)
 import GHC
-    ( unLoc,
-      ParsedSource,
-      HsExpr(HsApp, HsVar),
+    ( GenLocated (L),
       GhcPs,
-      RdrName,
-      GenLocated(L),
+      HsExpr (HsApp, HsVar),
       Located,
-      SrcSpan )
+      ParsedSource,
+      RdrName,
+      SrcSpan,
+      unLoc,
+    )
 import Katip
-    ( logTM, Severity(ErrorS, NoticeS, DebugS, WarningS, InfoS) )
-import qualified Language.Haskell.GHC.ExactPrint as EP
-import Lens.Micro.Platform ( (&), (%~), at )
-import Outputable ( Outputable(ppr), showSDocUnsafe )
+    ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
+      logTM,
+    )
+import Lens.Micro.Platform ((%~), (&), at)
+import Outputable (Outputable (ppr), showSDocUnsafe)
+import Parser.Parser (getPragmas)
 import Path
     ( (</>),
+      Abs,
+      Dir,
+      File,
+      Path,
       filename,
       fromAbsDir,
       fromAbsFile,
       fromRelFile,
       parent,
-      Path,
-      Abs,
-      Dir,
-      File )
+    )
 import SrcLoc as SL
-    ( 
-      RealSrcSpan,
+    ( RealSrcSpan,
       mkRealSrcLoc,
-      mkRealSrcSpan )
-import System.Exit ( ExitCode(ExitSuccess, ExitFailure) )
+      mkRealSrcSpan,
+    )
+import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.Process
-    ( CreateProcess(cwd), readCreateProcessWithExitCode, shell )
-import System.Timeout.Lifted ( timeout )
+    ( CreateProcess (cwd),
+      readCreateProcessWithExitCode,
+      shell,
+    )
+import System.Timeout.Lifted (timeout)
 import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec as MP
-import Text.Megaparsec.Char ( char, letterChar, space, string )
 import qualified Text.Megaparsec.Char as MC
 import Util.Types
-    ( PassStats(PassStats),
-      Pragma(..),
-      RState(RState, _isAlive, _parsed),
-      passStats,
-      emptyStats,
-      Pass(AST),
-      WaysToChange,
+    ( GhcMode (..),
+      GhcOutput (doc, reason),
+      Interesting (..),
       Parser,
-      Interesting(..),
-      GhcMode(..),
-      Tool(..),
-      GhcOutput(reason, doc),
-      Span(Span),
+      Pass (AST),
+      PassStats (PassStats),
       R,
-      RConf(_numberOfThreads, _tempDirs, _test, _tState, _sourceFile),
+      RConf (_numberOfThreads, _sourceFile, _tState, _tempDirs, _test),
+      RState (_isAlive, _parsed),
+      Span (Span),
+      Tool (..),
+      WaysToChange,
       parsed,
-      statistics,
+      passStats,
+      showExtension,
       showState,
-      showExtension )
+      statistics,
+    )
 import qualified Util.Types as UT
-    
 
 tryNewState :: String -> (RState -> RState) -> R IO ()
 tryNewState passId f = do
@@ -509,56 +516,13 @@ rmvArgsFromExpr conId n i e@(HsApp x la@(L _ a) b)
       exprFitsNumberOfPatterns n e,
       n == i =
         a
-    | exprContainsId conId e, 
-    exprFitsNumberOfPatterns n e
-    = HsApp x (rmvArgsFromExpr conId (n - 1) i <$> la) b
-
+    | exprContainsId conId e,
+      exprFitsNumberOfPatterns n e =
+        HsApp x (rmvArgsFromExpr conId (n - 1) i <$> la) b
     | otherwise = e
 rmvArgsFromExpr _ _ _ e = e
 
 exprFitsNumberOfPatterns :: Int -> HsExpr GhcPs -> Bool
-exprFitsNumberOfPatterns n (HsApp _ l _) = exprFitsNumberOfPatterns (n-1) (unLoc l)
+exprFitsNumberOfPatterns n (HsApp _ l _) = exprFitsNumberOfPatterns (n -1) (unLoc l)
 exprFitsNumberOfPatterns 0 _ = True
 exprFitsNumberOfPatterns _ _ = False
-
-getPragmas :: Path Abs File -> IO [Pragma]
-getPragmas f =
-    -- filter ((/= "Safe") . showExtension)
-    concat
-        . fromRight []
-        . sequence
-        . filter isRight
-        . map (MP.parse pragmasP (fromAbsFile f))
-        . T.lines
-        <$> TIO.readFile (fromAbsFile f)
-
-pragmasP :: Parser [Pragma]
-pragmasP = do
-    void $ string "{-#"
-    space
-    f <- pragmaType
-    space
-    n <- T.pack <$> some letterChar
-    ns <- many (char ',' >> space >> T.pack <$> some letterChar)
-    space
-    void $ string "#-}"
-    return . map f $ n : ns
-
-pragmaType :: Parser (T.Text -> Pragma)
-pragmaType =
-    ((string "language" <|> string "LANGUAGE") >> return Language)
-        <|> ((string "OPTIONS_GHC" <|> string "options_ghc") >> return OptionsGhc)
-        <|> ((string "INCLUDE" <|> string "include") >> return Include)
-
-parse :: Path Abs File -> IO RState
-parse fileName = do
-    banner $ "Parsing: " <> fromAbsFile fileName
-
-    let filePath = fromAbsFile fileName
-    p <- EP.parseModule filePath >>= \case
-        Left e -> error . showSDocUnsafe $ ppr e
-        Right p -> return $ snd p
-
-    prags <- getPragmas fileName
-
-    return $ RState prags p False emptyStats 0

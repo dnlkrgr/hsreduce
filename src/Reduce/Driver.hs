@@ -45,7 +45,7 @@ import Katip.Scribes.Handle
       brackets,
       colorBySeverity )
 import Path
-    ( (</>), absdir, dirname, filename, fromAbsFile, parent )
+    ( (</>), absdir, dirname, filename, fromAbsFile, parent, Abs )
 import Path.IO
     ( copyDirRecur,
       copyFile,
@@ -62,7 +62,8 @@ import Util.Types
       runR,
       showState,
       mkPerformance )
-import Util.Util ( updateStatistics, isTestStillFresh, parse )
+import Util.Util ( updateStatistics, isTestStillFresh)
+import Parser.Parser ( parse )
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO

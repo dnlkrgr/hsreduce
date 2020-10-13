@@ -27,7 +27,7 @@ import qualified Data.Text as T
 import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
 import Data.Word (Word8)
-import GHC (ParsedSource, unLoc)
+import GHC (ParsedSource, TypecheckedModule, unLoc)
 import GHC.LanguageExtensions.Type
     ( Extension
           ( AllowAmbiguousTypes,
@@ -126,7 +126,8 @@ data RState = RState
       _parsed :: ParsedSource,
       _isAlive :: Bool,
       _statistics :: Statistics,
-      _numRenamedNames :: Word
+      _numRenamedNames :: Word,
+      _typechecked :: Maybe TypecheckedModule
     }
 
 makeLenses ''RState
@@ -149,8 +150,8 @@ newtype R m a = R {unR :: ReaderT RConf m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
 
 showState :: RState -> T.Text
-showState (RState [] ps _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _) =
+showState (RState [] ps _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _ _) =
     T.unlines $
         ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]

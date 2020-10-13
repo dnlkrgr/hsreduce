@@ -8,8 +8,6 @@ import GHC
           ( ConDeclGADT,
             XConDecl,
             con_args,
-            con_forall,
-            con_mb_cxt,
             con_qvars
           ),
       ConDeclField (cd_fld_type),
@@ -168,10 +166,11 @@ simplifyConDecl :: Pass
 simplifyConDecl = mkPass "simplifyConDecl" f
     where
         f :: WaysToChange (ConDecl GhcPs)
-        f gadtDecl@(ConDeclGADT _ _ (L forallLoc _) _ _ _ _ _) =
-            map const [gadtDecl {con_forall = L forallLoc False}, gadtDecl {con_mb_cxt = Nothing}] <> temp gadtDecl
-            where
-                temp = handleSubList (\loc g -> g {con_qvars = HsQTvs NoExt (filter ((/= loc) . getLoc) (hsq_explicit $ con_qvars g))}) (map getLoc . hsq_explicit . con_qvars)
+        f gadtDecl@(ConDeclGADT {}) =
+            handleSubList
+                (\loc g -> g {con_qvars = HsQTvs NoExt (filter ((/= loc) . getLoc) (hsq_explicit $ con_qvars g))})
+                (map getLoc . hsq_explicit . con_qvars)
+                gadtDecl
         f d
             | isRecCon d = handleSubList g p d -- <> [const (d { con_args = recCon2Prefix $ con_args d})]
             | otherwise = []

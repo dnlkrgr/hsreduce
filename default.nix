@@ -4,8 +4,7 @@
 , lifted-base, megaparsec, microlens-platform, monad-control
 , MonadRandom, mtl, optparse-generic, path, path-io, process, regex
 , split, stdenv, stm-lifted, syb, text, time, transformers-base
-, uniplate, word8
-, haskell-language-server
+, uniplate, unordered-containers, word8, haskell-language-server
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -19,8 +18,7 @@ mkDerivation {
     katip lifted-async lifted-base megaparsec microlens-platform
     monad-control MonadRandom mtl optparse-generic path path-io process
     regex split stm-lifted syb text time transformers-base uniplate
-    word8
-    haskell-language-server
+    unordered-containers word8 haskell-language-server
   ];
   executableHaskellDepends = [
     aeson base bytestring Cabal cassava containers Diff edit-distance
@@ -28,7 +26,7 @@ mkDerivation {
     katip lifted-async lifted-base megaparsec microlens-platform
     monad-control MonadRandom mtl optparse-generic path path-io process
     regex split stm-lifted syb text time transformers-base uniplate
-    word8
+    unordered-containers word8
   ];
   testHaskellDepends = [
     aeson base bytestring Cabal cassava containers Diff edit-distance
@@ -36,7 +34,7 @@ mkDerivation {
     HUnit katip lifted-async lifted-base megaparsec microlens-platform
     monad-control MonadRandom mtl optparse-generic path path-io process
     regex split stm-lifted syb text time transformers-base uniplate
-    word8
+    unordered-containers word8
   ];
   doHaddock = false;
   license = stdenv.lib.licenses.bsd3;

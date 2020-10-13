@@ -98,6 +98,7 @@ import HIE.Bios
       initSession,
       loadCradle,
     )
+import Parser.Parser (getPragmas)
 import Path ((</>), Abs, File, Path, fromAbsDir, fromAbsFile, parseAbsFile, parseRelFile)
 import Path.IO (getCurrentDir)
 import TcRnTypes (tcg_rdr_env)
@@ -110,7 +111,6 @@ import Util.Types
 import Util.Util
     ( banner,
       getGhcOutput,
-      getPragmas,
       isOperator,
       oshow,
       removeInternal,

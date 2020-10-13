@@ -17,6 +17,7 @@ common dry
         , aeson
         , bytestring
         , cassava
+        , unordered-containers
         , containers
         , edit-distance
         , ghc
