@@ -27,7 +27,7 @@ import qualified Data.Text as T
 import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
 import Data.Word (Word8)
-import GHC (ParsedSource, TypecheckedModule, unLoc)
+import GHC
 import GHC.LanguageExtensions.Type
     ( Extension
           ( AllowAmbiguousTypes,
@@ -127,7 +127,9 @@ data RState = RState
       _isAlive :: Bool,
       _statistics :: Statistics,
       _numRenamedNames :: Word,
-      _typechecked :: Maybe TypecheckedModule
+      _typechecked :: Maybe TypecheckedModule,
+      _hscEnv :: Maybe HscEnv,
+      _dflags :: Maybe DynFlags
     }
 
 makeLenses ''RState
@@ -150,11 +152,14 @@ newtype R m a = R {unR :: ReaderT RConf m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
 
 showState :: RState -> T.Text
-showState (RState [] ps _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _) =
+showState (RState [] ps _ _ _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
+showState (RState prags ps _ _ _ _ _ _) =
     T.unlines $
-        ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
+        showLanguagePragmas prags
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
+
+showLanguagePragmas :: [Pragma] -> T.Text
+showLanguagePragmas prags = ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
 
 data Span = Span
     { file :: T.Text,

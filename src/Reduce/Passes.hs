@@ -20,7 +20,8 @@ import Util.Util (runPass)
 allActions :: [R IO ()]
 -- allActions = [runPass Typeclasses.handleMultiParams ]
 -- allActions = pure $ mapM_ runPass [Functions.etaReduceMatches, Parameters.reduce, Functions.inline]
-allActions = [fast, medium, slow, slowest]
+-- allActions = [fast, medium, slow, slowest]
+allActions = [TypeFamilies.apply]
 
 -- allActions = [slowest]
 
@@ -72,7 +73,6 @@ slowest = do
           DataTypes.inline,
           DataTypes.rmvConArgs,
           Imports.unqualImport,
-          TypeFamilies.apply,
           TypeFamilies.rmvEquations,
           Parameters.reduce,
           Functions.etaReduceMatches,
@@ -114,7 +114,6 @@ allPasses =
       DataTypes.inline,
       DataTypes.rmvConArgs,
       Imports.unqualImport,
-      -- , TypeFamilies.apply
       TypeFamilies.familyResultSig,
       TypeFamilies.rmvEquations,
       Parameters.reduce,

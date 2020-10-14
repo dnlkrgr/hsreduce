@@ -1,5 +1,8 @@
 module Util.Util where
 
+import StringBuffer
+import Lexer
+import DynFlags hiding (GhcMode)
 import Control.Applicative
     ( Alternative ((<|>)),
       Applicative (liftA2),
@@ -57,7 +60,7 @@ import Katip
       logTM,
     )
 import Lens.Micro.Platform ((%~), (&), at)
-import Outputable (Outputable (ppr), showSDocUnsafe)
+import Outputable ( Outputable(ppr), showSDocUnsafe )
 import Parser.Parser (getPragmas)
 import Path
     ( (</>),
@@ -72,10 +75,6 @@ import Path
       parent,
     )
 import SrcLoc as SL
-    ( RealSrcSpan,
-      mkRealSrcLoc,
-      mkRealSrcSpan,
-    )
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.Process
     ( CreateProcess (cwd),
@@ -137,7 +136,7 @@ tryNewState passId f = do
                         then logStateDiff NoticeS oldStateS newStateS
                         else tryNewState passId f
                 Uninteresting -> do
-                    logStateDiff DebugS oldStateS newStateS
+                    -- logStateDiff DebugS oldStateS newStateS
                     updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
 
@@ -526,3 +525,36 @@ exprFitsNumberOfPatterns :: Int -> HsExpr GhcPs -> Bool
 exprFitsNumberOfPatterns n (HsApp _ l _) = exprFitsNumberOfPatterns (n -1) (unLoc l)
 exprFitsNumberOfPatterns 0 _ = True
 exprFitsNumberOfPatterns _ _ = False
+
+insertTextAtLocation :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+insertTextAtLocation (newName, (startLoc, endLoc)) fileContent =
+    T.unlines $ prevLines <> [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] <> succLines
+    where
+        contentLines = T.lines fileContent
+        lineStart = srcLocLine startLoc
+        colStart = srcLocCol startLoc
+        colEnd = srcLocCol endLoc
+        currentIndex = lineStart -1
+        prevLines = take currentIndex contentLines
+        succLines = drop lineStart contentLines
+        currentLine = contentLines !! currentIndex
+        oldName = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
+        prefix = T.take (colStart -1) currentLine
+        suffix = T.drop (colEnd -1) currentLine
+        isInfix = (== 2) . T.length . T.filter (== '`') . T.drop (colStart -1) . T.take (colEnd -1) $ currentLine
+        realNewName =
+            if "Internal" `elem` T.words oldName
+                then removeInternal id oldName
+                else newName
+        newLineContent =
+            if isInfix
+                then prefix <> "`" <> realNewName <> "`" <> suffix
+                else prefix <> realNewName <> suffix
+
+runParser :: DynFlags -> P a -> String -> ParseResult a
+runParser flags parser str = unP parser parseState
+    where
+      filename = "<interactive>"
+      location = mkRealSrcLoc (mkFastString filename) 1 1
+      buffer = stringToStringBuffer str
+      parseState = mkPState flags buffer location

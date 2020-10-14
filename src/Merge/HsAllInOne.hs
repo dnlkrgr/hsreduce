@@ -109,12 +109,7 @@ import Util.Types
       Tool (Ghc),
     )
 import Util.Util
-    ( banner,
-      getGhcOutput,
-      isOperator,
-      oshow,
-      removeInternal,
-    )
+
 
 namesToDebug :: [String]
 namesToDebug = [".+^"]
@@ -427,36 +422,12 @@ cleanUp tool mode sourcePath = do
                     (if mode == Indent then id else filter ((/= "") . fst)) $ mySpans
                 newFileContent = case mode of
                     Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
-                    PerhapsYouMeant -> foldr (replaceWithGhcOutput . fmap span2Locs) fileContent rightSpans
+                    PerhapsYouMeant -> foldr (insertTextAtLocation . fmap span2Locs) fileContent rightSpans
                     _ -> fileContent
 
             TIO.writeFile (fromAbsFile sourcePath) newFileContent
             when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
 
-replaceWithGhcOutput :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
-replaceWithGhcOutput (newName, (startLoc, endLoc)) fileContent =
-    T.unlines $ prevLines <> [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] <> succLines
-    where
-        contentLines = T.lines fileContent
-        lineStart = srcLocLine startLoc
-        colStart = srcLocCol startLoc
-        colEnd = srcLocCol endLoc
-        currentIndex = lineStart -1
-        prevLines = take currentIndex contentLines
-        succLines = drop lineStart contentLines
-        currentLine = contentLines !! currentIndex
-        oldName = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
-        prefix = T.take (colStart -1) currentLine
-        suffix = T.drop (colEnd -1) currentLine
-        isInfix = (== 2) . T.length . T.filter (== '`') . T.drop (colStart -1) . T.take (colEnd -1) $ currentLine
-        realNewName =
-            if "Internal" `elem` T.words oldName
-                then removeInternal id oldName
-                else newName
-        newLineContent =
-            if isInfix
-                then prefix <> "`" <> realNewName <> "`" <> suffix
-                else prefix <> realNewName <> suffix
 
 insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
 insertIndent (_, (startLoc, _)) fileContent =

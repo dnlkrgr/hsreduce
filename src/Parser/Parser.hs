@@ -12,20 +12,6 @@ import qualified Data.Text.IO as TIO
 import Data.Void (Void)
 import DynFlags (xopt_set)
 import GHC
-    ( LoadHowMuch (LoadAllTargets),
-      gcatch,
-      getModSummary,
-      getSessionDynFlags,
-      guessTarget,
-      load,
-      mkModuleName,
-      parseDynamicFlags,
-      parseModule,
-      runGhc,
-      setSessionDynFlags,
-      setTargets,
-      typecheckModule,
-    )
 import GHC.Paths (libdir)
 import qualified Language.Haskell.GHC.ExactPrint as EP
 import Outputable (ppr, showSDocUnsafe)
@@ -51,8 +37,7 @@ import Util.Types
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]
 getPragmas f =
-    filter ((/= "Safe") . showExtension)
-        . concat
+        concat
         . fromRight []
         . sequence
         . filter isRight
@@ -87,34 +72,35 @@ parse fileName = do
         Left e -> error . showSDocUnsafe $ ppr e
         Right p -> return $ snd p
 
-    mt <-
-        do
-            modName <-
-                ( \case
-                      Left _ -> "Main"
-                      Right t -> t
-                    )
-                    . getModName
-                    <$> TIO.readFile filePath
+    modName <-
+        ( \case
+                Left _ -> "Main"
+                Right t -> t
+            )
+            . getModName
+            <$> TIO.readFile filePath
 
-            extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
-
-            runGhc (Just libdir) $ do
-                dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
-                _ <- setSessionDynFlags dflags
-
-                target <- guessTarget (fromAbsFile fileName) Nothing
-                setTargets [target]
-                _ <- load LoadAllTargets
-                modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
-
-                pm <- parseModule modSum
-
-                gcatch (Just <$> typecheckModule pm) (\(_ :: SomeException) -> return Nothing)
-
+    extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
     prags <- getPragmas fileName
 
-    return $ RState prags p False emptyStats 0 mt
+    (runGhc (Just libdir) $ do
+            dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
+            _ <- setSessionDynFlags dflags
+
+            target <- guessTarget (fromAbsFile fileName) Nothing
+            setTargets [target]
+            _ <- load LoadAllTargets
+            modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
+
+            pm <- parseModule modSum
+            hEnv <- getSession
+
+            gcatch 
+                (do; tm <- typecheckModule pm; return . Just $ (tm, hEnv, dflags)) 
+                (\(_ :: SomeException) -> return Nothing)) >>= \case
+
+        Nothing -> return $ RState prags p False emptyStats 0 Nothing Nothing Nothing
+        Just (mt, hEnv, dflags) -> return $ RState prags p False emptyStats 0 (Just mt) (Just hEnv) (Just dflags)
 
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines

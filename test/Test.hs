@@ -121,7 +121,7 @@ main = hspec $ do
                     Nothing,                
                     "module RHSs where\narst | 3 > 5 = \"arst\"")
                 , ("TypeFamilies",   
-                    runPass TypeFamilies.apply,           
+                    TypeFamilies.apply,           
                     Just "typefamilies.sh",                
                     "{-# LANGUAGE TypeFamilies, DataKinds, PolyKinds, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\nmain = undefined\ntype family F a b where\n  F a b = a\narst :: Int -> String\narst = undefined\ntype family G a b where\n  G a b = String\nbrst :: String -> String\nbrst = undefined\ntype family Zip a b where\n  Zip (_ s) (_ m t) = M1 () m (Zip s t)\ntype family IfEq a b t f where\n  IfEq a a t _ = t\ntype family LookupParam (a :: k) (p :: Nat) :: Maybe Nat where\n  LookupParam (a (_ (m))) n = ('Just 0)\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\n")
                 , ("Expr",   
