@@ -1,5 +1,6 @@
 module Util.Types where
 
+import Data.IORef
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM.Lifted (TChan, TVar)
 import Control.Monad.Base (MonadBase (..), liftBaseDefault)
@@ -55,7 +56,7 @@ import Options.Generic
       type (:::),
       type (<?>),
     )
-import Outputable (Outputable (ppr), showSDocUnsafe)
+import Outputable hiding ((<>))
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
@@ -142,7 +143,8 @@ data RConf = RConf
       _tState :: TVar RState,
       logNamespace :: K.Namespace,
       logContext :: K.LogContexts,
-      logEnv :: K.LogEnv
+      logEnv :: K.LogEnv,
+      _logRef :: IORef [String]
     }
 
 runR :: RConf -> R m a -> m a
@@ -152,14 +154,18 @@ newtype R m a = R {unR :: ReaderT RConf m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
 
 showState :: RState -> T.Text
-showState (RState [] ps _ _ _ _ _ _) = T.pack . showSDocUnsafe . ppr . unLoc $ ps
-showState (RState prags ps _ _ _ _ _ _) =
+showState (RState prags ps _ _ _ _ _ Nothing) =
     T.unlines $
         showLanguagePragmas prags
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
+showState (RState prags ps _ _ _ _ _ (Just dflags)) =
+    T.unlines $
+        showLanguagePragmas prags
+            : [T.pack . showSDoc dflags . ppr . unLoc $ ps]
 
 showLanguagePragmas :: [Pragma] -> T.Text
-showLanguagePragmas prags = ("{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}")
+showLanguagePragmas [] = ""
+showLanguagePragmas prags = "{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}"
 
 data Span = Span
     { file :: T.Text,

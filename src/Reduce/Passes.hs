@@ -20,13 +20,14 @@ import Util.Util (runPass)
 allActions :: [R IO ()]
 -- allActions = [runPass Typeclasses.handleMultiParams ]
 -- allActions = pure $ mapM_ runPass [Functions.etaReduceMatches, Parameters.reduce, Functions.inline]
--- allActions = [fast, medium, slow, slowest]
-allActions = [TypeFamilies.apply]
+-- allActions = [TypeFamilies.notWorking]
+allActions = [fast, medium, slow]
 
--- allActions = [slowest]
+-- allActions = [slow]
 
 fast :: R IO ()
 fast = do
+    TypeFamilies.apply
     mapM_
         runPass
         [ Decls.rmvSigs Nothing,
@@ -44,20 +45,15 @@ slow :: R IO ()
 slow = do
     mapM_
         runPass
-        [ Types.type2Unit
-        ]
-    medium
-
-slowest :: R IO ()
-slowest = do
-    mapM_
-        runPass
-        [ Decls.simplifyDecl Nothing,
+        [ 
           Decls.recCon2Prefix,
+          Typeclasses.rmvFunDeps,
+          TypeFamilies.familyResultSig,
+          Decls.simplifyDecl Nothing,
           Decls.simplifyConDecl,
           Expr.filterExprSubList,
           Expr.simplifyExpr,
-          -- , Types.type2WildCard
+          Types.type2WildCard,
           Types.simplifyType,
           Pat.pat2Wildcard,
           Stubbing.contexts,
@@ -67,28 +63,30 @@ slowest = do
           Functions.rmvRHSs,
           Functions.rmvMatches,
           Functions.rmvGuards,
-          TypeFamilies.familyResultSig,
           Stubbing.tyVarBndr,
           Names.unqualNames,
           DataTypes.inline,
           DataTypes.rmvConArgs,
           Imports.unqualImport,
-          TypeFamilies.rmvEquations,
           Parameters.reduce,
           Functions.etaReduceMatches,
           Functions.inline,
           Imports.rmvImports,
-          Typeclasses.rmvFunDeps,
           Typeclasses.rmvTyClMethods,
-          Typeclasses.handleMultiParams
+          Typeclasses.handleMultiParams,
+          TypeFamilies.rmvEquations,
+          Types.type2Unit
         ]
-    slow
     Pragmas.reduce
     Exports.reduce
+    medium
 
 allPasses :: [Pass]
 allPasses =
-    [ Imports.rmvImports,
+    [ 
+      TypeFamilies.familyResultSig,
+      TypeFamilies.rmvEquations,
+      Imports.rmvImports,
       Decls.rmvSigs Nothing,
       Decls.rmvDecls Nothing,
       Decls.simplifyDecl Nothing,
@@ -114,8 +112,6 @@ allPasses =
       DataTypes.inline,
       DataTypes.rmvConArgs,
       Imports.unqualImport,
-      TypeFamilies.familyResultSig,
-      TypeFamilies.rmvEquations,
       Parameters.reduce,
       Functions.inline
     ]

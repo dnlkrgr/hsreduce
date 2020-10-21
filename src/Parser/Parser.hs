@@ -2,20 +2,34 @@ module Parser.Parser (getPragmas, parse) where
 
 import Control.Applicative (Alternative ((<|>), many, some))
 import Control.Exception (SomeException)
-import Control.Monad.IO.Class (MonadIO (..))
 import Data.Either (fromRight, isRight)
 import Data.Functor (void)
-import qualified Data.List as L
-import Data.Maybe (catMaybes)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Void (Void)
-import DynFlags (xopt_set)
+import qualified DynFlags as GHC
 import GHC
+    ( getModSummary,
+      guessTarget,
+      parseModule,
+      runGhc,
+      setSessionDynFlags,
+      setTargets,
+      typecheckModule,
+      load,
+      getSessionDynFlags,
+      mkModuleName,
+      DynFlags,
+      GeneralFlag(Opt_KeepRawTokenStream),
+      gcatch,
+      LoadHowMuch(LoadAllTargets),
+      GhcMonad(getSession) )
 import GHC.Paths (libdir)
+import qualified HeaderInfo as GHC
 import qualified Language.Haskell.GHC.ExactPrint as EP
 import Outputable (ppr, showSDocUnsafe)
 import Path (Abs, File, Path, fromAbsFile)
+import qualified StringBuffer as GHC
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
     ( alphaNumChar,
@@ -26,18 +40,17 @@ import Text.Megaparsec.Char
       upperChar,
     )
 import Util.Types
-    ( Parser,
-      Pragma (..),
-      RState (RState),
+    ( Pragma(..),
+      RState(RState),
       emptyStats,
-      pragma2Extension,
-      showExtension,
-    )
+      Parser,
+      )
+    
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]
 getPragmas f =
-        concat
+    concat
         . fromRight []
         . sequence
         . filter isRight
@@ -65,7 +78,7 @@ pragmaType =
 
 parse :: Path Abs File -> IO RState
 parse fileName = do
-    banner $ "Parsing: " <> fromAbsFile fileName
+    -- banner $ "Parsing: " <> fromAbsFile fileName
 
     let filePath = fromAbsFile fileName
     p <- EP.parseModule filePath >>= \case
@@ -74,33 +87,55 @@ parse fileName = do
 
     modName <-
         ( \case
-                Left _ -> "Main"
-                Right t -> t
+              Left _ -> "Main"
+              Right t -> t
             )
             . getModName
             <$> TIO.readFile filePath
 
-    extensions <- catMaybes . map pragma2Extension <$> getPragmas fileName
     prags <- getPragmas fileName
+    fileContent <- readFile $ fromAbsFile fileName
 
-    (runGhc (Just libdir) $ do
-            dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
-            _ <- setSessionDynFlags dflags
+    ( runGhc (Just libdir) $ do
+          -- dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
+          -- _ <- setSessionDynFlags dflags
+          dflags <- initDynFlagsPure (fromAbsFile fileName) fileContent
 
-            target <- guessTarget (fromAbsFile fileName) Nothing
-            setTargets [target]
-            _ <- load LoadAllTargets
-            modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
+          target <- guessTarget (fromAbsFile fileName) Nothing
+          setTargets [target]
+          _ <- load LoadAllTargets
+          modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
+          -- liftIO $ print $ "modName: " <> modName
 
-            pm <- parseModule modSum
-            hEnv <- getSession
+          pm <- parseModule modSum
+          hEnv <- getSession
 
-            gcatch 
-                (do; tm <- typecheckModule pm; return . Just $ (tm, hEnv, dflags)) 
-                (\(_ :: SomeException) -> return Nothing)) >>= \case
+          gcatch
+              ( do
+                    tm <- typecheckModule pm
+                    return . Just $ (tm, hEnv, dflags)
+              )
+              (\(_ :: SomeException) -> return Nothing)
+        )
+        >>= \case
+            Nothing -> return $ RState prags p False emptyStats 0 Nothing Nothing Nothing
+            Just (mt, hEnv, dflags) -> return $ RState prags p False emptyStats 0 (Just mt) (Just hEnv) (Just dflags)
 
-        Nothing -> return $ RState prags p False emptyStats 0 Nothing Nothing Nothing
-        Just (mt, hEnv, dflags) -> return $ RState prags p False emptyStats 0 (Just mt) (Just hEnv) (Just dflags)
+initDynFlagsPure :: GHC.GhcMonad m => FilePath -> String -> m GHC.DynFlags
+initDynFlagsPure fp s = do
+    -- I was told we could get away with using the unsafeGlobalDynFlags.
+    -- as long as `parseDynamicFilePragma` is impure there seems to be
+    -- no reason to use it.
+    dflags0 <- GHC.getSessionDynFlags
+    let pragmaInfo = GHC.getOptions dflags0 (GHC.stringToStringBuffer $ s) fp
+    (dflags1, _, _) <- GHC.parseDynamicFilePragma dflags0 pragmaInfo
+    -- Turn this on last to avoid T10942
+    let dflags2 = dflags1 `GHC.gopt_set` GHC.Opt_KeepRawTokenStream
+    -- Prevent parsing of .ghc.environment.* "package environment files"
+    (dflags3, _, _) <- GHC.parseDynamicFlagsCmdLine dflags2 []
+    -- (dflags3, _, _) <- GHC.parseDynamicFlagsCmdLine dflags2 [GHC.noLoc "-hide-all-packages"]
+    _ <- GHC.setSessionDynFlags dflags3
+    return dflags3
 
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines
@@ -122,9 +157,3 @@ name' = do
     c <- upperChar
     cs <- many alphaNumChar
     return . T.pack $ c : cs
-
-banner :: MonadIO m => String -> m ()
-banner s = liftIO $ putStrLn $ "\n" <> s' <> s <> s'
-    where
-        n = 80 - length s
-        s' = replicate (div n 2) '='

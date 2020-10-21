@@ -1,10 +1,11 @@
-{ mkDerivation, aeson, base, bytestring, Cabal, cassava, containers
-, Diff, edit-distance, ghc, ghc-boot-th, ghc-exactprint, ghc-paths
-, hashable, hie-bios, hspec, HUnit, katip, lifted-async
+{ mkDerivation, aeson, array, base, bytestring, Cabal, cassava
+, containers, Diff, edit-distance, ghc, ghc-boot-th, ghc-exactprint
+, ghc-paths, hashable, hie-bios, hspec, HUnit, katip, lifted-async
 , lifted-base, megaparsec, microlens-platform, monad-control
 , MonadRandom, mtl, optparse-generic, path, path-io, process, regex
 , split, stdenv, stm-lifted, syb, text, time, transformers-base
-, uniplate, unordered-containers, word8, haskell-language-server
+, uniplate, unordered-containers, word8
+, haskell-language-server
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -13,28 +14,29 @@ mkDerivation {
   isLibrary = false;
   isExecutable = true;
   libraryHaskellDepends = [
-    aeson base bytestring Cabal cassava containers Diff edit-distance
-    ghc ghc-boot-th ghc-exactprint ghc-paths hashable hie-bios HUnit
-    katip lifted-async lifted-base megaparsec microlens-platform
-    monad-control MonadRandom mtl optparse-generic path path-io process
-    regex split stm-lifted syb text time transformers-base uniplate
-    unordered-containers word8 haskell-language-server
+    aeson array base bytestring Cabal cassava containers Diff
+    edit-distance ghc ghc-boot-th ghc-exactprint ghc-paths hashable
+    hie-bios HUnit katip lifted-async lifted-base megaparsec
+    microlens-platform monad-control MonadRandom mtl optparse-generic
+    path path-io process regex split stm-lifted syb text time
+    transformers-base uniplate unordered-containers word8
+    haskell-language-server
   ];
   executableHaskellDepends = [
-    aeson base bytestring Cabal cassava containers Diff edit-distance
-    ghc ghc-boot-th ghc-exactprint ghc-paths hashable hie-bios HUnit
-    katip lifted-async lifted-base megaparsec microlens-platform
-    monad-control MonadRandom mtl optparse-generic path path-io process
-    regex split stm-lifted syb text time transformers-base uniplate
-    unordered-containers word8
+    aeson array base bytestring Cabal cassava containers Diff
+    edit-distance ghc ghc-boot-th ghc-exactprint ghc-paths hashable
+    hie-bios HUnit katip lifted-async lifted-base megaparsec
+    microlens-platform monad-control MonadRandom mtl optparse-generic
+    path path-io process regex split stm-lifted syb text time
+    transformers-base uniplate unordered-containers word8
   ];
   testHaskellDepends = [
-    aeson base bytestring Cabal cassava containers Diff edit-distance
-    ghc ghc-boot-th ghc-exactprint ghc-paths hashable hie-bios hspec
-    HUnit katip lifted-async lifted-base megaparsec microlens-platform
-    monad-control MonadRandom mtl optparse-generic path path-io process
-    regex split stm-lifted syb text time transformers-base uniplate
-    unordered-containers word8
+    aeson array base bytestring Cabal cassava containers Diff
+    edit-distance ghc ghc-boot-th ghc-exactprint ghc-paths hashable
+    hie-bios hspec HUnit katip lifted-async lifted-base megaparsec
+    microlens-platform monad-control MonadRandom mtl optparse-generic
+    path path-io process regex split stm-lifted syb text time
+    transformers-base uniplate unordered-containers word8
   ];
   doHaddock = false;
   license = stdenv.lib.licenses.bsd3;

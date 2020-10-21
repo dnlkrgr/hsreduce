@@ -31,14 +31,13 @@ type2Unit = mkPass "type2Unit" f
     where
         f :: WaysToChange (HsType GhcPs)
         f UnitTypeP = []
-        -- f (HsWildCardTy _) = []
+        f (HsWildCardTy _) = []
         f _ = map const [UnitTypeP]
 
 type2WildCard :: Pass
 type2WildCard = mkPass "type2WildCard" f
     where
         f :: WaysToChange (HsType GhcPs)
-        f UnitTypeP = []
         f (HsWildCardTy _) = []
         f _ = map const [HsWildCardTy NoExt]
 

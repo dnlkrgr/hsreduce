@@ -3,6 +3,7 @@ module Reduce.Driver
     )
 where
 
+import Data.IORef
 import qualified Data.ByteString.Lazy as LBS
 import Data.Csv ( encodeDefaultOrderedByName )
 import Control.Concurrent.STM.Lifted
@@ -45,7 +46,7 @@ import Katip.Scribes.Handle
       brackets,
       colorBySeverity )
 import Path
-    ( (</>), absdir, dirname, filename, fromAbsFile, parent, Abs )
+    ( (</>), absdir, dirname, filename, fromAbsFile, parent)
 import Path.IO
     ( copyDirRecur,
       copyFile,
@@ -106,7 +107,8 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
         let mkLogEnv = registerScribe "stdout" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
 
         bracket mkLogEnv closeScribes $ \le -> do
-            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le
+            logRef <- newIORef []
+            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef
 
             -- run the reducing functions
             runR beginConf $ do
@@ -148,7 +150,7 @@ largestFixpoint f = do
     go tState
     where
         go tState = do
-            -- $(logTM) InfoS "***NEW ITERATION***"
+            $(logTM) InfoS "***NEW ITERATION***"
             isTestStillFresh "largestFixpoint"
 
             atomically $ modifyTVar tState $ \s -> s {_isAlive = False}

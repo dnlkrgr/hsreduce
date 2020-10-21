@@ -46,14 +46,11 @@ import qualified Data.Text.IO as TIO
 import Debug.Trace (traceShow)
 import FastString (mkFastString)
 import GHC
-    ( GenLocated (L),
+    ( 
       GhcPs,
       HsExpr (HsApp, HsVar),
-      Located,
       ParsedSource,
       RdrName,
-      SrcSpan,
-      unLoc,
     )
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),

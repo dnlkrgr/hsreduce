@@ -1,5 +1,6 @@
 module Merge.HsAllInOne where
 
+
 import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void, when)
 import Data.Bifunctor (Bifunctor (first))
 import Data.Generics.Uniplate.Data (transformBi, universeBi)
@@ -14,82 +15,71 @@ import Data.Void (Void)
 import Debug.Trace (traceShow)
 import Digraph (flattenSCC)
 import GHC
-    ( AmbiguousFieldOcc (Ambiguous, Unambiguous),
-      ClsInstDecl,
-      FamEqn (FamEqn, feqn_tycon),
-      FieldOcc (FieldOcc),
-      GhcPs,
-      GhcRn,
-      HsBindLR (FunBind, fun_id, fun_matches),
-      HsMatchContext,
-      HsModule (HsModule, hsmodDecls, hsmodImports),
-      HsSplice,
-      HsTyPats,
-      ImportDecl
-          ( ideclAs,
-            ideclHiding,
-            ideclName,
-            ideclQualified,
-            ideclSafe
-          ),
-      LHsType,
-      LImportDecl,
-      LoadHowMuch (LoadAllTargets),
-      ModSummary (ms_location, ms_mod),
-      ParsedModule (pm_parsed_source),
-      RealSrcLoc,
-      RealSrcSpan,
-      Sig (ClassOpSig, TypeSig),
-      SrcSpan,
-      TypecheckedModule
-          ( tm_internals_,
-            tm_parsed_module,
-            tm_renamed_source
-          ),
-      getModuleGraph,
-      load,
-      mkModuleName,
-      moduleNameString,
-      noLoc,
+    ( getModuleGraph,
       parseModule,
       runGhc,
       setTargets,
-      srcLocCol,
-      srcLocLine,
-      topSortModuleGraph,
       typecheckModule,
+      load,
+      topSortModuleGraph,
+      mkModuleName,
+      moduleNameString,
+      noLoc,
+      srcLocLine,
       unLoc,
-    )
-import GHC.Paths (libdir)
-import GhcPlugins
-    ( GenLocated (L),
-      GlobalRdrElt (gre_imp, gre_name),
-      GlobalRdrEnv,
-      HasOccName (occName),
-      ImpDeclSpec (is_mod),
-      ImportSpec (is_decl),
-      Located,
-      ModLocation (ml_hs_file),
-      Module (moduleName),
+      ParsedModule(pm_parsed_source),
+      TypecheckedModule(tm_internals_, tm_parsed_module,
+                        tm_renamed_source),
+      LoadHowMuch(LoadAllTargets),
+      HsBindLR(FunBind, fun_matches, fun_id),
+      Sig(ClassOpSig, TypeSig),
+      ClsInstDecl,
+      FamEqn(FamEqn, feqn_tycon),
+      HsTyPats,
+      HsMatchContext,
+      HsSplice,
+      GhcPs,
+      GhcRn,
+      ImportDecl(ideclQualified, ideclHiding, ideclAs, ideclSafe,
+                 ideclName),
+      LImportDecl,
+      HsModule(HsModule, hsmodImports, hsmodDecls),
+      AmbiguousFieldOcc(Ambiguous, Unambiguous),
+      FieldOcc(FieldOcc),
+      LHsType,
+      ModSummary(ms_mod, ms_location),
+      Module(moduleName),
       ModuleName,
       Name,
-      OccName (occNameSpace),
-      RdrName (Qual, Unqual),
-      getRdrName,
-      isBuiltInSyntax,
-      isSystemName,
-      liftIO,
-      lookupGRE_Name,
-      lookupGlobalRdrEnv,
-      mkOccName,
-      nameModule_maybe,
-      occNameString,
-      pprNameUnqualified,
-      rdrNameOcc,
+      RdrName(..),
+      GenLocated(L),
+      Located,
+      RealSrcLoc,
+      RealSrcSpan,
+      SrcSpan )
+import GHC.Paths (libdir)
+import GhcPlugins
+    ( liftIO,
+      ModLocation(ml_hs_file),
+      OccName(occNameSpace),
+      GlobalRdrEnv,
+      GlobalRdrElt(gre_name, gre_imp),
+      showSDocUnsafe,
+      HasOccName(occName),
       realSrcSpanEnd,
       realSrcSpanStart,
-      showSDocUnsafe,
-    )
+      isBuiltInSyntax,
+      isSystemName,
+      nameModule_maybe,
+      pprNameUnqualified,
+      mkOccName,
+      occNameString,
+      ImportSpec(is_decl),
+      getRdrName,
+      lookupGRE_Name,
+      lookupGlobalRdrEnv,
+      rdrNameOcc,
+      ImpDeclSpec(is_mod) )
 import HIE.Bios
     ( Cradle (cradleRootDir),
       CradleLoadResult (CradleFail, CradleSuccess),
@@ -109,6 +99,7 @@ import Util.Types
       Tool (Ghc),
     )
 import Util.Util
+    ( getGhcOutput, oshow, banner, isOperator, insertTextAtLocation )
 
 
 namesToDebug :: [String]

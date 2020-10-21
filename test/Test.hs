@@ -49,21 +49,21 @@ main = hspec $ do
                 [ ("Imports",       
                     runPass Imports.rmvImports,             
                     Nothing,                
-                    "module Imports where")
+                    "\nmodule Imports where\n")
                 , ("Pragmas",       
                     Pragmas.reduce,             
                     Nothing,                
-                    "module Pragmas where")
+                    "\nmodule Pragmas where\n")
                 -- Exports: removing explicit exports
                 -- Exports2: removing exports starting from implicit export all
                 , ("Exports",       
                     Exports.reduce,             
                     Nothing,                
-                    "module Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"")
+                    "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
                 , ("Exports2",      
                     Exports.reduce,             
                     Nothing,                
-                    "module Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"")
+                    "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
                 -- *****
                 -- Decls
                 -- *****
@@ -75,7 +75,7 @@ main = hspec $ do
                 , ("FunIds",        
                     mapM_ runPass [Decls.rmvSigs Nothing, Decls.rmvDecls Nothing],   
                     (Just "funids.sh"),     
-                    "module FunIds (\n        foo\n    ) where\nfoo x = 3")
+                    "\nmodule FunIds (\n        foo\n    ) where\nfoo x = 3\n")
                 , ("Cons",          
                     runPass (Decls.simplifyDecl Nothing),                 
                     Nothing,                
@@ -87,19 +87,19 @@ main = hspec $ do
                 , ("Unit",          
                     mapM_ runPass [Types.type2Unit, Expr.expr2Undefined],            
                     Nothing,                
-                    "module Unit where\narst :: ()\narst = undefined")
+                    "\nmodule Unit where\narst :: ()\narst = undefined\n")
                 , ("Contexts",   
                     runPass Stubbing.contexts,           
                     Nothing,                
-                    "module Contexts where\narst :: () => a -> a\narst = undefined")
+                    "\nmodule Contexts where\narst :: () => a -> a\narst = undefined\n")
                 , ("Deriving",   
                     runPass Stubbing.simplifyDeriving,           
                     Nothing,                
-                    "module Deriving where\ndata Arst = Arst")
+                    "\nmodule Deriving where\ndata Arst = Arst\n")
                 , ("Deriving2",   
                     runPass Stubbing.simplifyDerivingClause,           
                     Nothing,                
-                    "module Deriving where\ndata Arst\n  = Arst\n  deriving ()")
+                    "\nmodule Deriving where\ndata Arst\n  = Arst\n  deriving ()\n")
                 , ("TyVarBndr",   
                     runPass Stubbing.tyVarBndr,           
                     Nothing,                
@@ -107,47 +107,47 @@ main = hspec $ do
                 , ("LocalBinds",   
                     runPass Stubbing.localBinds,           
                     Nothing,                
-                    "module LocalBinds where\narst = undefined")
+                    "\nmodule LocalBinds where\narst = undefined\n")
                 , ("Matches",   
                     runPass Functions.rmvMatches,           
                     Nothing,                
-                    "module Matches where")
+                    "\nmodule Matches where\n")
                 , ("Guards",   
                     runPass Functions.rmvGuards,           
                     Nothing,                
-                    "module Guards where\narst = \"crst\"")
+                    "\nmodule Guards where\narst = \"crst\"\n")
                 , ("RHSs",   
                     runPass Functions.rmvRHSs,           
                     Nothing,                
-                    "module RHSs where\narst | 3 > 5 = \"arst\"")
+                    "\nmodule RHSs where\narst | 3 > 5 = \"arst\"\n")
                 , ("TypeFamilies",   
                     TypeFamilies.apply,           
                     Just "typefamilies.sh",                
-                    "{-# LANGUAGE TypeFamilies, DataKinds, PolyKinds, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\nmain = undefined\ntype family F a b where\n  F a b = a\narst :: Int -> String\narst = undefined\ntype family G a b where\n  G a b = String\nbrst :: String -> String\nbrst = undefined\ntype family Zip a b where\n  Zip (_ s) (_ m t) = M1 () m (Zip s t)\ntype family IfEq a b t f where\n  IfEq a a t _ = t\ntype family LookupParam (a :: k) (p :: Nat) :: Maybe Nat where\n  LookupParam (a (_ (m))) n = ('Just 0)\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\n")
+                    "{-# LANGUAGE AllowAmbiguousTypes, DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, InstanceSigs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\narst :: Int -> String\narst = undefined\nbrst :: String\nbrst = undefined\ntype family F a b where\n  F a b = a\ntype family G a b where\n  G a b = String\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\ntype family LookupParam (p :: Nat) :: Maybe Nat where\n  LookupParam n = ('Just 0)\ntype family IfEq (b :: k) (t :: l) (f :: l) :: l where\n  IfEq a t _ = t\nmain = undefined\n")
                 , ("Expr",   
                     mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
                     Just "expr.sh",                
-                    "module Expr where\nmain = do brst\nbrst = undefined\ncrst = \"arst\"")
+                    "\nmodule Expr where\nmain = do brst\nbrst = undefined\ncrst = \"arst\"\n")
                 , ("Functions",   
                     mapM_ runPass [Functions.etaReduceMatches, Functions.inline],
                     Nothing,                
-                    "module Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"")
+                    "\nmodule Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"\n")
                 , ("ConArgs",       
                     runPass DataTypes.rmvConArgs,       
                     Nothing,                
-                    "module Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst () () -> Arst () ()\ne (Arst) = Arst")
+                    "\nmodule Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst () () -> Arst () ()\ne (Arst) = Arst\n")
                 , ("InlineTypes",   
                     runPass DataTypes.inline,           
                     Nothing,                
-                    "module Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()")
+                    "\nmodule Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()\n")
                 , ("Params",        
                     runPass Parameters.reduce,          
                     Just "params.sh",
-                    "module Params where\nbrst = arst '1' \"3\"\narst :: Char -> String -> ()\narst '4' \"6\" = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l")
+                    "\nmodule Params where\nbrst = arst '1' \"3\"\narst :: Char -> String -> ()\narst '4' \"6\" = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\n")
                 , ("Typeclasses",   
                     runPass Typeclasses.rmvTyClMethods,
                     Just "typeclasses.sh",                
-                    "module Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show")
+                    "\nmodule Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show\n")
                 , ("MultiParams",   
                     runPass Typeclasses.handleMultiParams,
                     Just "multiparams.sh",                
