@@ -1,6 +1,6 @@
 module Util.Types where
 
-import Data.IORef
+import Data.IORef ( IORef )
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM.Lifted (TChan, TVar)
 import Control.Monad.Base (MonadBase (..), liftBaseDefault)
@@ -29,6 +29,7 @@ import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
 import Data.Word (Word8)
 import GHC
+    ( unLoc, DynFlags, ParsedSource, TypecheckedModule, HscEnv )
 import GHC.LanguageExtensions.Type
     ( Extension
           ( AllowAmbiguousTypes,
@@ -56,7 +57,7 @@ import Options.Generic
       type (:::),
       type (<?>),
     )
-import Outputable hiding ((<>))
+import Outputable ( Outputable(ppr), showSDoc, showSDocUnsafe )
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
@@ -144,7 +145,8 @@ data RConf = RConf
       logNamespace :: K.Namespace,
       logContext :: K.LogContexts,
       logEnv :: K.LogEnv,
-      _logRef :: IORef [String]
+      _logRef :: IORef [String],
+      _defaultDuration :: Word
     }
 
 runR :: RConf -> R m a -> m a
@@ -158,10 +160,10 @@ showState (RState prags ps _ _ _ _ _ Nothing) =
     T.unlines $
         showLanguagePragmas prags
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
-showState (RState prags ps _ _ _ _ _ (Just dflags)) =
+showState (RState prags ps _ _ _ _ _ (Just currentDynFlags)) =
     T.unlines $
         showLanguagePragmas prags
-            : [T.pack . showSDoc dflags . ppr . unLoc $ ps]
+            : [T.pack . showSDoc currentDynFlags . ppr . unLoc $ ps]
 
 showLanguagePragmas :: [Pragma] -> T.Text
 showLanguagePragmas [] = ""

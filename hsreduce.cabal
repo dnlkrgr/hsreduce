@@ -49,6 +49,7 @@ common dry
         , word8
         , transformers-base
     default-extensions:
+        TypeApplications
         DataKinds
         DeriveGeneric
         FlexibleContexts

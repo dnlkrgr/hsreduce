@@ -44,14 +44,25 @@ inline = AST "inlineFunctions" $ \ast ->
         ( \(funId, body) ->
               transformBi (replaceFunIdWithBody funId body)
         )
-        [ (funId, body)
-          | (FunBind _ (L _ funId) (MG _ lmatches _) _ _) :: HsBindLR GhcPs GhcPs <- universeBi ast,
-            let matches = map unLoc $ unLoc lmatches,
-            length matches == 1,
-            length (m_pats $ head $ matches) == 0,
-            length (grhssGRHSs $ m_grhss $ head $ matches) == 1,
-            GRHS _ [] body :: GRHS GhcPs (LHsExpr GhcPs) <- unLoc . head . grhssGRHSs . m_grhss <$> matches
-        ]
+        -- f = g
+        ( [ (funId, body)
+            | (FunBind _ (L _ funId) (MG _ lmatches _) _ _) :: HsBindLR GhcPs GhcPs <- universeBi ast,
+              let matches = map unLoc $ unLoc lmatches,
+              length matches == 1,
+              length (m_pats $ head $ matches) == 0,
+              length (grhssGRHSs $ m_grhss $ head $ matches) == 1,
+              GRHS _ [] body :: GRHS GhcPs (LHsExpr GhcPs) <- unLoc . head . grhssGRHSs . m_grhss <$> matches
+          ]
+              -- f x = g x, when eta reducing somehow isn't applicable
+              <> [ (funId, lExpr)
+                   | (FunBind _ (L _ funId) (MG _ (L _ [L _ (Match {m_pats = pats@(_ : _), m_grhss = (GRHSs {grhssGRHSs = [L _ (GRHS _ _ (L _ (HsApp _ lExpr rExpr)))]})})]) _) _ _) :: HsBindLR GhcPs GhcPs <- universeBi ast,
+                     let sPat = oshow (last pats),
+                     sPat == "_" || sPat == oshow rExpr
+                 ]
+                 -- f [L l1 m@(Match {m_pats = pats@(_ : _), m_grhss = g@(GRHSs {grhssGRHSs = [L l2 (GRHS _ guards (L l3 (HsApp _ lExpr rExpr)))]})})]
+                 --         [const [L l1 (m {m_pats = init pats, m_grhss = g {grhssGRHSs = [L l2 (GRHS NoExt guards (L l3 (unLoc lExpr)))]}})]]
+                 --     | otherwise = []
+        )
     where
         replaceFunIdWithBody funName (L _ body) old@(HsVar _ (L _ n))
             | funName == n = body

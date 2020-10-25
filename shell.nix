@@ -2,10 +2,10 @@
 
 let
   pkgs = import (builtins.fetchGit {
-    name = "nixos-unstable-2020-09-26";
+    name = "nixos-unstable-2020-10-25";
     url = "https://github.com/nixos/nixpkgs-channels/";
-    ref = "refs/heads/nixos-unstable";
-    rev = "2e6844040e38148a2414e9226a594a2320262596";
+    ref = "refs/heads/nixpkgs-unstable";
+    rev = "502845c3e31ef3de0e424f3fcb09217df2ce6df6";
   }) {};
 
   haskellPackages = pkgs.haskell.packages.${compiler};

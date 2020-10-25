@@ -1,7 +1,7 @@
 module Util.Util where
 
-import StringBuffer
-import Lexer
+import StringBuffer ( stringToStringBuffer )
+import Lexer ( mkPState, P(unP), ParseResult )
 import DynFlags hiding (GhcMode)
 import Control.Applicative
     ( Alternative ((<|>)),
@@ -51,6 +51,7 @@ import GHC
       HsExpr (HsApp, HsVar),
       ParsedSource,
       RdrName,
+      GRHS(..),
     )
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
@@ -72,6 +73,16 @@ import Path
       parent,
     )
 import SrcLoc as SL
+    ( srcLocCol,
+      srcLocLine,
+      unLoc,
+      GenLocated(L),
+      Located,
+      RealSrcLoc,
+      RealSrcSpan,
+      SrcSpan,
+      mkRealSrcLoc,
+      mkRealSrcSpan )
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.Process
     ( CreateProcess (cwd),
@@ -230,7 +241,7 @@ testNewState conf newState =
         CE.try
             ( do
                   liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState newState
-                  runTest test defaultDuration
+                  runTest test (UT._defaultDuration conf)
             )
             >>= \case
                 Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
@@ -340,7 +351,7 @@ getGhcOutput tool ghcMode sourcePath = do
 
     (_, stdout, _) <-
         fromMaybe (error "getGhcOutput timeout!")
-            <$> timeout (fromIntegral $ 60 * defaultDuration) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))
+            <$> timeout (fromIntegral @Word $ 60 * 60 * 1000 * 1000) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))
 
     return $ case stdout of
         "" -> Nothing
@@ -463,13 +474,6 @@ span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc)
 isInProduction :: Bool
 isInProduction = False
 
--- default duration: 30 seconds
-defaultDuration :: Word
-defaultDuration = 60 * 1000 * 1000
-
-longDuration :: Word
-longDuration = 360 * 1000 * 1000
-
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
 
@@ -551,7 +555,10 @@ insertTextAtLocation (newName, (startLoc, endLoc)) fileContent =
 runParser :: DynFlags -> P a -> String -> ParseResult a
 runParser flags parser str = unP parser parseState
     where
-      filename = "<interactive>"
-      location = mkRealSrcLoc (mkFastString filename) 1 1
+      location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
       buffer = stringToStringBuffer str
       parseState = mkPState flags buffer location
+
+grhs2Body :: GRHS p body -> Maybe body
+grhs2Body (GRHS _ _ body) = Just body
+grhs2Body _ = Nothing

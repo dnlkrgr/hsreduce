@@ -18,12 +18,9 @@ import Util.Types (Pass, R)
 import Util.Util (runPass)
 
 allActions :: [R IO ()]
--- allActions = [runPass Typeclasses.handleMultiParams ]
--- allActions = pure $ mapM_ runPass [Functions.etaReduceMatches, Parameters.reduce, Functions.inline]
--- allActions = [TypeFamilies.notWorking]
+-- allActions = map runPass [Functions.etaReduceMatches, Functions.inline, Decls.rmvDecls Nothing]
 allActions = [fast, medium, slow]
-
--- allActions = [slow]
+-- allActions = [runPass Decls.recCon2Prefix]
 
 fast :: R IO ()
 fast = do
@@ -53,7 +50,6 @@ slow = do
           Decls.simplifyConDecl,
           Expr.filterExprSubList,
           Expr.simplifyExpr,
-          Types.type2WildCard,
           Types.simplifyType,
           Pat.pat2Wildcard,
           Stubbing.contexts,
@@ -75,6 +71,7 @@ slow = do
           Typeclasses.rmvTyClMethods,
           Typeclasses.handleMultiParams,
           TypeFamilies.rmvEquations,
+          Types.type2WildCard,
           Types.type2Unit
         ]
     Pragmas.reduce

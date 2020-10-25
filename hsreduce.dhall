@@ -64,6 +64,7 @@ let defaultExtensions =
       , types.Extension.TypeOperators True
       , types.Extension.UndecidableInstances True
       , types.Extension.ViewPatterns True
+      , types.Extension.TypeApplications True
       ]
 
 in    prelude.defaults.Package

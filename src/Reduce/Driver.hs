@@ -46,7 +46,6 @@ import Katip.Scribes.Handle
       brackets,
       colorBySeverity )
 import Path
-    ( (</>), absdir, dirname, filename, fromAbsFile, parent)
 import Path.IO
     ( copyDirRecur,
       copyFile,
@@ -108,7 +107,7 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
 
         bracket mkLogEnv closeScribes $ \le -> do
             logRef <- newIORef []
-            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef
+            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (2 * 60 * 1000 * 1000)
 
             -- run the reducing functions
             runR beginConf $ do

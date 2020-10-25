@@ -9,12 +9,7 @@ import CoAxiom
 import Control.Concurrent.STM.TVar.Lifted (readTVarIO)
 import qualified Control.Exception as CE
 import Control.Monad.Reader
-    ( MonadIO (liftIO),
-      MonadReader (ask),
-      asks,
-      forM_,
-      void,
-    )
+    ( forM_, void, asks, MonadReader(ask) )
 import Data.Array (elems)
 import Data.Char (isUpper)
 import Data.Generics.Uniplate.Data
@@ -31,15 +26,9 @@ import FamInst (tcGetFamInstEnvs)
 import FamInstEnv (normaliseType)
 import GHC hiding (Pass)
 import GhcPlugins
-    ( HscEnv,
+    ( 
       Outputable,
-      Role (Nominal),
-      SrcSpan (RealSrcSpan),
-      TyThing (ACoAxiom),
-      getLoc,
-      liftIO,
       nameEnvElts,
-      unLoc,
     )
 import Lens.Micro.Platform ((&), (.~), (^.))
 import Lexer
@@ -156,9 +145,8 @@ notWorking = do
     printInfo "TypeFamilies:apply"
 
     conf <- ask
-    state <- liftIO $ readTVarIO (_tState conf)
 
-    let renamedAST = fromJust . tm_renamed_source . fromJust . _typechecked $ state
+    renamedAST <- fromJust . tm_renamed_source . fromJust . _typechecked <$> (liftIO $ readTVarIO (_tState conf))
 
     -- let tcGblEnv = fst . tm_internals_ . fromJust . _typechecked $ state
     --     hEnv = fromJust $ _hscEnv state
@@ -174,7 +162,7 @@ notWorking = do
         let tcGblEnv = fst . tm_internals_ . fromJust . _typechecked $ state
             hEnv = fromJust $ _hscEnv state
             loc = (\(RealSrcSpan r) -> r) . getLoc . _parsed $ state
-            dflags = fromJust $ _dflags state
+            tempFlags = fromJust $ _dflags state
             ast = _parsed state
 
         -- liftIO $ print "hallo"
@@ -206,10 +194,10 @@ notWorking = do
             Just tk -> do
                 -- let (group, imports, _, _) =
                 --         transformBi (overwriteAtLoc l (const newT)) renamedAST
-                let POk _ (unLoc -> newT) = runParser dflags parseType $ oshow tk
+                let POk _ (unLoc -> newT) = runParser tempFlags parseType $ oshow tk
                     nChars = 20
                     tChan = _tempDirs conf
-                    newState = state {_parsed = transformBi (overwriteAtLoc l (const newT)) ast}
+                    midState = state {_parsed = transformBi (overwriteAtLoc l (const newT)) ast}
                     tString = oshow t
                     fromString = tString <> (replicate (nChars - length tString) ' ')
                     newTString = oshow newT
@@ -223,7 +211,7 @@ notWorking = do
 
                 newState <- withTempDir tChan $ \tempDir -> do
                     let sourceFile = tempDir </> _sourceFile conf
-                    let newFileContent = showState newState
+                    let newFileContent = showState midState
 
                     liftIO $ TIO.writeFile (fromAbsFile sourceFile) newFileContent
                     liftIO $ parse sourceFile
@@ -232,13 +220,13 @@ notWorking = do
 
 brst :: HscEnv -> TcGblEnv -> RealSrcSpan -> [LInstDecl GhcRn] -> IO [LInstDecl GhcRn]
 brst hEnv tcGblEnv loc instDecls = do
-    initTcWithGbl hEnv tcGblEnv loc (crst instDecls)
+    _ <- initTcWithGbl hEnv tcGblEnv loc (crst instDecls)
     return instDecls
 
 crst :: [LInstDecl GhcRn] -> TcM ()
 crst instDecls = do
     (tcGblEnv, _, _) <- tcInstDecls1 instDecls
-    liftIO $ print "hallo"
+    liftIO $ print @String "hallo"
     -- forM_ (tcg_fam_inst_env tcGblEnv) $ \i -> do
     --     liftIO $ print $ oshow $ udfmToList i
     forM_ (nameEnvElts $ tcg_type_env tcGblEnv) $ \case
@@ -249,7 +237,6 @@ crst instDecls = do
     liftIO $ print $ oshow $ (tcg_sigs tcGblEnv)
     liftIO $ print $ oshow $ udfmToList (tcg_fam_inst_env tcGblEnv)
     error "ciao"
-    return ()
 
 arst :: HscEnv -> TcGblEnv -> RealSrcSpan -> LHsType GhcRn -> IO (Maybe Type)
 arst hEnv glblEnv loc t = do
@@ -257,8 +244,8 @@ arst hEnv glblEnv loc t = do
     -- liftIO $ print $ oshow t
     CE.try ((initTcWithGbl hEnv glblEnv loc (doStuff t))) >>= \case
         Left (_ :: CE.SomeException) -> return Nothing
-        Right (messages, (Just mtk)) -> return $ Just mtk
-        Right (messages, Nothing) -> do
+        Right (_, (Just mtk)) -> return $ Just mtk
+        Right (_, Nothing) -> do
             -- print $ oshow t
             -- liftIO $ print $ bagToList $ fst messages
             -- liftIO $ print $ bagToList $ snd messages
@@ -274,8 +261,7 @@ doStuff :: LHsType GhcRn -> TcM Type
 doStuff t = do
     famInsts <- tcGetFamInstEnvs
     tcType <- fst <$> tcLHsType t
-    let arst = snd $ normaliseType famInsts Nominal tcType
-    return arst
+    return . snd $ normaliseType famInsts Nominal tcType
 
 -- liftIO . print $ oshow t
 
