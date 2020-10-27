@@ -58,7 +58,7 @@ import Katip
       logTM,
     )
 import Lens.Micro.Platform ((%~), (&), at)
-import Outputable ( Outputable(ppr), showSDocUnsafe )
+import Outputable hiding ((<>))
 import Parser.Parser (getPragmas)
 import Path
     ( (</>),
@@ -481,6 +481,13 @@ isInProduction = False
 (<||>) = liftA2 (||)
 
 infixr 8 <&&>
+
+-- oshow :: Outputable a => a -> String
+-- oshow a = showSDocUnsafe $ getPprStyle $ \s -> do
+--     error (brst s)
+
+mshow :: Outputable a => DynFlags -> a -> String
+mshow dynflags = showSDocForUser dynflags alwaysQualify . ppr
 
 oshow :: Outputable a => a -> String
 oshow = showSDocUnsafe . ppr

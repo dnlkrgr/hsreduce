@@ -44,13 +44,15 @@ import Util.Types
       RState(RState),
       emptyStats,
       Parser,
+      showExtension
       )
     
 
 -- TODO: how to handle Safe vs. Trustworthy?
 getPragmas :: Path Abs File -> IO [Pragma]
 getPragmas f =
-    concat
+    filter ((/= "Safe") . showExtension)
+        . concat
         . fromRight []
         . sequence
         . filter isRight
