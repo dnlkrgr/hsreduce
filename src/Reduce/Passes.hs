@@ -1,4 +1,4 @@
-module Reduce.Passes (allActions, allPasses) where
+module Reduce.Passes (allActions) where
 
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Reduce.Passes.Decls as Decls
@@ -14,22 +14,20 @@ import qualified Reduce.Passes.Stubbing as Stubbing
 import qualified Reduce.Passes.TypeFamilies as TypeFamilies
 import qualified Reduce.Passes.Typeclasses as Typeclasses
 import qualified Reduce.Passes.Types as Types
-import Util.Types (Pass, R)
-import Util.Util (runPass)
+import Util.Types 
+import Util.Util 
 
 allActions :: [R IO ()]
--- allActions = map runPass [Functions.etaReduceMatches, Functions.inline, Decls.rmvDecls Nothing]
 allActions = [fast, medium, slow]
--- allActions = [runPass Decls.recCon2Prefix]
 
 fast :: R IO ()
 fast = do
     mapM_
         runPass
-        [ 
-          TypeFamilies.apply,
+        [ Decls.splitSigs,
           Decls.rmvSigs Nothing,
-          Decls.rmvDecls Nothing
+          Decls.rmvDecls Nothing,
+          TypeFamilies.apply
         ]
 
 medium :: R IO ()
@@ -43,9 +41,7 @@ slow :: R IO ()
 slow = do
     mapM_
         runPass
-        [ 
-          Decls.recCon2Prefix,
-          Typeclasses.rmvFunDeps,
+        [ Typeclasses.rmvFunDeps,
           TypeFamilies.familyResultSig,
           Decls.rmvConstructors Nothing,
           Decls.simplifyConDecl,
@@ -78,38 +74,3 @@ slow = do
     Pragmas.reduce
     Exports.reduce
     medium
-
-allPasses :: [Pass]
-allPasses =
-    [ 
-      TypeFamilies.familyResultSig,
-      TypeFamilies.rmvEquations,
-      Imports.rmvImports,
-      Decls.rmvSigs Nothing,
-      Decls.rmvDecls Nothing,
-      Decls.rmvConstructors Nothing,
-      Decls.recCon2Prefix,
-      Decls.simplifyConDecl,
-      Typeclasses.rmvFunDeps,
-      Expr.expr2Undefined,
-      Expr.filterExprSubList,
-      Expr.simplifyExpr,
-      Types.type2WildCard,
-      Types.type2Unit,
-      Types.simplifyType,
-      Pat.pat2Wildcard,
-      Stubbing.contexts,
-      Stubbing.simplifyDeriving,
-      Stubbing.simplifyDerivingClause,
-      Stubbing.localBinds,
-      Functions.rmvRHSs,
-      Functions.rmvMatches,
-      Functions.rmvGuards,
-      Stubbing.tyVarBndr,
-      Names.unqualNames,
-      DataTypes.inline,
-      DataTypes.rmvConArgs,
-      Imports.unqualImport,
-      Parameters.reduce,
-      Functions.inline
-    ]

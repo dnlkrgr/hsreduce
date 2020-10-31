@@ -116,6 +116,7 @@ library lib-hsreduce
         Reduce.Passes.Exports
         Reduce.Passes.Pragmas
         Reduce.Passes.Parameters
+        Reduce.Passes.TemplateHaskell
         Util.Util
         Util.Types
     other-modules:

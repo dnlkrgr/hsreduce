@@ -9,18 +9,13 @@ import CoAxiom
 import Control.Concurrent.STM.TVar.Lifted (readTVarIO)
 import qualified Control.Exception as CE
 import Control.Monad.Reader
-    ( forM_, void, asks, MonadReader(ask) )
 import Data.Array (elems)
 import Data.Char (isUpper)
 import Data.Generics.Uniplate.Data
-    ( transformBi,
-      transformBiM,
-      universeBi,
-    )
+    
 import Data.IORef (modifyIORef)
 import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe (fromJust)
-import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import FamInst (tcGetFamInstEnvs)
 import FamInstEnv (normaliseType)
@@ -30,7 +25,6 @@ import GhcPlugins
       Outputable,
       nameEnvElts,
     )
-import Lens.Micro.Platform ((&), (.~), (^.))
 import Lexer
 import Parser
 import Parser.Parser

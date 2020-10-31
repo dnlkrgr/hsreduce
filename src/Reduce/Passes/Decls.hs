@@ -1,14 +1,26 @@
-module Reduce.Passes.Decls (rmvSigs, rmvDecls, rmvConstructors, recCon2Prefix, simplifyConDecl) where
+module Reduce.Passes.Decls (splitSigs, rmvSigs, rmvDecls, rmvConstructors, simplifyConDecl) where
 
 import qualified Data.Text as T
 import GHC hiding (Pass, getName)
-import Util.Types (Pass, WaysToChange)
-import Util.Util ((<&&>), handleSubList, mkPass, oshow)
+import Util.Types
+import Util.Util
 
 -- ***************************************************************************
 -- SIGNATURES
 
 -- ***************************************************************************
+-- split several names sharing one signature into several signatures
+
+splitSigs :: Pass
+splitSigs = mkPass "splitSigs" f
+    where
+        f :: WaysToChange (HsModule GhcPs)
+        f m = [const (m {hsmodDecls = concatMap g $ hsmodDecls m})]
+        g ld@(L l d)
+            | SigD _ (TypeSig _ names sigType) <- d = map (\name -> L l $ SigD NoExt $ TypeSig NoExt [name] sigType) names
+            | SigD _ (PatSynSig _ names sigType) <- d = map (\name -> L l $ SigD NoExt $ PatSynSig NoExt [name] sigType) names
+            | SigD _ (ClassOpSig _ b names sigType) <- d = map (\name -> L l $ SigD NoExt $ ClassOpSig NoExt b [name] sigType) names
+            | otherwise = [ld]
 
 rmvSigs :: Maybe [T.Text] -> Pass
 rmvSigs mb = mkPass "rmvSigs" (f mb)
@@ -28,36 +40,19 @@ rmvDecls mb = mkPass "rmvDecls" (f mb)
         f :: Maybe [T.Text] -> WaysToChange (HsModule GhcPs)
         f Nothing = defaultBehavior
         f (Just []) = defaultBehavior
-        f (Just unusedBinds) = 
+        f (Just unusedBinds) =
             handleSubList rmvOneDecl (getDeclLocs (filter (maybe False ((`elem` unusedBinds) . T.pack . oshow) . getName)))
 
 -- ***************************************************************************
 -- HsDecls
 
 -- ***************************************************************************
-
 -- remove unused constructors
+
 rmvConstructors :: Maybe [T.Text] -> Pass
-rmvConstructors mb = mkPass "simplifyDecl" (f mb)
+rmvConstructors mb = mkPass "rmvConstructors" (f mb)
     where
         f :: Maybe [T.Text] -> WaysToChange (HsDecl GhcPs)
-        -- I THINK THESE CASES ARE COVERED BY `rmvSig`
-        -- f (Just bns) (TypeSigDeclP ids swt) =
-        --     let newFunIds = filter ((`notElem` bns) . T.pack . oshow . unLoc) ids
-        --      in [const (TypeSigDeclX newFunIds swt)]
-        -- f _ t@(TypeSigDeclP {}) =
-        --     handleSubList transformTypeSig typeSig2Ids t
-        --     where
-        --         typeSig2Ids = \case
-        --             TypeSigDeclP ids _ -> ids
-        --             _ -> []
-        --         transformTypeSig e = \case
-        --             TypeSigDeclP ids swt -> TypeSigDeclX (filter (/= e) ids) swt
-        --             d -> d
-        -- this case is covered by `rmvMatches`
-        -- f _ (FunDeclP fid loc mtchs mo fw ft) =
-        --     let nMtchs = filter (\(L _ (Match _ _ _ grhss)) -> showSDocUnsafe (pprGRHSs LambdaExpr grhss) /= "-> undefined") mtchs
-        --      in [const (FunDeclP fid loc nMtchs mo fw ft)]
         f _ t@(TyClD {}) =
             handleSubList delCons decl2ConsStrings t
             where
@@ -71,17 +66,17 @@ rmvConstructors mb = mkPass "simplifyDecl" (f mb)
 
 -- ***************************************************************************
 -- RECORD CON
+-- it is called in `simplifyConDecl`
 
 -- ***************************************************************************
 
-recCon2Prefix :: Pass
-recCon2Prefix = mkPass "recCon2Prefix" f
-    where
-        f :: WaysToChange (HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs]))
-        f (RecCon rec) = [const (PrefixCon . map (cd_fld_type . unLoc) $ unLoc rec)]
-        f _ = []
+recCon2Prefix :: HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs]) -> HsConDetails (LBangType GhcPs) (Located [LConDeclField GhcPs])
+recCon2Prefix (RecCon rec) = PrefixCon . map (cd_fld_type . unLoc) $ unLoc rec
+recCon2Prefix d = d
 
--- remove qvars from GADT and remove fields from record con
+-- two things happen here:
+-- 1. remove qvars from GADT
+-- 2. remove fields from record con
 simplifyConDecl :: Pass
 simplifyConDecl = mkPass "simplifyConDecl" f
     where
@@ -92,7 +87,7 @@ simplifyConDecl = mkPass "simplifyConDecl" f
                 (map getLoc . hsq_explicit . con_qvars)
                 gadtDecl
         f d
-            | isRecCon d = handleSubList g p d -- <> [const (d { con_args = recCon2Prefix $ con_args d})]
+            | isRecCon d = handleSubList g p d <> [const (d {con_args = recCon2Prefix $ con_args d})]
             | otherwise = []
             where
                 isRecCon =
@@ -115,6 +110,7 @@ simplifyConDecl = mkPass "simplifyConDecl" f
                                   RecCon (L l flds) -> RecCon . L l $ filter ((/= loc) . getLoc) flds
                                   a -> a
                             }
+
 -- ***************************************************************************
 -- HELPER FUNCTIONS & OTHER STUFF
 
@@ -131,8 +127,7 @@ getDeclLocs :: ([LHsDecl GhcPs] -> [Located e]) -> HsModule GhcPs -> [SrcSpan]
 getDeclLocs f = map getLoc . f . hsmodDecls
 
 rmvOneDecl :: SrcSpan -> HsModule GhcPs -> HsModule GhcPs
-rmvOneDecl loc m =
-    m {hsmodDecls = filter ((/= loc) . getLoc) $ hsmodDecls m}
+rmvOneDecl loc m = m {hsmodDecls = filter ((/= loc) . getLoc) $ hsmodDecls m}
 
 -- TODO: what other decls make sense here?
 getName :: LHsDecl GhcPs -> Maybe (IdP GhcPs)

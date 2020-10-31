@@ -141,6 +141,7 @@ in    prelude.defaults.Package
                         , "Reduce.Passes.Exports"
                         , "Reduce.Passes.Pragmas"
                         , "Reduce.Passes.Parameters"
+                        , "Reduce.Passes.TemplateHaskell"
                         , "Util.Util"
                         , "Util.Types"
                         ]

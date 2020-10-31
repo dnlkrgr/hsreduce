@@ -71,6 +71,14 @@ main = hspec $ do
                     runPass (Decls.rmvDecls Nothing),                 
                     Nothing,                
                     "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
+                , ("RecCon2Prefix",   
+                    runPass Decls.simplifyConDecl,
+                    Nothing,                
+                    "\nmodule RecCon2Prefix where\ndata Arst = Brst !Int\n")
+                , ("SplitSigs",   
+                    runPass Decls.splitSigs,
+                    Just "splitsigs.sh",                
+                    "\nmodule SplitSigs (\n        a\n    ) where\na :: Int -> String\nb :: Int -> String\na 3 = \"a\"\nb 4 = \"b\"\n")
                 -- deleting only some of the fun ids in a line
                 , ("FunIds",        
                     mapM_ runPass [Decls.rmvSigs Nothing, Decls.rmvDecls Nothing],   
