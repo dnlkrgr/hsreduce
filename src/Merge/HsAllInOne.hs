@@ -1,12 +1,10 @@
 module Merge.HsAllInOne (hsmerge) where
 
-import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void, when)
+import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void)
 import Data.Generics.Uniplate.Data (transformBi)
 import Data.Hashable (hash)
 import Data.List (nub)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import Data.Traversable (for)
 import Data.Void (Void)
 import Debug.Trace (traceShow)
@@ -31,7 +29,7 @@ import Util.Util
 
 -- namesToWatch = ["IntersectionOf", "Dim", "Index", "IxValue", "~", "VertexId"]
 namesToWatch :: [String]
-namesToWatch = ["Iso", "iso", "~", "HasDataOf"]
+namesToWatch = ["Iso", "iso", "~", "HasDataOf", "ToJSON", "Object", "valueConName"]
 
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
@@ -345,44 +343,6 @@ getAllPragmas =
 -- CLEANING UP
 
 -- ***************************************************************************
-
-allowedToLoop :: [GhcMode]
-allowedToLoop = [Indent, PerhapsYouMeant]
-
-cleanUp :: Tool -> GhcMode -> Path Abs File -> IO ()
-cleanUp tool mode sourcePath = do
-    fileContent <- TIO.readFile (fromAbsFile sourcePath)
-
-    getGhcOutput tool mode sourcePath >>= \case
-        Nothing -> return ()
-        Just [] -> return ()
-        Just mySpans -> do
-            banner (show mode)
-
-            let rightSpans =
-                    (if mode == Indent then id else filter ((/= "") . fst)) $ mySpans
-                newFileContent = case mode of
-                    Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
-                    PerhapsYouMeant -> foldr (insertTextAtLocation . fmap span2Locs) fileContent rightSpans
-                    _ -> fileContent
-
-            TIO.writeFile (fromAbsFile sourcePath) newFileContent
-            when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
-
-insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
-insertIndent (_, (startLoc, _)) fileContent =
-    T.unlines $ prevLines <> [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] <> succLines
-    where
-        contentLines = T.lines fileContent
-        lineStart = srcLocLine startLoc
-        currentIndex = lineStart -1
-        prevLines = take currentIndex contentLines
-        succLines = drop lineStart contentLines
-        currentLine = contentLines !! currentIndex
-        newLineContent = "  " <> currentLine
-
-span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
-span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 instance {-# OVERLAPPABLE #-} Eq (ImportDecl GhcPs) where
     i1 == i2 = oshow i1 == oshow i2

@@ -68,6 +68,8 @@ simplifyExpr = mkPass "simplifyExpr" f
         f (EAsPat _ _ (L _ e)) = [const e]
         f (ELazyPat _ (L _ e)) = [const e]
         f (HsWrap _ _ e) = [const e]
+        f (HsPar _ (L _ e)) = [const e]
+        f (ExplicitList _ _ es) = map (const . unLoc) es
         f _ = []
 
 handleCaseMulti :: WaysToChange (HsExpr GhcPs)

@@ -24,10 +24,11 @@ allActions = [fast, medium, slow]
 
 fast :: R IO ()
 fast = do
-    TypeFamilies.apply
     mapM_
         runPass
-        [ Decls.rmvSigs Nothing,
+        [ 
+          TypeFamilies.apply,
+          Decls.rmvSigs Nothing,
           Decls.rmvDecls Nothing
         ]
 
@@ -46,7 +47,7 @@ slow = do
           Decls.recCon2Prefix,
           Typeclasses.rmvFunDeps,
           TypeFamilies.familyResultSig,
-          Decls.simplifyDecl Nothing,
+          Decls.rmvConstructors Nothing,
           Decls.simplifyConDecl,
           Expr.filterExprSubList,
           Expr.simplifyExpr,
@@ -86,7 +87,7 @@ allPasses =
       Imports.rmvImports,
       Decls.rmvSigs Nothing,
       Decls.rmvDecls Nothing,
-      Decls.simplifyDecl Nothing,
+      Decls.rmvConstructors Nothing,
       Decls.recCon2Prefix,
       Decls.simplifyConDecl,
       Typeclasses.rmvFunDeps,

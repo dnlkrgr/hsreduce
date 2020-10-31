@@ -1,27 +1,7 @@
 module Reduce.Passes.Types where
 
 import BasicTypes (PromotionFlag (NotPromoted))
-import GHC
-    ( GenLocated (L),
-      GhcPs,
-      HsTupleSort (HsBoxedTuple),
-      HsType
-          ( HsAppTy,
-            HsForAllTy,
-            HsKindSig,
-            HsOpTy,
-            HsQualTy,
-            HsTupleTy,
-            HsTyVar,
-            HsWildCardTy
-          ),
-      NoExt (NoExt),
-      RdrName (Unqual),
-      SrcSpan,
-      getLoc,
-      noLoc,
-      unLoc,
-    )
+import GHC hiding (Pass)
 import OccName (mkVarOcc)
 import Util.Types (Pass, WaysToChange)
 import Util.Util (handleSubList, mkPass)
@@ -52,7 +32,8 @@ simplifyType = mkPass "simplifyType" f
         -- f at@HsAppTy{}                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
         f (HsAppTy _ (L l _) u@(L _ (HsTupleTy _ _ []))) = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
         f (HsOpTy _ (L _ l) _ (L _ r)) = map const [l, r]
-        f (HsKindSig _ (L _ t) _) = map const [t]
+        f (HsKindSig _ (L _ t) _) = [const t]
+        f (HsBangTy _ _ (L _ t)) = [const t]
         f _ = []
         pType :: HsType p -> [SrcSpan]
         pType = \case

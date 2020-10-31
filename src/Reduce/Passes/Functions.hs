@@ -51,7 +51,7 @@ inline = AST "inlineFunctions" $ \ast ->
               length matches == 1,
               length (m_pats $ head $ matches) == 0,
               length (grhssGRHSs $ m_grhss $ head $ matches) == 1,
-              GRHS _ [] body :: GRHS GhcPs (LHsExpr GhcPs) <- unLoc . head . grhssGRHSs . m_grhss <$> matches
+              GRHS _ _ body :: GRHS GhcPs (LHsExpr GhcPs) <- unLoc . head . grhssGRHSs . m_grhss <$> matches
           ]
               -- f x = g x, when eta reducing somehow isn't applicable
               <> [ (funId, lExpr)
