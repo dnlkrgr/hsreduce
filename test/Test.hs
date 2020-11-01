@@ -10,6 +10,7 @@ import Control.Monad
 import Test.Hspec
 
 import Reduce.Driver (hsreduce)
+-- import qualified Reduce.Passes.TemplateHaskell as TemplateHaskell
 import qualified Reduce.Passes.TypeFamilies as TypeFamilies
 import qualified Reduce.Passes.Imports          as Imports
 import qualified Reduce.Passes.Pragmas          as Pragmas
@@ -60,10 +61,11 @@ main = hspec $ do
                     Exports.reduce,             
                     Nothing,                
                     "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
-                , ("Exports2",      
-                    Exports.reduce,             
-                    Nothing,                
-                    "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
+                -- making exports explicit is disabled for now
+                -- , ("Exports2",      
+                --     Exports.reduce,             
+                --     Nothing,                
+                --     "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
                 -- *****
                 -- Decls
                 -- *****
@@ -77,7 +79,7 @@ main = hspec $ do
                     "\nmodule RecCon2Prefix where\ndata Arst = Brst !Int\n")
                 , ("SplitSigs",   
                     runPass Decls.splitSigs,
-                    Just "splitsigs.sh",                
+                    Nothing,
                     "\nmodule SplitSigs (\n        a\n    ) where\na :: Int -> String\nb :: Int -> String\na 3 = \"a\"\nb 4 = \"b\"\n")
                 -- deleting only some of the fun ids in a line
                 , ("FunIds",        
@@ -160,6 +162,12 @@ main = hspec $ do
                     runPass Typeclasses.handleMultiParams,
                     Just "multiparams.sh",                
                     "{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}\nmodule MultiParams where\nclass Arst where\n  inRelation :: a -> b -> Bool\ninstance Arst where\n  inRelation _ _ = True\n")
+                -- needs to find the helper file also
+                -- but can't for now
+                -- , ("TemplateHaskell",   
+                --     TemplateHaskell.dumpSplices,
+                --     Nothing,                
+                --     "")
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title

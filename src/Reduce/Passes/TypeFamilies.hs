@@ -19,7 +19,7 @@ import Data.Maybe (fromJust)
 import qualified Data.Text.IO as TIO
 import FamInst (tcGetFamInstEnvs)
 import FamInstEnv (normaliseType)
-import GHC hiding (Pass)
+import GHC hiding (Parsed, Pass)
 import GhcPlugins
     ( 
       Outputable,
@@ -90,11 +90,11 @@ applyHelper ast (FamEqn {..}) =
                                 then newAST
                                 else oldAST
                         )
-        [t | t :: LHsType GhcPs <- universeBi ast, length (words (oshow t)) >= 2, isUpper (head (head . words $ oshow t))]
-applyHelper _ _ = []
+        [t | t :: LHsType GhcPs <- universeBi ast, length (words (oshow t)) >= 2, let first = head . words $ oshow t, isUpper (head first) || head first == '\'']
 -- the rhs is not found in any of the patterns
 -- find occurrences of the type family
 -- replace them by rhs
+applyHelper _ _ = []
 
 isContainedIn :: (Outputable a1, Outputable a2) => a1 -> a2 -> Bool
 isContainedIn feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
@@ -196,7 +196,7 @@ notWorking = do
 
                 newState <- withTempDir tChan $ \tempDir -> do
                     let sourceFile = tempDir </> _sourceFile conf
-                    let newFileContent = showState midState
+                    let newFileContent = showState Parsed midState
 
                     liftIO $ TIO.writeFile (fromAbsFile sourceFile) newFileContent
                     liftIO $ parse sourceFile

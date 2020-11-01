@@ -93,24 +93,6 @@ import System.Timeout.Lifted (timeout)
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 import Util.Types
-    ( GhcMode (..),
-      GhcOutput (doc, reason),
-      Interesting (..),
-      Parser,
-      Pass (AST),
-      PassStats (PassStats),
-      R,
-      RConf (_numberOfThreads, _sourceFile, _tState, _tempDirs, _test),
-      RState (_isAlive, _parsed),
-      Span (Span),
-      Tool (..),
-      WaysToChange,
-      parsed,
-      passStats,
-      showExtension,
-      showState,
-      statistics,
-    )
 import qualified Util.Types as UT
 
 tryNewState :: String -> (RState -> RState) -> R IO ()
@@ -119,8 +101,8 @@ tryNewState passId f = do
     oldState <- liftIO . readTVarIO $ _tState conf
 
     let newState = f oldState
-        oldStateS = showState oldState
-        newStateS = showState newState
+        oldStateS = showState Parsed oldState
+        newStateS = showState Parsed newState
         isStateNew = oldStateS /= newStateS
         sizeDiff = T.length newStateS - T.length oldStateS
 
@@ -129,7 +111,7 @@ tryNewState passId f = do
             testNewState conf newState >>= \case
                 Interesting -> do
                     success <- atomically $ do
-                        currentCommonStateS <- showState <$> (readTVar $ _tState conf)
+                        currentCommonStateS <- showState Parsed <$> (readTVar $ _tState conf)
 
                         -- is the state we worked still the same?
                         if oldStateS == currentCommonStateS
@@ -144,7 +126,7 @@ tryNewState passId f = do
                         then logStateDiff NoticeS oldStateS newStateS
                         else tryNewState passId f
                 Uninteresting -> do
-                    -- logStateDiff DebugS oldStateS newStateS
+                    logStateDiff DebugS oldStateS newStateS
                     updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
 
@@ -240,7 +222,7 @@ testNewState conf newState =
 
         CE.try
             ( do
-                  liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState newState
+                  liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState Parsed newState
                   runTest test (UT._defaultDuration conf)
             )
             >>= \case
@@ -265,7 +247,7 @@ printInfo context = do
     tState <- asks _tState
     oldState <- liftIO . atomically $ readTVar tState
 
-    let info = "state size: " <> (show . T.length . showState $ oldState)
+    let info = "state size: " <> (show . T.length . showState Parsed $ oldState)
 
     -- liftIO $ putStrLn $ "\n***" <> context <> "***"
     -- liftIO $ putStrLn info
@@ -282,9 +264,12 @@ isTestStillFresh context = do
         Uninteresting -> do
             results <- replicateM 3 (testNewState conf newState)
             when (all (== Uninteresting) results) $ do
-                liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState newState
+                liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState Parsed newState
                 $(logTM) ErrorS (fromString $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<")
-                error $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<"
+                error $ 
+                    "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<"
+                    <> "\n" 
+                    <> "sourceFile: " <> show (_sourceFile conf)
         _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression

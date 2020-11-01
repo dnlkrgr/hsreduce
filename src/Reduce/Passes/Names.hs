@@ -48,7 +48,7 @@ shortenNamesHelper n = do
                 oldState
                     & parsed %~ transformBi (\otherN -> if oshow otherN == oshow n then shortenName (oldState ^. numRenamedNames) n else otherN)
                     & numRenamedNames +~ 1
-         in if showState newState < showState oldState
+         in if showState Parsed newState < showState Parsed oldState
                 then newState
                 else oldState
 

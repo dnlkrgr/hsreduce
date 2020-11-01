@@ -1,5 +1,6 @@
 module Reduce.Passes (allActions) where
 
+import qualified Reduce.Passes.TemplateHaskell as TemplateHaskell
 import qualified Reduce.Passes.DataTypes as DataTypes (inline, rmvConArgs)
 import qualified Reduce.Passes.Decls as Decls
 import qualified Reduce.Passes.Exports as Exports (reduce)
@@ -24,10 +25,10 @@ fast :: R IO ()
 fast = do
     mapM_
         runPass
-        [ Decls.splitSigs,
+        [ TypeFamilies.apply,
+          Decls.splitSigs,
           Decls.rmvSigs Nothing,
-          Decls.rmvDecls Nothing,
-          TypeFamilies.apply
+          Decls.rmvDecls Nothing
         ]
 
 medium :: R IO ()
@@ -73,4 +74,5 @@ slow = do
         ]
     Pragmas.reduce
     Exports.reduce
+    TemplateHaskell.dumpSplices
     medium

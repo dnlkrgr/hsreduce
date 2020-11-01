@@ -5,43 +5,16 @@ import Control.Concurrent.STM.Lifted
       readTVar,
       writeTVar,
     )
+import Control.Monad
 import Control.Monad.Reader (MonadReader (ask), asks)
 import Data.Maybe (mapMaybe)
 import qualified Data.Text as T
-import GHC
-    ( GenLocated (L),
-      GhcPs,
-      HsBindLR (FunBind),
-      HsDecl (TyClD, ValD),
-      HsModule (hsmodDecls, hsmodExports, hsmodName),
-      IE (IEThingAbs, IEThingAll, IEVar),
-      IEWrappedName (IEName),
-      LIE,
-      NoExt (NoExt),
-      isSynDecl,
-      mkModuleName,
-      noLoc,
-      noSrcSpan,
-      tcdName,
-      unLoc,
-    )
+import Debug.Trace
+import GHC hiding (Parsed, Pass)
 import Katip (Severity (InfoS), logTM)
 import Path (fromRelFile)
 import Util.Types
-    ( Pass,
-      R,
-      RConf (_sourceFile, _tState),
-      RState (_parsed),
-      WaysToChange,
-      showState,
-    )
 import Util.Util
-    ( handleSubList,
-      mkPass,
-      oshow,
-      runPass,
-      updateStatistics,
-    )
 
 reduce :: R IO ()
 reduce = do
@@ -49,30 +22,32 @@ reduce = do
     let tState = _tState conf
     oldState <- atomically $ readTVar tState
 
-    let L l oldModule = _parsed oldState
-        maybeModName = hsmodName oldModule
-        allDecls = hsmodDecls . unLoc . _parsed $ oldState
-        maybeExports = hsmodExports oldModule
+    let L l oldModule@HsModule {hsmodName = maybeModName, hsmodDecls = allDecls, hsmodExports = maybeExports} = _parsed oldState
 
-    case maybeExports of
-        Nothing -> do
-            $(logTM) InfoS "making exports explicit"
+    when (maybeExports == Nothing) $ do
+        $(logTM) InfoS "making exports explicit"
+        isTestStillFresh "make exports explicit"
 
-            modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
+        modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
 
-            let oldExports = mapMaybe (decl2Export . unLoc) allDecls
-                newModName =
-                    case maybeModName of
-                        Nothing -> Just . L noSrcSpan . mkModuleName $ modName
-                        m -> m
-                newModule = oldModule {hsmodExports = Just $ L noSrcSpan oldExports, hsmodName = newModName}
-                newState = oldState {_parsed = L l newModule}
+        let oldExports = mapMaybe (decl2Export . unLoc) $ traceShow (oshow allDecls) allDecls
+            newModName =
+                case maybeModName of
+                    Nothing -> Just . L noSrcSpan . mkModuleName $ modName
+                    m -> m
+            newState =
+                oldState
+                    { _parsed =
+                          L l $
+                              oldModule
+                                  { hsmodExports = Just $ L noSrcSpan $ traceShow (oshow oldExports) oldExports,
+                                    hsmodName = newModName
+                                  }
+                    }
 
-            atomically $ writeTVar tState newState
-            updateStatistics conf "mkExportsExplicit" 1 (T.length (showState newState) - T.length (showState oldState))
-        -- TODO: if no exports were removed, turn it into Nothing again
-
-        Just _ -> return ()
+        atomically $ writeTVar tState newState
+        updateStatistics conf "mkExportsExplicit" 1 (T.length (showState Parsed newState) - T.length (showState Parsed oldState))
+    -- TODO: if no exports were removed, turn it into Nothing again
 
     runPass removeExports
 

@@ -28,8 +28,7 @@ import qualified Data.Text as T
 import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
 import Data.Word (Word8)
-import GHC
-    ( unLoc, DynFlags, ParsedSource, TypecheckedModule, HscEnv )
+import GHC hiding (Parsed, Renamed)
 import GHC.LanguageExtensions.Type
     ( Extension
           ( AllowAmbiguousTypes,
@@ -155,15 +154,26 @@ runR conf (R a) = runReaderT a conf
 newtype R m a = R {unR :: ReaderT RConf m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader RConf, MonadTrans)
 
-showState :: RState -> T.Text
-showState (RState prags ps _ _ _ _ _ Nothing) =
+data ShowMode = Parsed | Renamed
+
+showState :: ShowMode -> RState -> T.Text
+showState Parsed (RState prags ps _ _ _ _ _ Nothing) =
     T.unlines $
         showLanguagePragmas prags
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
-showState (RState prags ps _ _ _ _ _ (Just currentDynFlags)) =
+showState Parsed (RState prags ps _ _ _ _ _ (Just currentDynFlags)) =
     T.unlines $
         showLanguagePragmas prags
             : [T.pack . showSDoc currentDynFlags . ppr . unLoc $ ps]
+showState Renamed (RState prags _ _ _ _ (Just (TypecheckedModule { tm_renamed_source = Just (rs, _, _, _)})) _ (Just currentDynFlags)) =
+    T.unlines $
+        showLanguagePragmas prags
+            : [T.pack . showSDoc currentDynFlags . ppr $ rs]
+showState Renamed (RState prags _ _ _ _ (Just (TypecheckedModule { tm_renamed_source = Just (rs, _, _, _)})) _ Nothing) =
+    T.unlines $
+        showLanguagePragmas prags
+            : [T.pack . showSDocUnsafe . ppr $ rs]
+showState _ _ = error "Util.Types.showState: unexpected arguments"
 
 showLanguagePragmas :: [Pragma] -> T.Text
 showLanguagePragmas [] = ""

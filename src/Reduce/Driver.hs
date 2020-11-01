@@ -55,13 +55,6 @@ import Path.IO
       resolveFile' )
 import System.IO ( stdout, IOMode(WriteMode), hClose, openFile )
 import Util.Types
-    ( Statistics(_passStats),
-      RState(_statistics, _isAlive),
-      R,
-      RConf(RConf, _tState),
-      runR,
-      showState,
-      mkPerformance )
 import Util.Util ( updateStatistics, isTestStillFresh)
 import Parser.Parser ( parse )
 import qualified Data.Map as M
@@ -111,21 +104,21 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
 
             -- run the reducing functions
             runR beginConf $ do
-                updateStatistics beginConf "formatting" 1 (T.length (showState beginState) - oldSize)
+                updateStatistics beginConf "formatting" 1 (T.length (showState Parsed beginState) - oldSize)
                 mapM_ largestFixpoint allActions
 
                 newState <- readTVarIO tState
 
                 -- handling of the result and outputting useful information
                 let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
-                    newSize = T.length . showState $ newState
+                    newSize = T.length . showState Parsed $ newState
 
                 $(logTM) InfoS "*******************************************************"
                 $(logTM) InfoS "Finished."
                 $(logTM) InfoS (LogStr . fromString $ "Old size:        " <> show oldSize)
                 $(logTM) InfoS (LogStr . fromString $ "Reduced size:    " <> show newSize)
 
-                liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState newState)
+                liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState Parsed newState)
 
                 t2 <- liftIO getCurrentTime
 
