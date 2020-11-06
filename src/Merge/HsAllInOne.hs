@@ -1,5 +1,6 @@
 module Merge.HsAllInOne (hsmerge) where
 
+import qualified Data.List.NonEmpty as NE
 import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void)
 import Data.Generics.Uniplate.Data (transformBi)
 import Data.Hashable (hash)
@@ -29,7 +30,8 @@ import Util.Util
 
 -- namesToWatch = ["IntersectionOf", "Dim", "Index", "IxValue", "~", "VertexId"]
 namesToWatch :: [String]
-namesToWatch = ["Iso", "iso", "~", "HasDataOf", "ToJSON", "Object", "valueConName"]
+namesToWatch = ["deriveJSON", "defaultOptions", "D"]
+-- namesToWatch = ["Iso", "iso", "~", "HasDataOf", "ToJSON", "Object", "valueConName"]
 
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
@@ -72,14 +74,14 @@ hsmerge filePath = do
                                 . transformBi unqualFamEqnClsInst
                                 . transformBi unqualBinds
                                 -- . transformBi (renameName rdrEnv ours myMN)
-                                . transformBi (\n -> let newN = renameName rdrEnv ours myMN n 
-                                                     in (if oshow n `elem` namesToWatch 
-                                                         then 
-                                                             traceShow @String ""
-                                                             . traceShow @String "afterRename"
-                                                             . traceShow (oshow newN) 
-                                                             . traceShow (isExternalName newN) 
-                                                         else id ) newN)
+                                -- . transformBi (\n -> let newN = renameName rdrEnv ours myMN n 
+                                --                      in (if oshow n `elem` namesToWatch 
+                                --                          then 
+                                --                              traceShow @String ""
+                                --                              . traceShow @String "afterRename"
+                                --                              . traceShow (oshow newN) 
+                                --                              . traceShow (isExternalName newN) 
+                                --                          else id ) newN)
                                 . transformBi (renameField rdrEnv ours myMN)
                                 . transformBi (renameAmbiguousField rdrEnv ours myMN)
                                 $ renamedGroups
@@ -284,10 +286,11 @@ unqualName n
 
 mangle :: ModuleName -> OccName -> OccName
 mangle mn on 
-    | isSymOcc on = mkOccName ns $ head os : renameOperator (os <> filter (/= '.') (moduleNameString mn))
-    | otherwise = mkOccName ns $ os <> "_" <> filter (/= '.') (moduleNameString mn)
+    | isSymOcc on, Just os <- mOS = mkOccName ns $ NE.head os : renameOperator (NE.toList os <> filter (/= '.') (moduleNameString mn))
+    | otherwise, Just os <- mOS = mkOccName ns $ NE.toList os <> "_" <> filter (/= '.') (moduleNameString mn)
+    | otherwise = on
     where
-        os = occNameString on
+        mOS = NE.nonEmpty $ occNameString on
         ns = occNameSpace on
 
 --  | make all imports qualified, hiding nothing, no aliasing and no safe imports

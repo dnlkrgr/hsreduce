@@ -2,6 +2,7 @@ module Reduce.Passes.Typeclasses (rmvFunDeps, rmvTyClMethods, handleMultiParams)
 
 import Bag (bagToList, listToBag)
 import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import qualified Data.List.NonEmpty as NE
 import GHC
     ( ClsInstDecl
           ( ClsInstDecl,
@@ -43,36 +44,20 @@ import GHC
       getLoc,
       unLoc,
     )
+import Reduce.Passes.Parameters
 import Util.Types (Pass (AST), WaysToChange)
 import Util.Util (deleteAt, handleSubList, mkPass)
 
--- rmvTyClParams :: Pass
--- rmvTyClParams
-
--- type class:
---      type class name: RdrName
---      list of type variables => get indices to be filtered out later
--- class instance decl: LHsType to iterate over; check if class name matches first
-
 handleMultiParams :: Pass
-handleMultiParams = AST "handleMultiParams" $ \ast ->
-    concatMap
-        ( \(classId, args) ->
-              map
-                  ( \i oldAst ->
-                        let newArgsLength = getArgsLength classId ast
-                         in if length newArgsLength == 1
-                                then
-                                    let nRmvdArgs = length args - head newArgsLength
-                                        newI = i - nRmvdArgs
-                                     in transformBi (rmvArgsFromClass classId newI)
-                                            . transformBi (rmvArgsFromInstance classId (head newArgsLength) newI)
-                                            $ oldAst
-                                else oldAst
-                  )
-                  [1 .. length args]
+handleMultiParams =
+    reduce
+        "handleMultiParams"
+        (\ast -> [(unLoc tcdLName, map unLoc . hsq_explicit $ tcdTyVars) | ClassDecl {..} :: TyClDecl GhcPs <- universeBi ast])
+        getArgsLength
+        ( \classId _ temp _ newI ->
+              transformBi (rmvArgsFromClass classId newI)
+                  . transformBi (rmvArgsFromInstance classId (NE.head temp) newI)
         )
-        [(unLoc $ tcdLName, map unLoc $ hsq_explicit $ tcdTyVars) | ClassDecl {..} :: TyClDecl GhcPs <- universeBi ast]
 
 rmvArgsFromClass :: RdrName -> Int -> TyClDecl GhcPs -> TyClDecl GhcPs
 rmvArgsFromClass className i d@ClassDecl {..}

@@ -142,26 +142,26 @@ main = hspec $ do
                     mapM_ runPass [Functions.etaReduceMatches, Functions.inline],
                     Nothing,                
                     "\nmodule Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"\n")
+                , ("Params",        
+                    runPass Parameters.rmvUnusedParams,          
+                    Just "params.sh",
+                    "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\n") 
                 , ("ConArgs",       
                     runPass DataTypes.rmvConArgs,       
                     Nothing,                
-                    "\nmodule Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst () () -> Arst () ()\ne (Arst) = Arst\n")
-                , ("InlineTypes",   
-                    runPass DataTypes.inline,           
-                    Nothing,                
-                    "\nmodule Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()\n")
-                , ("Params",        
-                    runPass Parameters.reduce,          
-                    Just "params.sh",
-                    "\nmodule Params where\nbrst = arst '1' \"3\"\narst :: Char -> String -> ()\narst '4' \"6\" = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\n")
-                , ("Typeclasses",   
-                    runPass Typeclasses.rmvTyClMethods,
-                    Just "typeclasses.sh",                
-                    "\nmodule Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show\n")
+                    "\nmodule Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst Int Char -> Arst () ()\ne (Arst) = Arst\n")
                 , ("MultiParams",   
                     runPass Typeclasses.handleMultiParams,
                     Just "multiparams.sh",                
                     "{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}\nmodule MultiParams where\nclass Arst where\n  inRelation :: a -> b -> Bool\ninstance Arst where\n  inRelation _ _ = True\n")
+                , ("InlineTypes",   
+                    runPass DataTypes.inline,           
+                    Nothing,                
+                    "\nmodule Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()\n")
+                , ("Typeclasses",   
+                    runPass Typeclasses.rmvTyClMethods,
+                    Just "typeclasses.sh",                
+                    "\nmodule Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show\n")
                 -- needs to find the helper file also
                 -- but can't for now
                 -- , ("TemplateHaskell",   

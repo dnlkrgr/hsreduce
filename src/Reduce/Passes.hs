@@ -8,7 +8,7 @@ import qualified Reduce.Passes.Expr as Expr
 import qualified Reduce.Passes.Functions as Functions (etaReduceMatches, inline, rmvGuards, rmvMatches, rmvRHSs)
 import qualified Reduce.Passes.Imports as Imports
 import qualified Reduce.Passes.Names as Names (unqualNames)
-import qualified Reduce.Passes.Parameters as Parameters (reduce)
+import qualified Reduce.Passes.Parameters as Parameters
 import qualified Reduce.Passes.Pat as Pat
 import qualified Reduce.Passes.Pragmas as Pragmas (reduce)
 import qualified Reduce.Passes.Stubbing as Stubbing
@@ -62,7 +62,7 @@ slow = do
           DataTypes.inline,
           DataTypes.rmvConArgs,
           Imports.unqualImport,
-          Parameters.reduce,
+          Parameters.rmvUnusedParams,
           Functions.etaReduceMatches,
           Functions.inline,
           Imports.rmvImports,

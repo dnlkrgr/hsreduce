@@ -1,5 +1,6 @@
 module Reduce.Passes.DataTypes (inline, rmvConArgs) where
 
+-- import qualified Data.List.NonEmpty as NE
 import Data.Generics.Uniplate.Data (transformBi, universeBi)
 import GHC
     ( ConDecl (ConDeclH98),
@@ -19,30 +20,24 @@ import GHC
       TyClDecl (DataDecl, SynDecl),
       unLoc,
     )
+import Reduce.Passes.Parameters
 import Util.Types (Pass (AST))
 import Util.Util (deleteAt, rmvArgsFromExpr)
 
 rmvConArgs :: Pass
-rmvConArgs = AST "rmvConArgs" $ \ast ->
-    concatMap
-        ( \(conId, args) ->
-              map
-                  ( \i oldAst ->
-                        let newArgsLength = getArgsLength conId ast
-                         in if length newArgsLength == 1
-                                then
-                                    let nRmvdArgs = length args - head newArgsLength
-                                        newI = i - nRmvdArgs
-                                     in transformBi (rmvArgsFromExpr conId (length args) i)
-                                            . transformBi (rmvArgsFromPat conId newI)
-                                            . transformBi (rmvArgsFromConDecl conId newI)
-                                            $ oldAst
-                                else oldAst
-                  )
-                  [1 .. length args]
+rmvConArgs =
+    reduce
+        "rmvConArgs"
+        ( \ast ->
+              ( [(constrName, map unLoc args) | PrefixConP constrName args :: LConDecl GhcPs <- universeBi ast]
+                <> [(constrName, map (unLoc . cd_fld_type . unLoc) args) | RecConP constrName args :: LConDecl GhcPs <- universeBi ast]
+              )
         )
-        ( [(constrName, map unLoc args) | PrefixConP constrName args :: LConDecl GhcPs <- universeBi ast]
-          <> [(constrName, map (unLoc . cd_fld_type . unLoc) args) | RecConP constrName args :: LConDecl GhcPs <- universeBi ast]
+        getArgsLength
+        ( \conId args _ i newI ->
+              transformBi (rmvArgsFromExpr conId (length args) i)
+                  . transformBi (rmvArgsFromPat conId newI)
+                  . transformBi (rmvArgsFromConDecl conId newI)
         )
 
 getArgsLength :: RdrName -> ParsedSource -> [Int]

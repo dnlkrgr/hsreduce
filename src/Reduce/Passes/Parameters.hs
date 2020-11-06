@@ -1,65 +1,56 @@
-module Reduce.Passes.Parameters (reduce) where
+module Reduce.Passes.Parameters (rmvUnusedParams, reduce) where
 
 import Data.Generics.Uniplate.Data (transformBi, universeBi)
-import GHC
-    ( GenLocated (L),
-      GhcPs,
-      HsBind,
-      HsBindLR (FunBind),
-      HsImplicitBndrs (HsIB),
-      HsType (HsFunTy),
-      HsWildCardBndrs (HsWC),
-      LHsExpr,
-      LMatch,
-      Match (Match, m_pats),
-      MatchGroup (MG, mg_alts),
-      NoExt (NoExt),
-      ParsedSource,
-      Pat (WildPat),
-      RdrName,
-      Sig (TypeSig),
-      isInfixMatch,
-      unLoc,
-    )
+import qualified Data.List.NonEmpty as NE
+import Data.Maybe
+import GHC hiding (Pass)
 import Util.Types (Pass (AST))
 import Util.Util (rmvArgsFromExpr)
 
-reduce :: Pass
-reduce = AST "rmvUnusedParams" $ \ast ->
+reduce ::
+    String ->
+    (ParsedSource -> [(RdrName, [a])]) ->
+    (RdrName -> ParsedSource -> [Int]) ->
+    (RdrName -> [a] -> NE.NonEmpty Int -> Int -> Int -> ParsedSource -> ParsedSource) ->
+    Pass
+reduce passId list getArgsLength myTransform = AST passId $ \ast ->
     concatMap
-        ( \(funId, funMG) ->
-              case matchgroup2WildPatPositions funMG of
-                  Nothing -> []
-                  Just (oldPatsLength, indices) ->
-                      map
-                          ( \i oldAST ->
-                                let patsLengths = getPatsLength funId oldAST
-                                 in if length patsLengths >= 1
+        ( \(name, args) ->
+              map
+                  ( \i ->
+                        let mTemp = NE.nonEmpty (getArgsLength name ast)
+                         in case mTemp of
+                                Just temp ->
+                                    if NE.head temp >= 1
                                         then
-                                            let newPatsLength = head patsLengths
-                                                nRmvdParams = (oldPatsLength - newPatsLength)
-                                                newI = i - nRmvdParams -- (traceShow ("nRmvdParams: " <> show nRmvdParams) nRmvdParams)
-                                             in -- traceShow ("funId: " <> oshow funId)
-                                                --     $ traceShow ("length indices: " <> (show $ length indices))
-                                                --     $ traceShow ("oldPatsLength: " <> (show $ oldPatsLength))
-                                                --     $ traceShow ("newPatsLengths: " <> (show $ newPatsLength))
-                                                --     $ traceShow ("nRmvdParams: " <> show nRmvdParams)
-                                                --     $ traceShow ("i: " <> show i)
-                                                --     $ traceShow ("newI: " <> show newI)
-
-                                                transformBi (rmvArgsFromExpr funId newPatsLength newI)
-                                                    . transformBi (handleSigs funId newI)
-                                                    . transformBi (handleFunBinds funId newI)
-                                                    $ oldAST
-                                        else oldAST
-                          )
-                          indices
+                                            let nRmvdArgs = length args - NE.head temp
+                                                newI = i - nRmvdArgs
+                                             in myTransform name args temp i newI
+                                        else id
+                                _ -> id
+                  )
+                  [1 .. length args]
         )
-        [ (funId, funMG)
-          | (FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs) <- universeBi ast,
-            -- infix matches can't be handled yet, GHC panics when trying to print what hsreduce produces
-            all (not . isInfixMatch) . map unLoc . unLoc $ mg_alts funMG
-        ]
+        (list ast)
+
+rmvUnusedParams :: Pass
+rmvUnusedParams =
+    reduce
+        "rmvUnusedParams"
+        ( \ast ->
+              [ (funId, pats)
+                | FunBind _ (L _ funId) funMG _ _ :: HsBindLR GhcPs GhcPs <- universeBi ast,
+                  -- infix matches can't be handled yet, GHC panics when trying to print what hsreduce produces
+                  all (not . isInfixMatch) . map unLoc . unLoc $ mg_alts funMG,
+                  pats <- maybeToList $ NE.head <$> (NE.nonEmpty $ matchgroup2ListOfPats funMG)
+              ]
+        )
+        getPatsLength
+        ( \funId _ temp _ newI ->
+              transformBi (rmvArgsFromExpr funId (NE.head temp) newI)
+                  . transformBi (handleSigs funId newI)
+                  . transformBi (handleFunBinds funId newI)
+        )
 
 getPatsLength :: RdrName -> ParsedSource -> [Int]
 getPatsLength name ast =
@@ -94,17 +85,5 @@ handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt 
                 . zip [1 ..]
 
 -- get indices of wildcard patterns
-matchgroup2WildPatPositions :: MatchGroup GhcPs (LHsExpr GhcPs) -> Maybe (Int, [Int])
-matchgroup2WildPatPositions mg
-    | not (null pats) && all (== head pats) pats = Just $ head pats
-    | otherwise = Nothing
-    where
-        pats = map (match2WildPatPositions . unLoc) . unLoc $ mg_alts mg
-
--- get indices of wildcard patterns
-match2WildPatPositions :: Match GhcPs (LHsExpr GhcPs) -> (Int, [Int])
-match2WildPatPositions m = (length pats, map fst . filter (p . unLoc . snd) $ zip [1 ..] pats)
-    where
-        pats = m_pats m
-        p (WildPat _) = True
-        p _ = False
+matchgroup2ListOfPats :: MatchGroup GhcPs (LHsExpr GhcPs) -> [[LPat GhcPs]]
+matchgroup2ListOfPats mg = [m_pats . unLoc $ match | match <- unLoc $ mg_alts mg]

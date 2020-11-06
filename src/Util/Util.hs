@@ -281,10 +281,6 @@ handleSubList f p = map f . p
 modname2components :: T.Text -> [T.Text]
 modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)
 
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x : _) = Just x
-
 gshow :: Data a => a -> String
 gshow x = gshows x ""
 
