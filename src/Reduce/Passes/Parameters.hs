@@ -5,7 +5,7 @@ import qualified Data.List.NonEmpty as NE
 import Data.Maybe
 import GHC hiding (Pass)
 import Util.Types (Pass (AST))
-import Util.Util (rmvArgsFromExpr)
+import Util.Util 
 
 reduce ::
     String ->
@@ -13,7 +13,7 @@ reduce ::
     (RdrName -> ParsedSource -> [Int]) ->
     (RdrName -> [a] -> NE.NonEmpty Int -> Int -> Int -> ParsedSource -> ParsedSource) ->
     Pass
-reduce passId list getArgsLength myTransform = AST passId $ \ast ->
+reduce passId getParams getArgsLength myTransform = AST passId $ \ast ->
     concatMap
         ( \(name, args) ->
               map
@@ -31,7 +31,7 @@ reduce passId list getArgsLength myTransform = AST passId $ \ast ->
                   )
                   [1 .. length args]
         )
-        (list ast)
+        (getParams ast)
 
 rmvUnusedParams :: Pass
 rmvUnusedParams =
@@ -63,6 +63,9 @@ getPatsLength name ast =
 handleSigs :: RdrName -> Int -> Sig GhcPs -> Sig GhcPs
 handleSigs funId i ts@(TypeSig _ [sigId] (HsWC _ (HsIB _ (L l t))))
     | funId == unLoc sigId = TypeSig NoExt [sigId] . HsWC NoExt . HsIB NoExt . L l $ handleTypes i t
+    | otherwise = ts
+handleSigs funId i ts@(ClassOpSig _ b [sigId] (HsIB _ (L l t)))
+    | funId == unLoc sigId = ClassOpSig NoExt b [sigId] . HsIB NoExt . L l $ handleTypes i t
     | otherwise = ts
 handleSigs _ _ d = d
 

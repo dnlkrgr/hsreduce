@@ -10,3 +10,9 @@ _ <@@> rhs = undefined
 
 toListOf l = foldrOf l undefined ()
 foldrOf l _ _ = undefined . l
+
+class Arst a where
+    drst :: Char -> a -> ()
+
+instance Arst Int where
+    drst '4' _ = undefined

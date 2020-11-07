@@ -145,7 +145,7 @@ main = hspec $ do
                 , ("Params",        
                     runPass Parameters.rmvUnusedParams,          
                     Just "params.sh",
-                    "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\n") 
+                    "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\nclass Arst a where\n  drst :: a -> ()\ninstance Arst Int where\n  drst _ = undefined\n")
                 , ("ConArgs",       
                     runPass DataTypes.rmvConArgs,       
                     Nothing,                
