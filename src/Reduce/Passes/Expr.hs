@@ -4,7 +4,7 @@ import Data.Maybe
 import GHC hiding (Pass)
 import OccName (mkOccName, varName)
 import Util.Types (Pass, WaysToChange)
-import Util.Util (handleSubList, mkPass, oshow, grhs2Body)
+import Util.Util 
 
 expr2Undefined :: Pass
 expr2Undefined = mkPass "expr2Undefined" f
@@ -86,3 +86,8 @@ pCaseMutli :: HsExpr p -> [SrcSpan]
 pCaseMutli (HsCase _ _ (MG _ (L _ lmatches) _)) = map getLoc lmatches
 pCaseMutli (HsMultiIf _ lgrhss) = map getLoc lgrhss
 pCaseMutli _ = []
+
+
+grhs2Body :: GRHS p body -> Maybe body
+grhs2Body (GRHS _ _ body) = Just body
+grhs2Body _ = Nothing

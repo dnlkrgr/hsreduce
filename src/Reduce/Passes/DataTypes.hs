@@ -29,13 +29,13 @@ rmvConArgs =
     reduce
         "rmvConArgs"
         ( \ast ->
-              ( [(constrName, map unLoc args) | PrefixConP constrName args :: LConDecl GhcPs <- universeBi ast]
-                <> [(constrName, map (unLoc . cd_fld_type . unLoc) args) | RecConP constrName args :: LConDecl GhcPs <- universeBi ast]
+              ( [(constrName, length args) | PrefixConP constrName args :: LConDecl GhcPs <- universeBi ast]
+                <> [(constrName, length $ map (unLoc . cd_fld_type . unLoc) args) | RecConP constrName args :: LConDecl GhcPs <- universeBi ast]
               )
         )
         getArgsLength
-        ( \conId args _ i newI ->
-              transformBi (rmvArgsFromExpr conId (length args) i)
+        ( \conId lenArgs _ i newI ->
+              transformBi (rmvArgsFromExpr conId lenArgs i)
                   . transformBi (rmvArgsFromPat conId newI)
                   . transformBi (rmvArgsFromConDecl conId newI)
         )

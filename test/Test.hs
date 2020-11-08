@@ -134,6 +134,10 @@ main = hspec $ do
                     runPass TypeFamilies.apply,           
                     Just "typefamilies.sh",                
                     "{-# LANGUAGE AllowAmbiguousTypes, DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, InstanceSigs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\narst :: Int -> String\narst = undefined\nbrst :: String\nbrst = undefined\ntype family F a b where\n  F a b = a\ntype family G a b where\n  G a b = String\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\ntype family LookupParam (p :: Nat) :: Maybe Nat where\n  LookupParam n = ('Just 0)\ntype family IfEq (b :: k) (t :: l) (f :: l) :: l where\n  IfEq a t _ = t\nmain = undefined\n")
+                -- , ("TypeFamilies2",   
+                --     runPass TypeFamilies.rmvUnusedParams,           
+                --     Nothing,
+                --     "")
                 , ("Expr",   
                     mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
                     Just "expr.sh",                
@@ -143,9 +147,9 @@ main = hspec $ do
                     Nothing,                
                     "\nmodule Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"\n")
                 , ("Params",        
-                    runPass Parameters.rmvUnusedParams,          
+                    mapM_ runPass [Parameters.rmvUnusedParams, Typeclasses.rmvUnusedParams],
                     Just "params.sh",
-                    "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\nclass Arst a where\n  drst :: a -> ()\ninstance Arst Int where\n  drst _ = undefined\n")
+                    "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\nclass Arst a where\n  drst :: a -> ()\ninstance Arst Int where\n  drst _ = undefined\nclass Brst a where\n  erst :: a -> ()\nfrst :: Brst a => a -> ()\nfrst a = erst a\n")
                 , ("ConArgs",       
                     runPass DataTypes.rmvConArgs,       
                     Nothing,                

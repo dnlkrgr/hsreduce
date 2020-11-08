@@ -1,58 +1,45 @@
-module Reduce.Passes.Typeclasses (rmvFunDeps, rmvTyClMethods, handleMultiParams) where
+module Reduce.Passes.Typeclasses where
 
 import Bag (bagToList, listToBag)
 import Data.Generics.Uniplate.Data (transformBi, universeBi)
 import qualified Data.List.NonEmpty as NE
-import GHC
-    ( ClsInstDecl
-          ( ClsInstDecl,
-            cid_binds,
-            cid_datafam_insts,
-            cid_ext,
-            cid_overlap_mode,
-            cid_poly_ty,
-            cid_sigs,
-            cid_tyfam_insts
-          ),
-      GenLocated (L),
-      GhcPs,
-      HsBindLR (FunBind, fun_id),
-      HsDecl (TyClD),
-      HsImplicitBndrs (HsIB),
-      HsType (HsAppTy, HsTyVar),
-      LHsBinds,
-      LHsQTyVars (hsq_explicit),
-      LSig,
-      NoExt (NoExt),
-      ParsedSource,
-      RdrName,
-      Sig (ClassOpSig, InlineSig),
-      TyClDecl
-          ( ClassDecl,
-            tcdATDefs,
-            tcdATs,
-            tcdCExt,
-            tcdCtxt,
-            tcdDocs,
-            tcdFDs,
-            tcdFixity,
-            tcdLName,
-            tcdMeths,
-            tcdSigs,
-            tcdTyVars
-          ),
-      getLoc,
-      unLoc,
-    )
+import GHC hiding (Pass)
 import Reduce.Passes.Parameters
 import Util.Types (Pass (AST), WaysToChange)
-import Util.Util (deleteAt, handleSubList, mkPass)
+import Util.Util
+
+rmvUnusedParams :: Pass
+rmvUnusedParams =
+    reduce
+        "Typeclasses.rmvUnusedParams"
+        ( \ast ->
+              [ (funId, countPatsInType t)
+                | ClassOpSig _ _ [(unLoc -> funId)] (HsIB _ (unLoc -> t)) :: Sig GhcPs <- universeBi ast
+              ]
+        )
+        getPatsLength
+        ( \funId _ newLenArgs _ newI ->
+              transformBi (rmvArgsFromExpr funId (NE.head newLenArgs) newI)
+                  . transformBi (handleSigs funId newI)
+                  . transformBi (handleFunBinds funId newI)
+        )
+
+countPatsInType :: HsType GhcPs -> Int
+countPatsInType (HsFunTy _ _ (unLoc -> t)) = 1 + countPatsInType t
+countPatsInType _ = 0
+
+getPatsLength :: RdrName -> ParsedSource -> [Int]
+getPatsLength name ast =
+    [ countPatsInType t
+      | ClassOpSig _ _ [(unLoc -> funId)] (HsIB _ (unLoc -> t)) :: Sig GhcPs <- universeBi ast,
+        funId == name
+    ]
 
 handleMultiParams :: Pass
 handleMultiParams =
     reduce
         "handleMultiParams"
-        (\ast -> [(unLoc tcdLName, map unLoc . hsq_explicit $ tcdTyVars) | ClassDecl {..} :: TyClDecl GhcPs <- universeBi ast])
+        (\ast -> [(unLoc tcdLName, length . hsq_explicit $ tcdTyVars) | ClassDecl {..} :: TyClDecl GhcPs <- universeBi ast])
         getArgsLength
         ( \classId _ temp _ newI ->
               transformBi (rmvArgsFromClass classId newI)

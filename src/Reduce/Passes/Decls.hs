@@ -17,9 +17,9 @@ splitSigs = mkPass "splitSigs" f
         f :: WaysToChange (HsModule GhcPs)
         f m = [const (m {hsmodDecls = concatMap g $ hsmodDecls m})]
         g ld@(L l d)
-            | SigD _ (TypeSig _ names sigType) <- d = map (\name -> L l $ SigD NoExt $ TypeSig NoExt [name] sigType) names
-            | SigD _ (PatSynSig _ names sigType) <- d = map (\name -> L l $ SigD NoExt $ PatSynSig NoExt [name] sigType) names
-            | SigD _ (ClassOpSig _ b names sigType) <- d = map (\name -> L l $ SigD NoExt $ ClassOpSig NoExt b [name] sigType) names
+            | SigD _ (TypeSig _ names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExt $ TypeSig NoExt [name] sigType) names
+            | SigD _ (PatSynSig _ names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExt $ PatSynSig NoExt [name] sigType) names
+            | SigD _ (ClassOpSig _ b names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExt $ ClassOpSig NoExt b [name] sigType) names
             | otherwise = [ld]
 
 rmvSigs :: Maybe [T.Text] -> Pass

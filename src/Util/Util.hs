@@ -1,7 +1,5 @@
 module Util.Util where
 
-import StringBuffer ( stringToStringBuffer )
-import Lexer ( mkPState, P(unP), ParseResult )
 import DynFlags hiding (GhcMode)
 import Control.Applicative
     ( Alternative ((<|>)),
@@ -45,14 +43,8 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Debug.Trace (traceShow)
 import FastString (mkFastString)
-import GHC
-    ( 
-      GhcPs,
-      HsExpr (HsApp, HsVar),
-      ParsedSource,
-      RdrName,
-      GRHS(..),
-    )
+import GHC hiding (Parsed, Severity, Pass, GhcMode)
+    
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
       logTM,
@@ -73,16 +65,6 @@ import Path
       parent,
     )
 import SrcLoc as SL
-    ( srcLocCol,
-      srcLocLine,
-      unLoc,
-      GenLocated(L),
-      Located,
-      RealSrcLoc,
-      RealSrcSpan,
-      SrcSpan,
-      mkRealSrcLoc,
-      mkRealSrcSpan )
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.Process
     ( CreateProcess (cwd),
@@ -515,38 +497,29 @@ exprFitsNumberOfPatterns n (HsApp _ l _) = exprFitsNumberOfPatterns (n -1) (unLo
 exprFitsNumberOfPatterns 0 _ = True
 exprFitsNumberOfPatterns _ _ = False
 
-insertTextAtLocation :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
-insertTextAtLocation (newName, (startLoc, endLoc)) fileContent =
-    T.unlines $ prevLines <> [traceShow ("changing at line " <> show (currentIndex + 1) <> ": " <> show oldName <> " -> " <> show realNewName) newLineContent] <> succLines
-    where
-        contentLines = T.lines fileContent
-        lineStart = srcLocLine startLoc
-        colStart = srcLocCol startLoc
-        colEnd = srcLocCol endLoc
-        currentIndex = lineStart -1
-        prevLines = take currentIndex contentLines
-        succLines = drop lineStart contentLines
-        currentLine = contentLines !! currentIndex
-        oldName = T.take (colEnd - colStart) $ T.drop (colStart - 1) currentLine
-        prefix = T.take (colStart -1) currentLine
-        suffix = T.drop (colEnd -1) currentLine
-        isInfix = (== 2) . T.length . T.filter (== '`') . T.drop (colStart -1) . T.take (colEnd -1) $ currentLine
-        realNewName =
-            if "Internal" `elem` T.words oldName
-                then removeInternal id oldName
-                else newName
-        newLineContent =
-            if isInfix
-                then prefix <> "`" <> realNewName <> "`" <> suffix
-                else prefix <> realNewName <> suffix
+handleSigs :: RdrName -> Int -> Sig GhcPs -> Sig GhcPs
+handleSigs funId i ts@(TypeSig _ [sigId] (HsWC _ (HsIB _ (L l t))))
+    | funId == unLoc sigId = TypeSig NoExt [sigId] . HsWC NoExt . HsIB NoExt . L l $ handleTypes i t
+    | otherwise = ts
+handleSigs funId i ts@(ClassOpSig _ b [sigId] (HsIB _ (L l t)))
+    | funId == unLoc sigId = ClassOpSig NoExt b [sigId] . HsIB NoExt . L l $ handleTypes i t
+    | otherwise = ts
+handleSigs _ _ d = d
 
-runParser :: DynFlags -> P a -> String -> ParseResult a
-runParser flags parser str = unP parser parseState
-    where
-      location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
-      buffer = stringToStringBuffer str
-      parseState = mkPState flags buffer location
+handleTypes :: Int -> HsType GhcPs -> HsType GhcPs
+handleTypes 1 (HsFunTy _ _ (L _ t)) = t
+handleTypes i (HsFunTy x a lt) = HsFunTy x a (handleTypes (i -1) <$> lt)
+handleTypes _ t = t
 
-grhs2Body :: GRHS p body -> Maybe body
-grhs2Body (GRHS _ _ body) = Just body
-grhs2Body _ = Nothing
+handleFunBinds :: RdrName -> Int -> HsBind GhcPs -> HsBind GhcPs
+handleFunBinds funId i (FunBind _ bindId (MG _ (L l m) o) a b)
+    | funId == unLoc bindId = FunBind NoExt bindId (MG NoExt (L l (handleMatches i m)) o) a b
+handleFunBinds _ _ b = b
+
+handleMatches :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
+handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg]
+    where
+        f =
+            map snd
+                . filter ((/= i) . fst)
+                . zip [1 ..]

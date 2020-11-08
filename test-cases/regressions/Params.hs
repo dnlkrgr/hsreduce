@@ -16,3 +16,9 @@ class Arst a where
 
 instance Arst Int where
     drst '4' _ = undefined
+
+class Brst a where
+    erst :: Char -> a -> ()
+
+frst :: Brst a => a -> ()
+frst a = erst undefined a

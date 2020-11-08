@@ -1,5 +1,8 @@
 module Reduce.Passes.TypeFamilies where
 
+import StringBuffer ( stringToStringBuffer )
+import Lexer ( mkPState, P(unP), ParseResult )
+import Debug.Trace
 import CoAxiom
     ( Branches (unMkBranches),
       CoAxBranch (cab_rhs),
@@ -12,7 +15,6 @@ import Control.Monad.Reader
 import Data.Array (elems)
 import Data.Char (isUpper)
 import Data.Generics.Uniplate.Data
-    
 import Data.IORef (modifyIORef)
 import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe (fromJust)
@@ -20,22 +22,83 @@ import qualified Data.Text.IO as TIO
 import FamInst (tcGetFamInstEnvs)
 import FamInstEnv (normaliseType)
 import GHC hiding (Parsed, Pass)
-import GhcPlugins
-    ( 
-      Outputable,
-      nameEnvElts,
-    )
+import GhcPlugins hiding ((<>))
+    
 import Lexer
 import Parser
 import Parser.Parser
 import Path
+-- import TcRnTypes
+
+import Reduce.Passes.Parameters
 import TcHsType
 import TcInstDcls (tcInstDecls1)
 import TcRnMonad
 import UniqDFM (udfmToList)
--- import TcRnTypes
 import Util.Types
 import Util.Util
+
+rmvUnusedParams :: Pass
+rmvUnusedParams =
+    reduce
+        "TypeFamilies.rmvUnusedParams"
+        (\ast -> [(unLoc $ fdLName tcdFam, length . hsq_explicit $ fdTyVars tcdFam) | FamDecl {..} :: TyClDecl GhcPs <- universeBi ast])
+        getPatsLength
+        ( \famId _ _ temp newI ->
+              -- transformBi (handleFamEqn famId newI)
+              --     . transformBi (handleFamDecl famId newI)
+              transformBi (rmvArgsFromType famId temp newI)
+        )
+
+-- n: total number of patterns
+-- i: index of pattern we wish to remove
+rmvArgsFromType :: RdrName -> Int -> Int -> HsType GhcPs -> HsType GhcPs
+rmvArgsFromType conId n i e@(HsAppTy x la@(L _ a) b)
+    | traceShow ("hallo >>>" <> oshow e <> "<<<") True  ,
+      traceShow (gshow e) True  ,
+      typeContainsId conId e,
+      typeFitsNumberOfPatterns n e,
+      n == i =
+        a
+    | typeContainsId conId e,
+      typeFitsNumberOfPatterns n e =
+        HsAppTy x (rmvArgsFromType conId (n - 1) i <$> la) b
+    | otherwise = e
+rmvArgsFromType _ _ _ e
+    = traceShow ("else: <<<" <> oshow e <> ">>>") $
+      traceShow (gshow e) e
+
+typeFitsNumberOfPatterns :: Int -> HsType GhcPs -> Bool
+typeFitsNumberOfPatterns n (HsAppTy _ l _) = typeFitsNumberOfPatterns (n -1) (unLoc l)
+typeFitsNumberOfPatterns 0 _ = True
+typeFitsNumberOfPatterns _ _ = False
+
+typeContainsId :: RdrName -> HsType GhcPs -> Bool
+typeContainsId n (HsAppTy _ (L _ (HsTyVar _ _ (L _ a))) _) = n == a
+typeContainsId n (HsAppTy _ (L _ e) _) = typeContainsId n e
+typeContainsId _ _ = False
+
+getPatsLength :: RdrName -> ParsedSource -> [Int]
+getPatsLength name ast =
+    [ length . hsq_explicit $ fdTyVars tcdFam
+      | FamDecl {..} :: TyClDecl GhcPs <- universeBi ast,
+        name == unLoc (fdLName tcdFam)
+    ]
+
+-- handleFamDecl
+handleFamDecl :: GhcPs ~ p => RdrName -> Int -> TyClDecl p -> TyClDecl p
+handleFamDecl name i f@FamDecl {..}
+    | unLoc (fdLName tcdFam) == name,
+      HsQTvs {} <- fdTyVars tcdFam =
+        f {tcdFam = tcdFam {fdTyVars = HsQTvs NoExt . deleteAt i . hsq_explicit $ fdTyVars tcdFam}}
+    | otherwise = f
+handleFamDecl _ _ d = d
+
+handleFamEqn :: GhcPs ~ p => RdrName -> Int -> FamEqn p (HsTyPats p) p -> FamEqn p (HsTyPats p) p
+handleFamEqn name i f@FamEqn {..}
+    | unLoc feqn_tycon == name = let a = f {feqn_pats = deleteAt i feqn_pats} in traceShow (gshow a) a
+    | otherwise = f
+handleFamEqn _ _ d = d
 
 familyResultSig :: Pass
 familyResultSig = mkPass "familyResultSig" f
@@ -64,33 +127,30 @@ rmvEquations = mkPass "typefamilies:rmvEquations" f
 -- from commit 66bb499
 apply :: Pass
 apply = AST "TypeFamilies:apply" $ \oldAST ->
-
-    concatMap 
+    concatMap
         (applyHelper oldAST)
-        [ f | f@FamEqn{} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi oldAST]
+        [f | f@FamEqn {} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi oldAST]
 
 applyHelper :: p ~ GhcPs => ParsedSource -> FamEqn p (HsTyPats p) (LHsType p) -> [ParsedSource -> ParsedSource]
-applyHelper ast (FamEqn {..}) = 
+applyHelper ast (FamEqn {..}) =
     let index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
         tycon = unLoc feqn_tycon
-
-    in 
-        map (\(L l _) oldAST ->
-                        let c =
-                                if any (isContainedIn feqn_rhs) feqn_pats
-                                    then -- the rhs is one of the patterns
-                                    -- get the index of the pattern
-                                    -- find occurrences of the type family
-                                    -- replace them by nth pattern
-                                        takeNthArgument tycon (length feqn_pats) index
-                                    else 
-                                        replaceWithRHs tycon feqn_rhs
-                            newAST = transformBi (overwriteAtLoc l c) oldAST
-                        in if length (oshow newAST) < length (oshow oldAST)
-                                then newAST
-                                else oldAST
-                        )
-        [t | t :: LHsType GhcPs <- universeBi ast, length (words (oshow t)) >= 2, let first = head . words $ oshow t, isUpper (head first) || head first == '\'']
+     in map
+            ( \(L l _) oldAST ->
+                  let c =
+                          if any (isContainedIn feqn_rhs) feqn_pats
+                              then -- the rhs is one of the patterns
+                              -- get the index of the pattern
+                              -- find occurrences of the type family
+                              -- replace them by nth pattern
+                                  takeNthArgument tycon (length feqn_pats) index
+                              else replaceWithRHs tycon feqn_rhs
+                      newAST = transformBi (overwriteAtLoc l c) oldAST
+                   in if length (oshow newAST) < length (oshow oldAST)
+                          then newAST
+                          else oldAST
+            )
+            [t | t :: LHsType GhcPs <- universeBi ast, length (words (oshow t)) >= 2, let first = head . words $ oshow t, isUpper (head first) || head first == '\'']
 -- the rhs is not found in any of the patterns
 -- find occurrences of the type family
 -- replace them by rhs
@@ -98,7 +158,6 @@ applyHelper _ _ = []
 
 isContainedIn :: (Outputable a1, Outputable a2) => a1 -> a2 -> Bool
 isContainedIn feqn_rhs = (oshow feqn_rhs `isInfixOf`) . oshow
-
 
 replaceWithRHs :: p ~ GhcPs => IdP p -> LHsType p -> HsType p -> HsType p
 replaceWithRHs tycon (unLoc -> rhs) t
@@ -402,3 +461,11 @@ doStuff t = do
 -- typeContainsTyCon tycon (HsAppTy _ (L _ t) _) = typeContainsTyCon tycon t
 -- typeContainsTyCon _ _ = False
 --
+
+
+runParser :: DynFlags -> P a -> String -> ParseResult a
+runParser flags parser str = unP parser parseState
+    where
+      location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
+      buffer = stringToStringBuffer str
+      parseState = mkPState flags buffer location
