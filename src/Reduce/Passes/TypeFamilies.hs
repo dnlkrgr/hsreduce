@@ -1,14 +1,8 @@
 module Reduce.Passes.TypeFamilies where
 
 import StringBuffer ( stringToStringBuffer )
-import Lexer ( mkPState, P(unP), ParseResult )
 import Debug.Trace
 import CoAxiom
-    ( Branches (unMkBranches),
-      CoAxBranch (cab_rhs),
-      CoAxiom (CoAxiom, co_ax_branches),
-      Role (Nominal),
-    )
 import Control.Concurrent.STM.TVar.Lifted (readTVarIO)
 import qualified Control.Exception as CE
 import Control.Monad.Reader
@@ -21,7 +15,7 @@ import Data.Maybe (fromJust)
 import qualified Data.Text.IO as TIO
 import FamInst (tcGetFamInstEnvs)
 import FamInstEnv (normaliseType)
-import GHC hiding (Parsed, Pass)
+import GHC hiding (Parsed, Pass, parser)
 import GhcPlugins hiding ((<>))
     
 import Lexer
@@ -44,29 +38,32 @@ rmvUnusedParams =
         "TypeFamilies.rmvUnusedParams"
         (\ast -> [(unLoc $ fdLName tcdFam, length . hsq_explicit $ fdTyVars tcdFam) | FamDecl {..} :: TyClDecl GhcPs <- universeBi ast])
         getPatsLength
-        ( \famId _ _ temp newI ->
-              -- transformBi (handleFamEqn famId newI)
-              --     . transformBi (handleFamDecl famId newI)
-              transformBi (rmvArgsFromType famId temp newI)
+        ( \famId _ _ newLenArgs newI ->
+              transformBi (handleFamEqn famId newI)
+              . transformBi (handleFamDecl famId newI)
+              . transformBi (rmvArgsFromType famId newLenArgs newI)
         )
+
+handleFamEqn :: GhcPs ~ p => RdrName -> Int -> FamEqn p (HsTyPats p) (LHsType p) -> FamEqn p (HsTyPats p) (LHsType p) 
+handleFamEqn name i f@FamEqn {..}
+    | unLoc feqn_tycon == name = let a = f {feqn_pats = deleteAt i feqn_pats} in traceShow (gshow a) a
+    | otherwise = f
+handleFamEqn _ _ d = d
+
 
 -- n: total number of patterns
 -- i: index of pattern we wish to remove
 rmvArgsFromType :: RdrName -> Int -> Int -> HsType GhcPs -> HsType GhcPs
 rmvArgsFromType conId n i e@(HsAppTy x la@(L _ a) b)
-    | traceShow ("hallo >>>" <> oshow e <> "<<<") True  ,
-      traceShow (gshow e) True  ,
-      typeContainsId conId e,
-      typeFitsNumberOfPatterns n e,
-      n == i =
-        a
-    | typeContainsId conId e,
-      typeFitsNumberOfPatterns n e =
-        HsAppTy x (rmvArgsFromType conId (n - 1) i <$> la) b
-    | otherwise = e
-rmvArgsFromType _ _ _ e
-    = traceShow ("else: <<<" <> oshow e <> ">>>") $
-      traceShow (gshow e) e
+   | typeContainsId conId e,
+     typeFitsNumberOfPatterns n e,
+     n == i =
+       a
+   | typeContainsId conId e,
+     typeFitsNumberOfPatterns n e =
+       HsAppTy x (rmvArgsFromType conId (n - 1) i <$> la) b
+   | otherwise = e
+rmvArgsFromType conId n i e = e
 
 typeFitsNumberOfPatterns :: Int -> HsType GhcPs -> Bool
 typeFitsNumberOfPatterns n (HsAppTy _ l _) = typeFitsNumberOfPatterns (n -1) (unLoc l)
@@ -93,12 +90,6 @@ handleFamDecl name i f@FamDecl {..}
         f {tcdFam = tcdFam {fdTyVars = HsQTvs NoExt . deleteAt i . hsq_explicit $ fdTyVars tcdFam}}
     | otherwise = f
 handleFamDecl _ _ d = d
-
-handleFamEqn :: GhcPs ~ p => RdrName -> Int -> FamEqn p (HsTyPats p) p -> FamEqn p (HsTyPats p) p
-handleFamEqn name i f@FamEqn {..}
-    | unLoc feqn_tycon == name = let a = f {feqn_pats = deleteAt i feqn_pats} in traceShow (gshow a) a
-    | otherwise = f
-handleFamEqn _ _ d = d
 
 familyResultSig :: Pass
 familyResultSig = mkPass "familyResultSig" f

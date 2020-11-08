@@ -134,10 +134,10 @@ main = hspec $ do
                     runPass TypeFamilies.apply,           
                     Just "typefamilies.sh",                
                     "{-# LANGUAGE AllowAmbiguousTypes, DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, InstanceSigs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\narst :: Int -> String\narst = undefined\nbrst :: String\nbrst = undefined\ntype family F a b where\n  F a b = a\ntype family G a b where\n  G a b = String\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\ntype family LookupParam (p :: Nat) :: Maybe Nat where\n  LookupParam n = ('Just 0)\ntype family IfEq (b :: k) (t :: l) (f :: l) :: l where\n  IfEq a t _ = t\nmain = undefined\n")
-                -- , ("TypeFamilies2",   
-                --     runPass TypeFamilies.rmvUnusedParams,           
-                --     Nothing,
-                --     "")
+                , ("TypeFamilies2",   
+                    runPass TypeFamilies.rmvUnusedParams,           
+                    Just "typefamilies2.sh",
+                    "{-# LANGUAGE TypeFamilies #-}\nmodule TypeFamilies2 where\narst :: F Int -> ()\narst = undefined\ntype family F a where\n  F a = a\n")
                 , ("Expr",   
                     mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
                     Just "expr.sh",                
@@ -184,7 +184,7 @@ main = hspec $ do
                     Nothing -> test
                     Just t  -> fromJust . parseRelFile $ root <> t
 
-            timeout (10 * 1000 * 1000) (hsreduce [a] 1 (fromRelFile realTest) (fromRelFile src <> ".hs")) >>= \case
+            timeout (30 * 1000 * 1000) (hsreduce [a] 1 (fromRelFile realTest) (fromRelFile src <> ".hs")) >>= \case
                 Nothing -> assertFailure "test case timed out"
                 Just () -> return ()
 

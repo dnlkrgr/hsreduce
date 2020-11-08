@@ -31,8 +31,7 @@ import Util.Types ( R )
 import Util.Util ( runPass ) 
 
 allActions :: [R IO ()]
--- allActions = [fast, medium, slow]
-allActions = [runPass Typeclasses.rmvUnusedParams]
+allActions = [fast, medium, slow]
 
 fast :: R IO ()
 fast = do
@@ -81,7 +80,9 @@ slow = do
           Imports.rmvImports,
           Typeclasses.rmvTyClMethods,
           Typeclasses.handleMultiParams,
+          Typeclasses.rmvUnusedParams,
           TypeFamilies.rmvEquations,
+          TypeFamilies.rmvUnusedParams,
           Types.type2WildCard,
           Types.type2Unit
         ]
