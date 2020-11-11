@@ -43,7 +43,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Debug.Trace (traceShow)
 import FastString (mkFastString)
-import GHC hiding (Parsed, Severity, Pass, GhcMode)
+import GHC hiding (Parsed, Severity, Pass, GhcMode, Renamed)
     
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
@@ -138,19 +138,34 @@ overwriteAtLoc loc f oldValue@(L oldLoc a)
 mkPass :: Data a => String -> WaysToChange a -> Pass
 mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
 
-runPass :: Pass -> R IO ()
-runPass (AST name pass) =
-    do
-        unless isInProduction $ do
-            printInfo name
-            isTestStillFresh name
+overwriteWithEq :: Eq a => a -> (a -> a) -> a -> a
+overwriteWithEq a f oldValue
+    | a == oldValue = f oldValue
+    | otherwise = oldValue
 
-        ask
-        >>= fmap (pass . _parsed) . liftIO . readTVarIO . _tState
-        >>= applyInterestingChanges name
+mkCabalPass :: (Eq a, Data a) => String -> WaysToChange a -> Pass
+mkCabalPass name pass = CabalPass name (\ast -> concat [map (transformBi . overwriteWithEq e) $ pass e | e <- universeBi ast])
+
+runPass :: Pass -> R IO ()
+runPass (AST name pass) = do
+    unless isInProduction $ do
+        printInfo name
+        isTestStillFresh name
+
+    ask
+    >>= fmap (map (parsed %~) . pass . _parsed) . liftIO . readTVarIO . _tState
+    >>= applyInterestingChanges name
+runPass (CabalPass name pass) = do
+    unless isInProduction $ do
+        printInfo name
+        isTestStillFresh name
+
+    ask
+    >>= fmap (map (pkgDesc %~) . pass . _pkgDesc) . liftIO . readTVarIO . _tState
+    >>= applyInterestingChanges name
 runPass _ = return ()
 
-applyInterestingChanges :: String -> [ParsedSource -> ParsedSource] -> R IO ()
+applyInterestingChanges :: String -> [RState -> RState] -> R IO ()
 applyInterestingChanges name proposedChanges = do
     $(logTM) InfoS (fromString $ "# proposed changes: " <> (show $ length proposedChanges))
 
@@ -176,7 +191,7 @@ applyInterestingChanges name proposedChanges = do
     -- run one thread for each batch
     forConcurrently_ batches $ \batch -> do
         -- within a thread check out all the changes
-        forM_ batch $ \c -> tryNewState name (parsed %~ c)
+        forM_ batch $ \c -> tryNewState name c
 
 updateStatistics :: RConf -> String -> Word -> Int -> R IO ()
 updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name i sizeDiff

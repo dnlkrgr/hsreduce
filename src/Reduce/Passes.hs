@@ -11,7 +11,7 @@ import Reduce.Passes.Expr as Expr
 import Reduce.Passes.Functions as Functions (etaReduceMatches, inline, rmvGuards, rmvMatches, rmvRHSs)
 import Reduce.Passes.Imports as Imports
     ( unqualImport, rmvImports )
-import Reduce.Passes.Names as Names (unqualNames)
+-- import Reduce.Passes.Names as Names (unqualNames)
 import Reduce.Passes.Parameters as Parameters ( rmvUnusedParams )
 import Reduce.Passes.Pat as Pat ( pat2Wildcard )
 import Reduce.Passes.Pragmas as Pragmas (reduce)
@@ -70,7 +70,7 @@ slow = do
           Functions.rmvMatches,
           Functions.rmvGuards,
           Stubbing.tyVarBndr,
-          Names.unqualNames,
+        --   Names.unqualNames,
           DataTypes.inline,
           DataTypes.rmvConArgs,
           Imports.unqualImport,

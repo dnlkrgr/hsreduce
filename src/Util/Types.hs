@@ -1,6 +1,5 @@
 module Util.Types where
 
-import Data.IORef ( IORef )
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM.Lifted (TChan, TVar)
 import Control.Monad.Base (MonadBase (..), liftBaseDefault)
@@ -22,13 +21,16 @@ import Control.Monad.Trans.Control
     )
 import Data.Aeson (FromJSON)
 import Data.Csv (DefaultOrdered, ToNamedRecord)
+import Data.IORef (IORef)
 import Data.List (intercalate)
 import qualified Data.Map as M
 import qualified Data.Text as T
 import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
 import Data.Word (Word8)
-import GHC hiding (Parsed, Renamed)
+import Distribution.PackageDescription hiding (Executable, Library)
+import Distribution.PackageDescription.PrettyPrint
+import GHC hiding (Parsed, Pass, Renamed)
 import GHC.LanguageExtensions.Type
     ( Extension
           ( AllowAmbiguousTypes,
@@ -56,7 +58,7 @@ import Options.Generic
       type (:::),
       type (<?>),
     )
-import Outputable ( Outputable(ppr), showSDoc, showSDocUnsafe )
+import Outputable (Outputable (ppr), showSDoc, showSDocUnsafe)
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
@@ -67,6 +69,11 @@ data CLIOptions w
             numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
+    | PackageDesc
+          { test :: w ::: FilePath <?> "path to the interestingness test",
+            sourceFile :: w ::: FilePath <?> "path to the source file",
+            numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
+          }
     deriving (Generic)
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
@@ -122,16 +129,29 @@ makeLenses ''Statistics
 emptyStats :: Statistics
 emptyStats = Statistics M.empty
 
-data RState = RState
-    { _pragmas :: [Pragma],
-      _parsed :: ParsedSource,
-      _isAlive :: Bool,
-      _statistics :: Statistics,
-      _numRenamedNames :: Word,
-      _typechecked :: Maybe TypecheckedModule,
-      _hscEnv :: Maybe HscEnv,
-      _dflags :: Maybe DynFlags
-    }
+data RState
+    = ParsedState
+          { _pragmas :: [Pragma],
+            _parsed :: ParsedSource,
+            _isAlive :: Bool,
+            _statistics :: Statistics,
+            _numRenamedNames :: Word
+          }
+    | TypecheckedState
+          { _pragmas :: [Pragma],
+            _parsed :: ParsedSource,
+            _isAlive :: Bool,
+            _statistics :: Statistics,
+            _numRenamedNames :: Word,
+            _typechecked :: TypecheckedModule,
+            _hscEnv :: HscEnv,
+            _dflags :: DynFlags
+          }
+    | CabalState
+          { _isAlive :: Bool,
+            _statistics :: Statistics,
+            _pkgDesc :: GenericPackageDescription
+          }
 
 makeLenses ''RState
 
@@ -157,22 +177,21 @@ newtype R m a = R {unR :: ReaderT RConf m a}
 data ShowMode = Parsed | Renamed
 
 showState :: ShowMode -> RState -> T.Text
-showState Parsed (RState prags ps _ _ _ _ _ Nothing) =
+showState _ s@(CabalState {}) = T.pack . showGenericPackageDescription $ _pkgDesc s
+showState _ (ParsedState prags ps _ _ _) =
     T.unlines $
         showLanguagePragmas prags
             : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
-showState Parsed (RState prags ps _ _ _ _ _ (Just currentDynFlags)) =
+showState Parsed (TypecheckedState prags p _ _ _ _ _ _) =
     T.unlines $
         showLanguagePragmas prags
-            : [T.pack . showSDoc currentDynFlags . ppr . unLoc $ ps]
-showState Renamed (RState prags _ _ _ _ (Just (TypecheckedModule { tm_renamed_source = Just (rs, _, _, _)})) _ (Just currentDynFlags)) =
+            : [T.pack . showSDocUnsafe . ppr . unLoc $ p]
+showState Renamed (TypecheckedState prags p _ _ _ (TypecheckedModule {tm_renamed_source = Just (rs, _, _, _)}) _ currentDynFlags) =
     T.unlines $
         showLanguagePragmas prags
+            : maybe "" (\n -> "module " <> (T.pack . showSDocUnsafe . ppr $ unLoc n) <> " where") (hsmodName $ unLoc p)
+            : T.unlines (map (T.pack . showSDoc currentDynFlags . ppr) . hsmodImports $ unLoc p)
             : [T.pack . showSDoc currentDynFlags . ppr $ rs]
-showState Renamed (RState prags _ _ _ _ (Just (TypecheckedModule { tm_renamed_source = Just (rs, _, _, _)})) _ Nothing) =
-    T.unlines $
-        showLanguagePragmas prags
-            : [T.pack . showSDocUnsafe . ppr $ rs]
 showState _ _ = error "Util.Types.showState: unexpected arguments"
 
 showLanguagePragmas :: [Pragma] -> T.Text
@@ -202,12 +221,6 @@ instance FromJSON GhcOutput
 data Tool = Ghc | Cabal deriving (Show)
 
 data GhcMode = Binds | Imports | Indent | MissingImport | HiddenImport | PerhapsYouMeant | NotInScope deriving (Eq, Show)
-
-data ProjectType = Executable | Library
-
-instance Show ProjectType where
-    show Executable = "executable"
-    show Library = "library"
 
 data Interesting = Interesting | Uninteresting
     deriving (Eq, Show)
@@ -241,7 +254,14 @@ type WaysToChange a = a -> [a -> a]
 
 data Pass
     = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
-    | Arst String (RState -> [RState -> RState])
+    | STATE String (RState -> [RState -> RState])
+    | CabalPass String (GenericPackageDescription -> [GenericPackageDescription -> GenericPackageDescription])
+
+-- instance Semigroup Pass where
+--     AST s1 f <> AST s2 g = AST (s1 <> "<>" <> s2) $ \ast -> (.) <$> f ast <*> g ast
+--     STATE s1 f <> STATE s2 g = STATE (s1 <> "<>" <> s2) $ \state -> (.) <$> f state <*> g state
+--     l@(STATE _ _) <> _ = l -- STATE (s1 <> "<>AST:" <> s2) $ \state -> (.) <$> f state <*> state { _parsed = g (_parsed state)}
+--     _ <> r@(STATE _ _) = r
 
 -- ##### KATIP STUFF
 instance MonadBase b m => MonadBase b (R m) where

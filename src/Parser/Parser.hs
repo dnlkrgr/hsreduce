@@ -40,12 +40,6 @@ import Text.Megaparsec.Char
       upperChar,
     )
 import Util.Types
-    ( Pragma(..),
-      RState(RState),
-      emptyStats,
-      Parser,
-      showExtension
-      )
     
 
 -- TODO: how to handle Safe vs. Trustworthy?
@@ -101,7 +95,7 @@ parse fileName = do
     ( runGhc (Just libdir) $ do
           -- dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
           -- _ <- setSessionDynFlags dflags
-          dflags <- initDynFlagsPure (fromAbsFile fileName) fileContent
+          df <- initDynFlagsPure (fromAbsFile fileName) fileContent
 
           target <- guessTarget (fromAbsFile fileName) Nothing
           setTargets [target]
@@ -115,13 +109,13 @@ parse fileName = do
           gcatch
               ( do
                     tm <- typecheckModule pm
-                    return . Just $ (tm, hEnv, dflags)
+                    return . Just $ (tm, hEnv, df)
               )
               (\(_ :: SomeException) -> return Nothing)
         )
         >>= \case
-            Nothing -> return $ RState prags p False emptyStats 0 Nothing Nothing Nothing
-            Just (mt, hEnv, dflags) -> return $ RState prags p False emptyStats 0 (Just mt) (Just hEnv) (Just dflags)
+            Nothing -> return $ ParsedState prags p False emptyStats 0
+            Just (mt, hEnv, df) -> return $ TypecheckedState prags p False emptyStats 0 mt hEnv df
 
 initDynFlagsPure :: GHC.GhcMonad m => FilePath -> String -> m GHC.DynFlags
 initDynFlagsPure fp s = do

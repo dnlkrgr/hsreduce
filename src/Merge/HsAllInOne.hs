@@ -1,7 +1,8 @@
 module Merge.HsAllInOne (hsmerge) where
 
+import Control.Monad
 import qualified Data.List.NonEmpty as NE
-import Control.Monad.Random (MonadRandom, evalRand, getRandom, getRandomR, mkStdGen, replicateM, void)
+import Control.Monad.Random 
 import Data.Generics.Uniplate.Data (transformBi)
 import Data.Hashable (hash)
 import Data.List (nub)
@@ -23,7 +24,7 @@ import HIE.Bios
     )
 import Parser.Parser (getPragmas)
 import Path 
-import Path.IO (getCurrentDir)
+import Path.IO
 import TcRnTypes (tcg_rdr_env)
 import Util.Types
 import Util.Util
@@ -73,7 +74,7 @@ hsmerge filePath = do
                             transformBi unqualSig
                                 . transformBi unqualFamEqnClsInst
                                 . transformBi unqualBinds
-                                -- . transformBi (renameName rdrEnv ours myMN)
+                                . transformBi (renameName rdrEnv ours myMN)
                                 -- . transformBi (\n -> let newN = renameName rdrEnv ours myMN n 
                                 --                      in (if oshow n `elem` namesToWatch 
                                 --                          then 
@@ -161,7 +162,7 @@ renameName rdrEnv ours myMN@(Module unitId _) n
 
 getModuleName :: GlobalRdrEnv -> [ModuleName] -> Module -> Name -> Maybe ModuleName
 getModuleName env ours myMN n
-    -- | (if oshow n `elem` namesToWatch then traceShow () else id) $ False = myMN
+    -- \| (if oshow n `elem` namesToWatch then traceShow () else id) $ False = myMN
     | (gre_lcl <$> rdrElt) == Just True = Just $ moduleName myMN
     | otherwise = do
         imports <- gre_imp <$> rdrElt

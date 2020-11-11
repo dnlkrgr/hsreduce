@@ -47,30 +47,15 @@ import Katip.Scribes.Handle
       colorBySeverity )
 import Path
 import Path.IO
-    ( copyDirRecur,
-      copyFile,
-      createTempDir,
-      listDir,
-      removeDirRecur,
-      resolveFile' )
 import System.IO ( stdout, IOMode(WriteMode), hClose, openFile )
 import Util.Types
 import Util.Util ( updateStatistics, isTestStillFresh)
-import Parser.Parser ( parse )
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
-hsreduce :: [R IO ()] -> Word8 -> FilePath -> FilePath -> IO ()
-hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
-    testAbs <- resolveFile' test
-    filePathAbs <- resolveFile' filePath
-    -- 1. parse the test case once at the beginning so we can work on the AST
-    -- 2. record all the files in the current directory
-    -- 3. record the starting time
-
-    fileContent <- TIO.readFile $ fromAbsFile filePathAbs
-    beginState <- parse filePathAbs
+hsreduce :: [R IO ()] -> Word8 -> Path Abs File -> Path Abs File -> T.Text -> RState -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState = do
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
@@ -100,7 +85,7 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test filePath = do
 
         bracket mkLogEnv closeScribes $ \le -> do
             logRef <- newIORef []
-            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (2 * 60 * 1000 * 1000)
+            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (10 * 60 * 1000 * 1000)
 
             -- run the reducing functions
             runR beginConf $ do

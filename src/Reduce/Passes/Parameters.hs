@@ -13,7 +13,7 @@ reduce ::
     (RdrName -> ParsedSource -> [Int]) ->
     (RdrName -> Int -> NE.NonEmpty Int -> Int -> Int -> ParsedSource -> ParsedSource) ->
     Pass
-reduce passId getParams getArgsLength myTransform = AST passId $ \ast ->
+reduce passId getNamesAndParamsLengths getArgsLength myTransform = AST passId $ \ast ->
     concatMap
         ( \(name, lenArgs) ->
               map
@@ -31,7 +31,7 @@ reduce passId getParams getArgsLength myTransform = AST passId $ \ast ->
                   )
                   [1 .. lenArgs]
         )
-        (getParams ast)
+        (getNamesAndParamsLengths ast)
 
 rmvUnusedParams :: Pass
 rmvUnusedParams =

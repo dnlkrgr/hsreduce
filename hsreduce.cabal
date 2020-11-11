@@ -110,13 +110,14 @@ library lib-hsreduce
         Reduce.Passes.Stubbing
         Reduce.Passes.DataTypes
         Reduce.Passes.Typeclasses
-        Reduce.Passes.Names
+        -- Reduce.Passes.Names
         Reduce.Passes.Functions
         Reduce.Passes.Imports
         Reduce.Passes.Exports
         Reduce.Passes.Pragmas
         Reduce.Passes.Parameters
         Reduce.Passes.TemplateHaskell
+        Reduce.Passes.Cabal
         Util.Util
         Util.Types
     other-modules:

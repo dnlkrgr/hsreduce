@@ -1,5 +1,8 @@
 module Main where
 
+import Parser.Parser
+import Path.IO
+import qualified Data.Text.IO as TIO
 import Test.HUnit.Lang
 import System.Timeout
 import qualified Data.Text as T
@@ -184,13 +187,18 @@ main = hspec $ do
                     Nothing -> test
                     Just t  -> fromJust . parseRelFile $ root <> t
 
-            timeout (30 * 1000 * 1000) (hsreduce [a] 1 (fromRelFile realTest) (fromRelFile src <> ".hs")) >>= \case
+            testAbs <- resolveFile' $ fromRelFile realTest
+            filePathAbs <- resolveFile' (fromRelFile src <> ".hs")
+            fileContent <- TIO.readFile $ fromAbsFile filePathAbs
+            beginState <- parse filePathAbs
+
+            timeout (30 * 1000 * 1000) (hsreduce [a] 1 testAbs filePathAbs fileContent beginState) >>= \case
                 Nothing -> assertFailure "test case timed out"
                 Just () -> return ()
 
-            fileContent <- readFile newFilePath
+            newFileContent <- readFile newFilePath
 
-            return (drop (length root) filePath, (fileContent, expected))
+            return (drop (length root) filePath, (newFileContent, expected))
 
 
         forM_ results (\(filePath, (fileContent, expected)) -> it filePath $ fileContent `shouldBe` expected)
