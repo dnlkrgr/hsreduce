@@ -223,7 +223,7 @@ testNewState conf newState =
                   runTest test (UT._defaultDuration conf)
             )
             >>= \case
-                Left (_ :: CE.SomeException) -> traceShow ("tryNewState, EXCEPTION:" :: String) $ return Uninteresting
+                Left (_ :: CE.SomeException) -> traceShow ("testNewState, EXCEPTION:" :: String) $ return Uninteresting
                 Right i -> return i
 
 runTest :: Path Abs File -> Word -> R IO Interesting

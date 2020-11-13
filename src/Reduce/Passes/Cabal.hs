@@ -9,10 +9,10 @@ import Util.Util
 
 cabalActions :: [R IO ()]
 cabalActions =
-    -- [ rmvBenchmarks,
-    --   rmvTestSuites,
-    --   rmvExtraSrcFiles,
-    [ runPass rmvModuleNames
+    [ rmvBenchmarks,
+    rmvTestSuites,
+    rmvExtraSrcFiles,
+    runPass rmvModuleNames
     ]
 
 -- rmvModuleNames :: R IO ()

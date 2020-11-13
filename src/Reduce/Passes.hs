@@ -22,7 +22,7 @@ import Reduce.Passes.Stubbing as Stubbing
       simplifyDerivingClause,
       tyVarBndr )
 import Reduce.Passes.TypeFamilies as TypeFamilies
-    ( familyResultSig, rmvEquations, apply, rmvUnusedParams )
+    ( familyResultSig, rmvEquations, apply, rmvUnusedParams, notWorking )
 import Reduce.Passes.Typeclasses as Typeclasses
     ( handleMultiParams, rmvFunDeps, rmvTyClMethods, rmvUnusedParams )
 import Reduce.Passes.Types as Types

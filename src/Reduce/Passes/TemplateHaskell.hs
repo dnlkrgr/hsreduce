@@ -13,14 +13,14 @@ dumpSplices = do
     conf <- ask
     oldState <- readTVarIO $ _tState conf
 
-    when ("TemplateHaskell" `elem` map showExtension (_pragmas oldState)) . withTempDir (_tempDirs conf)
-        $ \tempDir -> do
+    when ("TemplateHaskell" `elem` map showExtension (_pragmas oldState)) $ do
+        newState <- withTempDir (_tempDirs conf) $ \tempDir -> do
             let filePath = _sourceFile conf
                 absPath = tempDir </> filePath
 
             -- write current AST to file
             -- parse and typecheck file
-            newState <- liftIO $ do
+            liftIO $ do
                 TIO.writeFile (fromAbsFile absPath) $ showState Parsed oldState
                 parse absPath >>= \case
                     currentState@TypecheckedState{} -> do
@@ -29,5 +29,5 @@ dumpSplices = do
                         parse absPath
                     other -> return other
 
-            -- try new state, but:
-            tryNewState "dumpSplices" (const newState)
+        -- try new state, but:
+        tryNewState "dumpSplices" (const newState)

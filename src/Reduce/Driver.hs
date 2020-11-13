@@ -1,5 +1,6 @@
 module Reduce.Driver
     ( hsreduce,
+      hsreduce'
     )
 where
 
@@ -53,15 +54,27 @@ import Util.Util ( updateStatistics, isTestStillFresh)
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Parser.Parser
 
-hsreduce :: [R IO ()] -> Word8 -> Path Abs File -> Path Abs File -> T.Text -> RState -> IO ()
-hsreduce allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState = do
+hsreduce :: [R IO ()] -> Word8 -> FilePath -> FilePath -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile = do
+            testAbs <- resolveFile' test
+            filePathAbs <- resolveFile' sourceFile
+            -- 1. parse the test case once at the beginning so we can work on the AST
+            -- 2. record all the files in the current directory
+            -- 3. record the starting time
+            fileContent <- TIO.readFile $ fromAbsFile filePathAbs
+            beginState <- parse filePathAbs
+            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState
+
+hsreduce' :: [R IO ()] -> Word8 -> Path Abs File -> Path Abs File -> T.Text -> RState -> IO ()
+hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState = do
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
     let sourceDir = parent testAbs
         oldSize = T.length fileContent
-    files <- listDir sourceDir
+    (dirs, files) <- listDir sourceDir
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -71,8 +84,8 @@ hsreduce allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileCo
     forM_ [1 .. numberOfThreads] $ \_ -> do
         tempDir <- createTempDir [absdir|/tmp|] "hsreduce"
 
-        forM_ (fst files) $ \d -> copyDirRecur d (tempDir </> dirname d)
-        forM_ (snd files) $ \f -> copyFile f (tempDir </> filename f)
+        forM_ dirs $ \d -> copyDirRecur d (tempDir </> dirname d)
+        forM_ files $ \f -> copyFile f (tempDir </> filename f)
 
         atomically $ writeTChan tChan tempDir
 

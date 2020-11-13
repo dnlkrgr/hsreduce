@@ -26,7 +26,7 @@ main =
             -- 3. record the starting time
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             beginState <- parse filePathAbs
-            hsreduce allActions numberOfThreads testAbs filePathAbs fileContent beginState
+            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState
         PackageDesc {..} -> do
             testAbs <- resolveFile' test
             filePathAbs <- resolveFile' sourceFile
@@ -36,5 +36,5 @@ main =
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             p <- readGenericPackageDescription normal $ fromAbsFile filePathAbs
             let beginState = CabalState False emptyStats p
-            hsreduce cabalActions numberOfThreads testAbs filePathAbs fileContent beginState
+            hsreduce' cabalActions numberOfThreads testAbs filePathAbs fileContent beginState
         Merge {..} -> hsmerge sourceFile
