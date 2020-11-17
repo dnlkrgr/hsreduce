@@ -1,5 +1,6 @@
 module Reduce.Passes.Expr where
 
+import Data.String
 import Data.Maybe
 import GHC hiding (Pass)
 import OccName (mkOccName, varName)
@@ -70,6 +71,7 @@ simplifyExpr = mkPass "simplifyExpr" f
         f (HsWrap _ _ e) = [const e]
         f (HsPar _ (L _ e)) = [const e]
         f (ExplicitList _ _ es) = map (const . unLoc) es
+        f (HsLit x l) = map (const . HsLit x) $ simplifyLit l
         f _ = []
 
 handleCaseMulti :: WaysToChange (HsExpr GhcPs)
@@ -91,3 +93,20 @@ pCaseMutli _ = []
 grhs2Body :: GRHS p body -> Maybe body
 grhs2Body (GRHS _ _ body) = Just body
 grhs2Body _ = Nothing
+
+
+simplifyLit :: HsLit GhcPs -> [HsLit GhcPs]
+simplifyLit (HsString x (show -> s)) 
+            | let l = length s =
+                let s1 = take (div l 2) s
+                    s2 = drop (div l 2) s
+                in [HsString x (fromString ""), HsString x (fromString "")]
+                -- in [HsString x (fromString s1), HsString x (fromString s2)]
+            | otherwise = []
+simplifyLit (HsStringPrim x (show -> s))
+            | let l = length s =
+                let s1 = take (div l 2) s
+                    s2 = drop (div l 2) s
+                in [HsString x (fromString ""), HsString x (fromString "")]
+            | otherwise = []
+simplifyLit _ = []

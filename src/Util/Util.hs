@@ -2,9 +2,6 @@ module Util.Util where
 
 import DynFlags hiding (GhcMode)
 import Control.Applicative
-    ( Alternative ((<|>)),
-      Applicative (liftA2),
-    )
 import Control.Concurrent.Async.Lifted (forConcurrently_)
 import Control.Concurrent.STM.Lifted
     ( STM,
@@ -18,16 +15,7 @@ import Control.Concurrent.STM.Lifted
       writeTVar,
     )
 import qualified Control.Exception.Lifted as CE
-import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader
-    ( MonadReader (ask),
-      asks,
-      forM_,
-      replicateM,
-      unless,
-      void,
-      when,
-    )
 import Data.Aeson (decodeStrict)
 import Data.Algorithm.Diff (PolyDiff (Both), getDiff)
 import Data.Char (isAlphaNum)
@@ -51,7 +39,7 @@ import Katip
     )
 import Lens.Micro.Platform ((%~), (&), at)
 import Outputable hiding ((<>))
-import Parser.Parser (getPragmas)
+import Parser.Parser
 import Path
     ( (</>),
       Abs,
@@ -72,8 +60,6 @@ import System.Process
       shell,
     )
 import System.Timeout.Lifted (timeout)
-import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec.Char as MC
 import Util.Types
 import qualified Util.Types as UT
 
@@ -148,17 +134,17 @@ mkCabalPass name pass = CabalPass name (\ast -> concat [map (transformBi . overw
 
 runPass :: Pass -> R IO ()
 runPass (AST name pass) = do
-    unless isInProduction $ do
-        printInfo name
-        isTestStillFresh name
+    -- unless isInProduction $ do
+    --     printInfo name
+    --     isTestStillFresh name
 
     ask
     >>= fmap (map (parsed %~) . pass . _parsed) . liftIO . readTVarIO . _tState
     >>= applyInterestingChanges name
 runPass (CabalPass name pass) = do
-    unless isInProduction $ do
-        printInfo name
-        isTestStillFresh name
+    -- unless isInProduction $ do
+    --     printInfo name
+    --     isTestStillFresh name
 
     ask
     >>= fmap (map (pkgDesc %~) . pass . _pkgDesc) . liftIO . readTVarIO . _tState
@@ -275,9 +261,6 @@ isTestStillFresh context = do
 handleSubList :: Eq e => (e -> a -> a) -> (a -> [e]) -> WaysToChange a
 handleSubList f p = map f . p
 
-modname2components :: T.Text -> [T.Text]
-modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)
-
 gshow :: Data a => a -> String
 gshow x = gshows x ""
 
@@ -317,15 +300,13 @@ withTempDir tChan action = do
     return a
 
 -- | run ghc with -Wunused-binds -ddump-json and delete decls that are mentioned there
-getGhcOutput :: Tool -> GhcMode -> Path Abs File -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
-getGhcOutput tool ghcMode sourcePath = do
+getGhcOutput :: GhcMode -> Path Abs File -> IO (Maybe [(T.Text, SL.RealSrcSpan)])
+getGhcOutput ghcMode sourcePath = do
     allPragmas <- getPragmas sourcePath
 
     let dirName = parent sourcePath
         fileName = filename sourcePath
-        command = case tool of
-            Ghc -> "ghc " <> ghcModeString <> " -ddump-json " <> unwords (("-X" ++) . T.unpack . showExtension <$> allPragmas) <> " " <> fromRelFile fileName
-            Cabal -> "nix-shell --run 'cabal new-build'"
+        command = "ghc " <> ghcModeString <> " -ddump-json " <> unwords (("-X" ++) . T.unpack . showExtension <$> allPragmas) <> " " <> fromRelFile fileName
 
     (_, stdout, _) <-
         fromMaybe (error "getGhcOutput timeout!")
@@ -361,96 +342,10 @@ getGhcOutput tool ghcMode sourcePath = do
             HiddenImport -> map (\o -> maybe [] (\jpos -> [fmap ((,span2SrcSpan jpos) . (removeInternal init)) . useP hiddenImportP $ doc o]) $ UT.span o)
             _ -> map (\o -> maybe [] (\jpos -> [(Right $ ((T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') $ doc o), (span2SrcSpan jpos)))]) $ UT.span o)
 
-useP :: M.Parsec e s a -> s -> Either (M.ParseErrorBundle s e) a
-useP = flip M.parse ""
-
-notInScopeP :: Parser T.Text
-notInScopeP = do
-    void $ M.chunk "Not in scope:"
-    somethingInTicksP
-
-perhapsYouMeantP :: Parser T.Text
-perhapsYouMeantP = do
-    M.try
-        ( do
-              void $ M.chunk "Not in scope:"
-              void $ somethingInTicksP
-              void $ MC.char '\8217'
-        )
-        <|> M.try (dotsP "Variable not in scope:")
-        <|> dotsP "Data constructor not in scope:"
-    MC.space
-    void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
-    somethingInTicksP
-
-somethingInTicksP :: Parser T.Text
-somethingInTicksP = do
-    void $ M.some (M.satisfy (/= '\8216'))
-    void $ MC.char '\8216'
-    T.pack <$> M.some (M.satisfy (/= '\8217'))
-
-dotsP :: T.Text -> Parser ()
-dotsP s = do
-    void $ MC.char '\8226'
-    MC.space
-    void $ M.chunk s
-    void $ M.some (M.satisfy (/= '\8226'))
-    void $ MC.char '\8226'
-
-removeUseOfHidden :: T.Text -> T.Text
-removeUseOfHidden s
-    | length components > 2 =
-        removeInternal init (T.intercalate "." $ init components) <> "." <> (last components)
-    | otherwise = s
-    where
-        components = modname2components s
-
-removeInternal :: ([T.Text] -> [T.Text]) -> T.Text -> T.Text
-removeInternal f s
-    | length components > 2 = T.intercalate "." . (\wrds -> if "Internal" `elem` wrds then takeWhile (/= "Internal") wrds else f wrds) $ components
-    | otherwise = s
-    where
-        components = modname2components s
-
-hiddenImportP :: Parser T.Text
-hiddenImportP = do
-    void $ M.chunk "Could not load module"
-    MC.space
-    void $ MC.char '‘'
-    T.pack <$> M.some (M.satisfy (/= '’'))
-
-noModuleNamedP :: Parser T.Text
-noModuleNamedP = do
-    void $ M.chunk "Not in scope:"
-    MC.space
-    go
-    void $ MC.char '‘'
-    T.pack <$> M.some (M.satisfy (/= '’'))
-    where
-        go = do
-            M.try (M.chunk "No module named" >> MC.space)
-                <|> do
-                    void $ M.some (M.satisfy (/= '\n'))
-                    MC.space
-                    go
-
-importedFromP :: Parser T.Text
-importedFromP = do
-    void $ M.some $ M.satisfy (/= '(')
-    void $ MC.char '('
-    void $ M.chunk "imported"
-    MC.space
-    void $ M.chunk "from"
-    MC.space
-    fmap T.pack . M.some $ M.satisfy (/= ')')
-
 span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc) (SL.mkRealSrcLoc n el ec)
     where
         n = mkFastString $ T.unpack f
-
-isInProduction :: Bool
-isInProduction = False
 
 (<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
 (<&&>) = liftA2 (&&)
@@ -460,9 +355,6 @@ isInProduction = False
 
 infixr 8 <&&>
 
--- oshow :: Outputable a => a -> String
--- oshow a = showSDocUnsafe $ getPprStyle $ \s -> do
---     error (brst s)
 
 mshow :: Outputable a => DynFlags -> a -> String
 mshow dynflags = showSDocForUser dynflags alwaysQualify . ppr

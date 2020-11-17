@@ -7,8 +7,8 @@ import Reduce.Passes.Decls as Decls
     ( splitSigs, rmvSigs, rmvDecls, rmvConstructors, simplifyConDecl )
 import Reduce.Passes.Exports as Exports (reduce)
 import Reduce.Passes.Expr as Expr
-    ( expr2Undefined, filterExprSubList, simplifyExpr )
-import Reduce.Passes.Functions as Functions (etaReduceMatches, inline, rmvGuards, rmvMatches, rmvRHSs)
+    ( expr2Undefined, filterExprSubList, simplifyExpr, simplifyLit )
+import Reduce.Passes.Functions as Functions (etaReduceMatches, inline, rmvGuards, rmvMatches, rmvRHSs, betaReduceExprs)
 import Reduce.Passes.Imports as Imports
     ( unqualImport, rmvImports )
 -- import Reduce.Passes.Names as Names (unqualNames)
@@ -22,7 +22,7 @@ import Reduce.Passes.Stubbing as Stubbing
       simplifyDerivingClause,
       tyVarBndr )
 import Reduce.Passes.TypeFamilies as TypeFamilies
-    ( familyResultSig, rmvEquations, apply, rmvUnusedParams, notWorking )
+    ( familyResultSig, rmvEquations, apply, rmvUnusedParams)
 import Reduce.Passes.Typeclasses as Typeclasses
     ( handleMultiParams, rmvFunDeps, rmvTyClMethods, rmvUnusedParams )
 import Reduce.Passes.Types as Types
@@ -77,6 +77,7 @@ slow = do
           Parameters.rmvUnusedParams,
           Functions.etaReduceMatches,
           Functions.inline,
+          Functions.betaReduceExprs,
           Imports.rmvImports,
           Typeclasses.rmvTyClMethods,
           Typeclasses.handleMultiParams,

@@ -12,7 +12,7 @@ import Data.Maybe
 import Control.Monad
 import Test.Hspec
 
-import Reduce.Driver (hsreduce)
+import Reduce.Driver
 -- import qualified Reduce.Passes.TemplateHaskell as TemplateHaskell
 import qualified Reduce.Passes.TypeFamilies as TypeFamilies
 import qualified Reduce.Passes.Imports          as Imports
@@ -36,6 +36,7 @@ import qualified Reduce.Passes.Functions      as Functions
       rmvGuards,
       inline,
       etaReduceMatches,
+      betaReduceExprs
 
     )
 import qualified Reduce.Passes.Expr  as Expr
@@ -44,7 +45,7 @@ import Util.Util
 
 
 main :: IO ()
-main = hspec $ do
+main = do
     let 
         root    = "test-cases/regressions/"
         test    = fromJust . parseRelFile $ root <> "interesting.sh"
@@ -54,121 +55,126 @@ main = hspec $ do
                     runPass Imports.rmvImports,             
                     Nothing,                
                     "\nmodule Imports where\n")
-                , ("Pragmas",       
-                    Pragmas.reduce,             
-                    Nothing,                
-                    "\nmodule Pragmas where\n")
-                -- Exports: removing explicit exports
-                -- Exports2: removing exports starting from implicit export all
-                , ("Exports",       
-                    Exports.reduce,             
-                    Nothing,                
-                    "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
-                -- making exports explicit is disabled for now
-                -- , ("Exports2",      
+                -- , ("Pragmas",       
+                --     Pragmas.reduce,             
+                --     Nothing,                
+                --     "\nmodule Pragmas where\n")
+                -- -- Exports: removing explicit exports
+                -- -- Exports2: removing exports starting from implicit export all
+                -- , ("Exports",       
                 --     Exports.reduce,             
                 --     Nothing,                
                 --     "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
-                -- *****
-                -- Decls
-                -- *****
-                , ("Decls",         
-                    runPass (Decls.rmvDecls Nothing),                 
-                    Nothing,                
-                    "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
-                , ("RecCon2Prefix",   
-                    runPass Decls.simplifyConDecl,
-                    Nothing,                
-                    "\nmodule RecCon2Prefix where\ndata Arst = Brst !Int\n")
-                , ("SplitSigs",   
-                    runPass Decls.splitSigs,
-                    Nothing,
-                    "\nmodule SplitSigs (\n        a\n    ) where\na :: Int -> String\nb :: Int -> String\na 3 = \"a\"\nb 4 = \"b\"\n")
-                -- deleting only some of the fun ids in a line
-                , ("FunIds",        
-                    mapM_ runPass [Decls.rmvSigs Nothing, Decls.rmvDecls Nothing],   
-                    (Just "funids.sh"),     
-                    "\nmodule FunIds (\n        foo\n    ) where\nfoo x = 3\n")
-                , ("Cons",          
-                    runPass (Decls.rmvConstructors Nothing),                 
-                    Nothing,                
-                    "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
-                -- ********
-                -- Stubbing
-                -- ********
-                -- , ("Undefined", minireduce (fastTry Stubbing.expr2Undefined), Nothing, "module Undefined where\nfoo x = undefined\n")
-                , ("Unit",          
-                    mapM_ runPass [Types.type2Unit, Expr.expr2Undefined],            
-                    Nothing,                
-                    "\nmodule Unit where\narst :: ()\narst = undefined\n")
-                , ("Contexts",   
-                    runPass Stubbing.contexts,           
-                    Nothing,                
-                    "\nmodule Contexts where\narst :: () => a -> a\narst = undefined\n")
-                , ("Deriving",   
-                    runPass Stubbing.simplifyDeriving,           
-                    Nothing,                
-                    "\nmodule Deriving where\ndata Arst = Arst\n")
-                , ("Deriving2",   
-                    runPass Stubbing.simplifyDerivingClause,           
-                    Nothing,                
-                    "\nmodule Deriving where\ndata Arst\n  = Arst\n  deriving ()\n")
-                , ("TyVarBndr",   
-                    runPass Stubbing.tyVarBndr,           
-                    Nothing,                
-                    "{-# LANGUAGE KindSignatures, PolyKinds #-}\nmodule TyVarBndr where\ndata Arst a b\n")
-                , ("LocalBinds",   
-                    runPass Stubbing.localBinds,           
-                    Nothing,                
-                    "\nmodule LocalBinds where\narst = undefined\n")
-                , ("Matches",   
-                    runPass Functions.rmvMatches,           
-                    Nothing,                
-                    "\nmodule Matches where\n")
-                , ("Guards",   
-                    runPass Functions.rmvGuards,           
-                    Nothing,                
-                    "\nmodule Guards where\narst = \"crst\"\n")
-                , ("RHSs",   
-                    runPass Functions.rmvRHSs,           
-                    Nothing,                
-                    "\nmodule RHSs where\narst | 3 > 5 = \"arst\"\n")
-                , ("TypeFamilies",   
-                    runPass TypeFamilies.apply,           
-                    Just "typefamilies.sh",                
-                    "{-# LANGUAGE AllowAmbiguousTypes, DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, InstanceSigs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\narst :: Int -> String\narst = undefined\nbrst :: String\nbrst = undefined\ntype family F a b where\n  F a b = a\ntype family G a b where\n  G a b = String\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\ntype family LookupParam (p :: Nat) :: Maybe Nat where\n  LookupParam n = ('Just 0)\ntype family IfEq (b :: k) (t :: l) (f :: l) :: l where\n  IfEq a t _ = t\nmain = undefined\n")
-                , ("TypeFamilies2",   
-                    runPass TypeFamilies.rmvUnusedParams,           
-                    Just "typefamilies2.sh",
-                    "{-# LANGUAGE TypeFamilies #-}\nmodule TypeFamilies2 where\narst :: F Int -> ()\narst = undefined\ntype family F a where\n  F a = a\n")
-                , ("Expr",   
-                    mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
-                    Just "expr.sh",                
-                    "\nmodule Expr where\nmain = do brst\nbrst = undefined\ncrst = \"arst\"\n")
+                -- -- making exports explicit is disabled for now
+                -- -- , ("Exports2",      
+                -- --     Exports.reduce,             
+                -- --     Nothing,                
+                -- --     "\nmodule Exports (\n    ) where\ndata Arst = Brst | Crst\na = 3\nb = const True\nc = \"arst\"\n")
+                -- -- *****
+                -- -- Decls
+                -- -- *****
+                -- , ("Decls",         
+                --     runPass (Decls.rmvDecls Nothing),                 
+                --     Nothing,                
+                --     "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
+                -- , ("RecCon2Prefix",   
+                --     runPass Decls.simplifyConDecl,
+                --     Nothing,                
+                --     "\nmodule RecCon2Prefix where\ndata Arst = Brst !Int\n")
+                -- , ("SplitSigs",   
+                --     runPass Decls.splitSigs,
+                --     Nothing,
+                --     "\nmodule SplitSigs (\n        a\n    ) where\na :: Int -> String\nb :: Int -> String\na 3 = \"a\"\nb 4 = \"b\"\n")
+                -- -- deleting only some of the fun ids in a line
+                -- , ("FunIds",        
+                --     mapM_ runPass [Decls.rmvSigs Nothing, Decls.rmvDecls Nothing],   
+                --     (Just "funids.sh"),     
+                --     "\nmodule FunIds (\n        foo\n    ) where\nfoo x = 3\n")
+                -- , ("Cons",          
+                --     runPass (Decls.rmvConstructors Nothing),                 
+                --     Nothing,                
+                --     "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
+                -- -- ********
+                -- -- Stubbing
+                -- -- ********
+                -- -- , ("Undefined", minireduce (fastTry Stubbing.expr2Undefined), Nothing, "module Undefined where\nfoo x = undefined\n")
+                -- , ("Unit",          
+                --     mapM_ runPass [Types.type2Unit, Expr.expr2Undefined],            
+                --     Nothing,                
+                --     "\nmodule Unit where\narst :: ()\narst = undefined\n")
+                -- , ("Contexts",   
+                --     runPass Stubbing.contexts,           
+                --     Nothing,                
+                --     "\nmodule Contexts where\narst :: () => a -> a\narst = undefined\n")
+                -- , ("Deriving",   
+                --     runPass Stubbing.simplifyDeriving,           
+                --     Nothing,                
+                --     "\nmodule Deriving where\ndata Arst = Arst\n")
+                -- , ("Deriving2",   
+                --     runPass Stubbing.simplifyDerivingClause,           
+                --     Nothing,                
+                --     "\nmodule Deriving where\ndata Arst\n  = Arst\n  deriving ()\n")
+                -- , ("TyVarBndr",   
+                --     runPass Stubbing.tyVarBndr,           
+                --     Nothing,                
+                --     "{-# LANGUAGE KindSignatures, PolyKinds #-}\nmodule TyVarBndr where\ndata Arst a b\n")
+                -- , ("LocalBinds",   
+                --     runPass Stubbing.localBinds,           
+                --     Nothing,                
+                --     "\nmodule LocalBinds where\narst = undefined\n")
+                -- , ("Matches",   
+                --     runPass Functions.rmvMatches,           
+                --     Nothing,                
+                --     "\nmodule Matches where\n")
+                -- , ("Guards",   
+                --     runPass Functions.rmvGuards,           
+                --     Nothing,                
+                --     "\nmodule Guards where\narst = \"crst\"\n")
+                -- , ("RHSs",   
+                --     runPass Functions.rmvRHSs,           
+                --     Nothing,                
+                --     "\nmodule RHSs where\narst | 3 > 5 = \"arst\"\n")
+                -- , ("TypeFamilies",   
+                --     runPass TypeFamilies.apply,           
+                --     Just "typefamilies.sh",                
+                --     "{-# LANGUAGE AllowAmbiguousTypes, DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, FunctionalDependencies, GADTs, InstanceSigs, PolyKinds, RankNTypes, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators, UndecidableInstances #-}\nimport GHC.Generics\nimport GHC.TypeLits\narst :: Int -> String\narst = undefined\nbrst :: String\nbrst = undefined\ntype family F a b where\n  F a b = a\ntype family G a b where\n  G a b = String\ntype family MaybeAdd b where\n  MaybeAdd b = 'Just (b)\ntype family AnotherLookupParam (p :: Nat) :: Maybe Nat where\n  AnotherLookupParam n = MaybeAdd 1\ntype family LookupParam (p :: Nat) :: Maybe Nat where\n  LookupParam n = ('Just 0)\ntype family IfEq (b :: k) (t :: l) (f :: l) :: l where\n  IfEq a t _ = t\nmain = undefined\n")
+                -- , ("TypeFamilies2",   
+                --     runPass TypeFamilies.rmvUnusedParams,           
+                --     Just "typefamilies2.sh",
+                --     "{-# LANGUAGE TypeFamilies #-}\nmodule TypeFamilies2 where\narst :: F Int -> ()\narst = undefined\ntype family F a where\n  F a = a\n")
+                -- , ("Expr",   
+                --     mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
+                --     Just "expr.sh",                
+                --     "\nmodule Expr where\nmain = do brst\nbrst = undefined\ncrst = \"arst\"\n")
                 , ("Functions",   
-                    mapM_ runPass [Functions.etaReduceMatches, Functions.inline],
-                    Nothing,                
-                    "\nmodule Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"\n")
-                , ("Params",        
-                    mapM_ runPass [Parameters.rmvUnusedParams, Typeclasses.rmvUnusedParams],
-                    Just "params.sh",
-                    "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\nclass Arst a where\n  drst :: a -> ()\ninstance Arst Int where\n  drst _ = undefined\nclass Brst a where\n  erst :: a -> ()\nfrst :: Brst a => a -> ()\nfrst a = erst a\n")
-                , ("ConArgs",       
-                    runPass DataTypes.rmvConArgs,       
-                    Nothing,                
-                    "\nmodule Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst Int Char -> Arst () ()\ne (Arst) = Arst\n")
-                , ("MultiParams",   
-                    runPass Typeclasses.handleMultiParams,
-                    Just "multiparams.sh",                
-                    "{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}\nmodule MultiParams where\nclass Arst where\n  inRelation :: a -> b -> Bool\ninstance Arst where\n  inRelation _ _ = True\n")
-                , ("InlineTypes",   
-                    runPass DataTypes.inline,           
-                    Nothing,                
-                    "\nmodule Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()\n")
-                , ("Typeclasses",   
-                    runPass Typeclasses.rmvTyClMethods,
-                    Just "typeclasses.sh",                
-                    "\nmodule Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show\n")
+                    -- mapM_ runPass [Functions.inline, Functions.betaReduceExprs],
+                    mapM_ runPass [Functions.inline, Functions.betaReduceExprs, Functions.etaReduceMatches],
+                    Just "functions.sh",                
+                    "") -- "\nmodule Functions where\narst = \"arst\"\nbrst = \"arst\"\ndrst = erst\nerst v = \"the end\"\n")
+                -- , ("Params",        
+                --     mapM_ runPass [Parameters.rmvUnusedParams, Typeclasses.rmvUnusedParams],
+                --     Just "params.sh",
+                --     "\nmodule Params where\nbrst = arst\narst :: ()\narst = undefined\ncrst = undefined <@@> [3]\n_ <@@> rhs = undefined\ntoListOf l = foldrOf l\nfoldrOf l = undefined . l\nclass Arst a where\n  drst :: a -> ()\ninstance Arst Int where\n  drst _ = undefined\nclass Brst a where\n  erst :: a -> ()\nfrst :: Brst a => a -> ()\nfrst a = erst a\n")
+                -- , ("ConArgs",       
+                --     runPass DataTypes.rmvConArgs,       
+                --     Nothing,                
+                --     "\nmodule Arst (\n    ) where\ndata Arst a b = Arst {}\ne :: Arst Int Char -> Arst () ()\ne (Arst) = Arst\n")
+                -- , ("MultiParams",   
+                --     runPass Typeclasses.handleMultiParams,
+                --     Just "multiparams.sh",                
+                --     "{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}\nmodule MultiParams where\nclass Arst where\n  inRelation :: a -> b -> Bool\ninstance Arst where\n  inRelation _ _ = True\n")
+                -- , ("InlineTypes",   
+                --     runPass DataTypes.inline,           
+                --     Nothing,                
+                --     "\nmodule Inline where\ndata Arst = Arst String\ntype Brst = Int\nf :: String -> ()\nf (\"arst\") = ()\ng :: Int -> ()\ng 3 = ()\n")
+                -- , ("Typeclasses",   
+                --     runPass Typeclasses.rmvTyClMethods,
+                --     Just "typeclasses.sh",                
+                --     "\nmodule Typeclasses where\nmain = do putStrLn $ arst (3 :: Int)\nclass Arst a where\n  arst :: a -> String\ninstance Arst Int where\n  arst = show\n")
+                -- , ("Lits",   
+                --     runPass Expr.simplifyExpr,
+                --     Nothing,
+                --     "")
                 -- needs to find the helper file also
                 -- but can't for now
                 -- , ("TemplateHaskell",   
@@ -178,30 +184,30 @@ main = hspec $ do
                 ]
 
     -- TODO: make this parametric, give a list of test cases with their reduce functions and a title
-    describe "regressions" $ do
-        results <- runIO $ forM sources $ \(src, a, mt, expected) -> do
-            let 
-                filePath    = fromRelFile src
-                newFilePath = filePath <> "_hsreduce.hs"
-                realTest    = case mt of
-                    Nothing -> test
-                    Just t  -> fromJust . parseRelFile $ root <> t
+    results <- forM sources $ \(src, a, mt, expected) -> do
+        let 
+            filePath    = fromRelFile src
+            newFilePath = filePath <> "_hsreduce.hs"
+            realTest    = case mt of
+                Nothing -> test
+                Just t  -> fromJust . parseRelFile $ root <> t
 
-            testAbs <- resolveFile' $ fromRelFile realTest
-            filePathAbs <- resolveFile' (fromRelFile src <> ".hs")
-            fileContent <- TIO.readFile $ fromAbsFile filePathAbs
-            beginState <- parse filePathAbs
+        testAbs <- resolveFile' $ fromRelFile realTest
+        filePathAbs <- resolveFile' (fromRelFile src <> ".hs")
+        fileContent <- TIO.readFile $ fromAbsFile filePathAbs
+        beginState <- parse filePathAbs
 
-            timeout (30 * 1000 * 1000) (hsreduce [a] 1 testAbs filePathAbs fileContent beginState) >>= \case
-                Nothing -> assertFailure "test case timed out"
-                Just () -> return ()
+        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState) >>= \case
+            Nothing -> assertFailure "test case timed out"
+            Just () -> return ()
 
-            newFileContent <- readFile newFilePath
+        newFileContent <- readFile newFilePath
 
-            return (drop (length root) filePath, (newFileContent, expected))
+        return (drop (length root) filePath, (newFileContent, expected))
 
-
-        forM_ results (\(filePath, (fileContent, expected)) -> it filePath $ fileContent `shouldBe` expected)
+    hspec $ do
+        describe "regressions" $ 
+            forM_ results (\(filePath, (fileContent, expected)) -> it filePath $ fileContent `shouldBe` expected)
 
 -- realFloor :: T.Text
 -- realFloor = "Not in scope: ‘GHC.Real.floor’\nNo module named ‘GHC.Real’ is imported."

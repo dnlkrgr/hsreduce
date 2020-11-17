@@ -1,5 +1,7 @@
-module Parser.Parser (getPragmas, parse) where
+module Parser.Parser where
 
+import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec.Char as MC
 import Control.Applicative (Alternative ((<|>), many, some))
 import Control.Exception (SomeException)
 import Data.Either (fromRight, isRight)
@@ -141,15 +143,102 @@ getModName' = do
     void space
     void $ string "module"
     void space
-    n <- T.concat <$> some name
+    n <- T.concat <$> some nameP
     void space
     return n
 
-name :: Parser T.Text
-name = T.cons <$> char '.' <*> name' <|> name'
+nameP :: Parser T.Text
+nameP = T.cons <$> char '.' <*> nameP' <|> nameP'
 
-name' :: Parser T.Text
-name' = do
+nameP' :: Parser T.Text
+nameP' = do
     c <- upperChar
     cs <- many alphaNumChar
     return . T.pack $ c : cs
+
+useP :: M.Parsec e s a -> s -> Either (M.ParseErrorBundle s e) a
+useP = flip M.parse ""
+
+notInScopeP :: Parser T.Text
+notInScopeP = do
+    void $ M.chunk "Not in scope:"
+    somethingInTicksP
+
+perhapsYouMeantP :: Parser T.Text
+perhapsYouMeantP = do
+    M.try
+        ( do
+              void $ M.chunk "Not in scope:"
+              void $ somethingInTicksP
+              void $ MC.char '\8217'
+        )
+        <|> M.try (dotsP "Variable not in scope:")
+        <|> dotsP "Data constructor not in scope:"
+    MC.space
+    void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
+    somethingInTicksP
+
+somethingInTicksP :: Parser T.Text
+somethingInTicksP = do
+    void $ M.some (M.satisfy (/= '\8216'))
+    void $ MC.char '\8216'
+    T.pack <$> M.some (M.satisfy (/= '\8217'))
+
+dotsP :: T.Text -> Parser ()
+dotsP s = do
+    void $ MC.char '\8226'
+    MC.space
+    void $ M.chunk s
+    void $ M.some (M.satisfy (/= '\8226'))
+    void $ MC.char '\8226'
+
+removeUseOfHidden :: T.Text -> T.Text
+removeUseOfHidden s
+    | length components > 2 =
+        removeInternal init (T.intercalate "." $ init components) <> "." <> (last components)
+    | otherwise = s
+    where
+        components = modname2components s
+
+removeInternal :: ([T.Text] -> [T.Text]) -> T.Text -> T.Text
+removeInternal f s
+    | length components > 2 = T.intercalate "." . (\wrds -> if "Internal" `elem` wrds then takeWhile (/= "Internal") wrds else f wrds) $ components
+    | otherwise = s
+    where
+        components = modname2components s
+
+hiddenImportP :: Parser T.Text
+hiddenImportP = do
+    void $ M.chunk "Could not load module"
+    MC.space
+    void $ MC.char '‘'
+    T.pack <$> M.some (M.satisfy (/= '’'))
+
+noModuleNamedP :: Parser T.Text
+noModuleNamedP = do
+    void $ M.chunk "Not in scope:"
+    MC.space
+    go
+    void $ MC.char '‘'
+    T.pack <$> M.some (M.satisfy (/= '’'))
+    where
+        go = do
+            M.try (M.chunk "No module named" >> MC.space)
+                <|> do
+                    void $ M.some (M.satisfy (/= '\n'))
+                    MC.space
+                    go
+
+importedFromP :: Parser T.Text
+importedFromP = do
+    void $ M.some $ M.satisfy (/= '(')
+    void $ MC.char '('
+    void $ M.chunk "imported"
+    MC.space
+    void $ M.chunk "from"
+    MC.space
+    fmap T.pack . M.some $ M.satisfy (/= ')')
+
+
+modname2components :: T.Text -> [T.Text]
+modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)
