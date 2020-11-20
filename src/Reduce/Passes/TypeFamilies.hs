@@ -1,6 +1,5 @@
 module Reduce.Passes.TypeFamilies where
 
-import Debug.Trace
 import Data.Char (isUpper)
 import Data.Generics.Uniplate.Data
 import Data.List (isInfixOf, isPrefixOf)
@@ -16,7 +15,6 @@ import Data.Maybe (fromJust)
 import qualified Data.Text.IO as TIO
 import FamInst (tcGetFamInstEnvs)
 import FamInstEnv (normaliseType)
-import StringBuffer ( stringToStringBuffer )
 import CoAxiom
 import Control.Concurrent.STM.TVar.Lifted (readTVarIO)
 import qualified Control.Exception as CE
@@ -47,7 +45,7 @@ rmvUnusedParams =
 
 handleFamEqn :: GhcPs ~ p => RdrName -> Int -> FamEqn p (HsTyPats p) (LHsType p) -> FamEqn p (HsTyPats p) (LHsType p) 
 handleFamEqn name i f@FamEqn {..}
-    | unLoc feqn_tycon == name = let a = f {feqn_pats = deleteAt i feqn_pats} in traceShow (gshow a) a
+    | unLoc feqn_tycon == name = f {feqn_pats = deleteAt i feqn_pats}
     | otherwise = f
 handleFamEqn _ _ d = d
 
@@ -251,11 +249,3 @@ doStuff t = do
     famInsts <- tcGetFamInstEnvs
     tcType <- fst <$> tcLHsType t
     return . snd $ normaliseType famInsts Nominal tcType
-
-
-runParser :: DynFlags -> P a -> String -> ParseResult a
-runParser flags parser str = unP parser parseState
-    where
-      location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
-      buffer = stringToStringBuffer str
-      parseState = mkPState flags buffer location

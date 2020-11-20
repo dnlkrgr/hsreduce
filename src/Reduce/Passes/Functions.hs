@@ -1,7 +1,6 @@
 module Reduce.Passes.Functions (inline, etaReduceMatches, rmvMatches, rmvRHSs, rmvGuards, betaReduceExprs, substituteVarWithExpr) where
 
 import Data.Generics.Uniplate.Data (transformBi, universeBi)
-import Debug.Trace
 import GHC hiding (Pass)
 import Util.Types
 import Util.Util

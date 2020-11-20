@@ -1,9 +1,14 @@
 module Parser.Parser where
 
+import Control.Exception
+import Control.Monad.IO.Class
+import StringBuffer
+import FastString
+import SrcLoc
+import Lexer
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 import Control.Applicative (Alternative ((<|>), many, some))
-import Control.Exception (SomeException)
 import Data.Either (fromRight, isRight)
 import Data.Functor (void)
 import qualified Data.Text as T
@@ -92,12 +97,11 @@ parse fileName = do
             <$> TIO.readFile filePath
 
     prags <- getPragmas fileName
-    fileContent <- readFile $ fromAbsFile fileName
 
     ( runGhc (Just libdir) $ do
           -- dflags <- flip (L.foldl' xopt_set) extensions . (\(a, _, _) -> a) <$> (flip parseDynamicFlags [] =<< getSessionDynFlags)
           -- _ <- setSessionDynFlags dflags
-          df <- initDynFlagsPure (fromAbsFile fileName) fileContent
+          df <- initDynFlagsPure (fromAbsFile fileName)
 
           target <- guessTarget (fromAbsFile fileName) Nothing
           setTargets [target]
@@ -119,8 +123,9 @@ parse fileName = do
             Nothing -> return $ ParsedState prags p False emptyStats 0
             Just (mt, hEnv, df) -> return $ TypecheckedState prags p False emptyStats 0 mt hEnv df
 
-initDynFlagsPure :: GHC.GhcMonad m => FilePath -> String -> m GHC.DynFlags
-initDynFlagsPure fp s = do
+initDynFlagsPure :: GHC.GhcMonad m => FilePath -> m GHC.DynFlags
+initDynFlagsPure fp = do
+    s <- liftIO $ readFile fp
     -- I was told we could get away with using the unsafeGlobalDynFlags.
     -- as long as `parseDynamicFilePragma` is impure there seems to be
     -- no reason to use it.
@@ -134,6 +139,39 @@ initDynFlagsPure fp s = do
     -- (dflags3, _, _) <- GHC.parseDynamicFlagsCmdLine dflags2 [GHC.noLoc "-hide-all-packages"]
     _ <- GHC.setSessionDynFlags dflags3
     return dflags3
+
+runParser :: DynFlags -> P a -> String -> ParseResult a
+runParser flags parser str = unP parser parseState
+    where
+      location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
+      buffer = stringToStringBuffer str
+      parseState = mkPState flags buffer location
+
+countTokensOfTestCases :: IO ()
+countTokensOfTestCases = do
+    l1 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
+    l2 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
+    l3 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
+    print $ zip3 l1 l2 l3
+    where
+        testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
+
+countTokens :: FilePath -> IO (Maybe Int)
+countTokens fp = do
+    try (runGhc (Just libdir) (initDynFlagsPure fp)) >>= \case
+        Left (_ :: SomeException) -> pure Nothing
+        Right flags -> do
+            str <- readFile fp
+            countTokensHelper flags str
+
+countTokensHelper :: DynFlags -> String -> IO (Maybe Int)
+countTokensHelper flags str = do
+    let buffer = stringToStringBuffer str
+    case lexTokenStream buffer location flags of
+        POk _ toks -> pure . Just $ length toks
+        _ -> pure Nothing
+    where 
+        location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
 
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines

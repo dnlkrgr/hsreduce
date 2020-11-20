@@ -20,7 +20,7 @@ import Control.Monad.Trans.Control
       defaultRestoreT,
     )
 import Data.Aeson (FromJSON)
-import Data.Csv (DefaultOrdered, ToNamedRecord)
+import Data.Csv
 import Data.IORef (IORef)
 import Data.List (intercalate)
 import qualified Data.Map as M
@@ -66,7 +66,8 @@ data CLIOptions w
     = Reduce
           { test :: w ::: FilePath <?> "path to the interestingness test",
             sourceFile :: w ::: FilePath <?> "path to the source file",
-            numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
+            numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently",
+            recordStatistics :: w ::: Bool <?> "whether or not do record statistics"
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     | PackageDesc
@@ -113,11 +114,20 @@ data PassStats = PassStats
     }
     deriving (Generic, Show)
 
-instance ToNamedRecord PassStats
+instance Num PassStats where
+  (PassStats n1 a b c) + (PassStats _ d e f) = PassStats n1 (a + d) (b + e) (c + f)
 
+instance FromField PassStats
+instance ToRecord PassStats
+instance ToNamedRecord PassStats
+instance FromNamedRecord (String, PassStats)
+instance FromNamedRecord PassStats
 instance DefaultOrdered PassStats
 
 makeLenses ''PassStats
+
+stats2NamedTuple :: PassStats -> (String, PassStats)
+stats2NamedTuple p@PassStats{..} = (_passName, p)
 
 newtype Statistics = Statistics
     { _passStats :: M.Map String PassStats

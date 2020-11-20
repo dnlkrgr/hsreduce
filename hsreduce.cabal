@@ -48,6 +48,7 @@ common dry
         , uniplate
         , word8
         , transformers-base
+        , vector
     default-extensions:
         TypeApplications
         DataKinds

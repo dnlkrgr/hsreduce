@@ -4,9 +4,12 @@ module Reduce.Driver
     )
 where
 
+import Lens.Micro.Platform
+import qualified Data.Vector as DV
 import Data.IORef
 import qualified Data.ByteString.Lazy as LBS
-import Data.Csv ( encodeDefaultOrderedByName )
+import qualified Data.ByteString as BS
+import Data.Csv
 import Control.Concurrent.STM.Lifted
     ( newTVar,
       newTChan,
@@ -56,8 +59,8 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Parser.Parser
 
-hsreduce :: [R IO ()] -> Word8 -> FilePath -> FilePath -> IO ()
-hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile = do
+hsreduce :: [R IO ()] -> Word8 -> FilePath -> FilePath -> Bool -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStatistics = do
             testAbs <- resolveFile' test
             filePathAbs <- resolveFile' sourceFile
             -- 1. parse the test case once at the beginning so we can work on the AST
@@ -65,10 +68,27 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile = do
             -- 3. record the starting time
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             beginState <- parse filePathAbs
-            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState
+            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState recordStatistics
 
-hsreduce' :: [R IO ()] -> Word8 -> Path Abs File -> Path Abs File -> T.Text -> RState -> IO ()
-hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState = do
+hsreduce' :: [R IO ()] -> Word8 -> Path Abs File -> Path Abs File -> T.Text -> RState -> Bool -> IO ()
+hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState recordStatistics = do
+    -- get old stats, fail as fast as possible
+    let statFilePath = [absfile|/home/daniel/.hsreduce_statistics.csv|]
+    oldStats <- if recordStatistics 
+        then do 
+            doesFileExist statFilePath >>= \case
+                False -> pure emptyStats
+                True -> decodeByName <$> LBS.readFile (fromAbsFile statFilePath) >>= \case 
+                    Left e -> do
+                        print e
+                        pure emptyStats
+                    Right (_, oldStats) -> pure . Statistics $ M.fromList $ DV.toList $ DV.map stats2NamedTuple oldStats
+        else pure emptyStats
+
+    print @String "oldStats:"
+    print oldStats
+
+
     t1 <- getCurrentTime
     tState <- atomically $ newTVar beginState
 
@@ -118,12 +138,28 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
                 liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState Parsed newState)
 
-                t2 <- liftIO getCurrentTime
+                when recordStatistics $ do 
+                    t2 <- liftIO getCurrentTime
 
-                perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+                    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+                    liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
 
-                liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
-                liftIO . LBS.writeFile "hsreduce_statistics.csv" . encodeDefaultOrderedByName . map snd . M.toList . _passStats $ _statistics newState
+                    let newStats = 
+                            LBS.toStrict
+                                . encodeDefaultOrderedByName
+                                . map snd 
+                                . M.toList 
+                                -- $ newState ^. statistics . passStats
+                                $ M.unionWith (+) (oldStats ^. passStats) (newState ^. statistics . passStats)
+
+
+                    liftIO $ do
+                        print @String "newStats:"
+                        print newStats
+
+                    liftIO 
+                        . BS.writeFile (fromAbsFile statFilePath)
+                        $ newStats
 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan

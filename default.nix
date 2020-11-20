@@ -4,8 +4,7 @@
 , lifted-base, megaparsec, microlens-platform, monad-control
 , MonadRandom, mtl, optparse-generic, path, path-io, process, regex
 , split, stdenv, stm-lifted, syb, text, time, transformers-base
-, uniplate, unordered-containers, word8
-, haskell-language-server
+, uniplate, unordered-containers, vector, word8
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -19,8 +18,7 @@ mkDerivation {
     hie-bios HUnit katip lifted-async lifted-base megaparsec
     microlens-platform monad-control MonadRandom mtl optparse-generic
     path path-io process regex split stm-lifted syb text time
-    transformers-base uniplate unordered-containers word8
-    haskell-language-server
+    transformers-base uniplate unordered-containers vector word8
   ];
   executableHaskellDepends = [
     aeson array base bytestring Cabal cassava containers Diff
@@ -28,7 +26,7 @@ mkDerivation {
     hie-bios HUnit katip lifted-async lifted-base megaparsec
     microlens-platform monad-control MonadRandom mtl optparse-generic
     path path-io process regex split stm-lifted syb text time
-    transformers-base uniplate unordered-containers word8
+    transformers-base uniplate unordered-containers vector word8
   ];
   testHaskellDepends = [
     aeson array base bytestring Cabal cassava containers Diff
@@ -36,7 +34,7 @@ mkDerivation {
     hie-bios hspec HUnit katip lifted-async lifted-base megaparsec
     microlens-platform monad-control MonadRandom mtl optparse-generic
     path path-io process regex split stm-lifted syb text time
-    transformers-base uniplate unordered-containers word8
+    transformers-base uniplate unordered-containers vector word8
   ];
   doHaddock = false;
   license = stdenv.lib.licenses.bsd3;

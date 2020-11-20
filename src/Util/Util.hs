@@ -86,7 +86,7 @@ tryNewState passId f = do
                             then do
                                 writeTVar (_tState conf) $ newState {_isAlive = True}
 
-                                updateStatistics_ conf passId 1 sizeDiff
+                                updateStatisticsHelper conf passId 1 sizeDiff
                                 return True
                             else return False
 
@@ -94,7 +94,7 @@ tryNewState passId f = do
                         then logStateDiff NoticeS oldStateS newStateS
                         else tryNewState passId f
                 Uninteresting -> do
-                    logStateDiff DebugS oldStateS newStateS
+                    -- logStateDiff DebugS oldStateS newStateS
                     updateStatistics conf passId 0 0
         else updateStatistics conf passId 0 0
 
@@ -134,16 +134,16 @@ mkCabalPass name pass = CabalPass name (\ast -> concat [map (transformBi . overw
 
 runPass :: Pass -> R IO ()
 runPass (AST name pass) = do
+    printInfo name
     -- unless isInProduction $ do
-    --     printInfo name
     --     isTestStillFresh name
 
     ask
     >>= fmap (map (parsed %~) . pass . _parsed) . liftIO . readTVarIO . _tState
     >>= applyInterestingChanges name
 runPass (CabalPass name pass) = do
+    printInfo name
     -- unless isInProduction $ do
-    --     printInfo name
     --     isTestStillFresh name
 
     ask
@@ -180,7 +180,7 @@ applyInterestingChanges name proposedChanges = do
         forM_ batch $ \c -> tryNewState name c
 
 updateStatistics :: RConf -> String -> Word -> Int -> R IO ()
-updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name i sizeDiff
+updateStatistics conf name i sizeDiff = atomically $ updateStatisticsHelper conf name i sizeDiff
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -189,8 +189,8 @@ updateStatistics conf name i sizeDiff = atomically $ updateStatistics_ conf name
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatistics_ :: RConf -> String -> Word -> Int -> STM ()
-updateStatistics_ conf name i sizeDiff =
+updateStatisticsHelper :: RConf -> String -> Word -> Int -> STM ()
+updateStatisticsHelper conf name i sizeDiff =
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
             Nothing -> Just $ PassStats name i 1 sizeDiff
@@ -231,9 +231,6 @@ printInfo context = do
     oldState <- liftIO . atomically $ readTVar tState
 
     let info = "state size: " <> (show . T.length . showState Parsed $ oldState)
-
-    -- liftIO $ putStrLn $ "\n***" <> context <> "***"
-    -- liftIO $ putStrLn info
 
     $(logTM) InfoS "****************************************"
     $(logTM) InfoS (fromString context)
