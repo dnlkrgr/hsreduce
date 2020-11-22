@@ -1,5 +1,6 @@
 module Parser.Parser where
 
+import Control.Monad
 import Control.Exception
 import Control.Monad.IO.Class
 import StringBuffer
@@ -10,7 +11,6 @@ import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 import Control.Applicative (Alternative ((<|>), many, some))
 import Data.Either (fromRight, isRight)
-import Data.Functor (void)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Void (Void)
@@ -115,13 +115,13 @@ parse fileName = do
           gcatch
               ( do
                     tm <- typecheckModule pm
-                    return . Just $ (tm, hEnv, df)
+                    return . Right $ (tm, hEnv, df)
               )
-              (\(_ :: SomeException) -> return Nothing)
+              (\(_ :: SomeException) -> return $ Left df)
         )
         >>= \case
-            Nothing -> return $ ParsedState prags p False emptyStats 0
-            Just (mt, hEnv, df) -> return $ TypecheckedState prags p False emptyStats 0 mt hEnv df
+            Left dynFlags -> return $ ParsedState prags p False emptyStats 0 dynFlags
+            Right (mt, hEnv, df) -> return $ TypecheckedState prags p False emptyStats 0 mt hEnv df
 
 initDynFlagsPure :: GHC.GhcMonad m => FilePath -> m GHC.DynFlags
 initDynFlagsPure fp = do
@@ -152,7 +152,7 @@ countTokensOfTestCases = do
     l1 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
     l2 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
     l3 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
-    print $ zip3 l1 l2 l3
+    forM_ (zip testCases $ zip3 l1 l2 l3) print
     where
         testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
 
@@ -162,14 +162,14 @@ countTokens fp = do
         Left (_ :: SomeException) -> pure Nothing
         Right flags -> do
             str <- readFile fp
-            countTokensHelper flags str
+            pure $ countTokensHelper flags str
 
-countTokensHelper :: DynFlags -> String -> IO (Maybe Int)
+countTokensHelper :: DynFlags -> String -> Maybe Int
 countTokensHelper flags str = do
     let buffer = stringToStringBuffer str
     case lexTokenStream buffer location flags of
-        POk _ toks -> pure . Just $ length toks
-        _ -> pure Nothing
+        POk _ toks -> Just $ length toks
+        _ -> Nothing
     where 
         location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
 

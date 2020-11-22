@@ -11,7 +11,7 @@ import Util.Types (Pass, WaysToChange)
 import Util.Util (handleSubList, mkPass)
 
 unqualImport :: Pass
-unqualImport = mkPass "unqualImports" f
+unqualImport = mkPass "unqualImport" f
     where
         f :: WaysToChange (ImportDecl GhcPs)
         f (ImportDecl _ srcText name pkgQual src safe _ implicit as _) =

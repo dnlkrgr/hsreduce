@@ -39,8 +39,8 @@ fast = do
         runPass
         [ TypeFamilies.apply,
           Decls.splitSigs,
-          Decls.rmvSigs Nothing,
-          Decls.rmvDecls Nothing
+          Decls.rmvSigs,
+          Decls.rmvDecls
         ]
 
 medium :: R IO ()
@@ -56,7 +56,7 @@ slow = do
         runPass
         [ Typeclasses.rmvFunDeps,
           TypeFamilies.familyResultSig,
-          Decls.rmvConstructors Nothing,
+          Decls.rmvConstructors,
           Decls.simplifyConDecl,
           Expr.filterExprSubList,
           Expr.simplifyExpr,
@@ -84,7 +84,7 @@ slow = do
           Typeclasses.rmvUnusedParams,
           TypeFamilies.rmvEquations,
           TypeFamilies.rmvUnusedParams,
-          Types.type2WildCard,
+        --   Types.type2WildCard,
           Types.type2Unit
         ]
     Pragmas.reduce

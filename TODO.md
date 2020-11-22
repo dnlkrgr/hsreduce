@@ -1,5 +1,8 @@
 # ToDo's / Protocol
 
+## Evaluation
+
+
 ## Ausarbeitung
 
 - Passes
@@ -18,9 +21,6 @@
     - [ ] bytes / minute
     - [ ] total % reduced
 - Passes
-  - [ ] how often a pass succeeded
-  - [ ] total number of run tests during a pass
-  - [ ] how much reduction an individual pass brought
   - [ ] how much time was spent during the pass
   - [ ] if a pass looks at different elements: what kind of expression / element brought the most reduction
   - [ ] what are the best / worst passes, and why? How could they improve?

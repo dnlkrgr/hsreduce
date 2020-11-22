@@ -1,5 +1,6 @@
 module Reduce.Passes.Exports (reduce) where
 
+import Data.Maybe
 import Control.Concurrent.STM.Lifted
     ( atomically,
       readTVar,
@@ -7,8 +8,6 @@ import Control.Concurrent.STM.Lifted
     )
 import Control.Monad
 import Control.Monad.Reader (MonadReader (ask), asks)
-import Data.Maybe (mapMaybe)
-import qualified Data.Text as T
 import Debug.Trace
 import GHC hiding (Parsed, Pass)
 import Katip (Severity (InfoS), logTM)
@@ -30,7 +29,7 @@ reduce = do
 
         modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
 
-        let oldExports = mapMaybe (decl2Export . unLoc) $ traceShow (oshow allDecls) allDecls
+        let oldExports = mapMaybe (decl2Export . unLoc) allDecls
             newModName =
                 case maybeModName of
                     Nothing -> Just . L noSrcSpan . mkModuleName $ modName
@@ -44,9 +43,11 @@ reduce = do
                                     hsmodName = newModName
                                   }
                     }
+        let sizeDiff = getASTLengthDiff newState oldState
+        tokenDiff <- getTokenDiff newState oldState
 
         atomically $ writeTVar tState newState
-        updateStatistics conf "mkExportsExplicit" 1 (T.length (showState Parsed newState) - T.length (showState Parsed oldState))
+        updateStatistics conf "mkExportsExplicit" 1 sizeDiff tokenDiff
     -- TODO: if no exports were removed, turn it into Nothing again
 
     runPass removeExports

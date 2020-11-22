@@ -1,5 +1,6 @@
 module Reduce.Passes.Names (shortenNames, unqualNames) where
 
+import Data.Word
 import Control.Concurrent.STM.Lifted (atomically, readTVar)
 import Control.Monad (forM_, replicateM)
 import Control.Monad.Reader (MonadReader (ask))
@@ -54,7 +55,7 @@ shortenNamesHelper n = do
                     else oldState
         oldState -> oldState
 
-shortenName :: Word -> OccName -> OccName
+shortenName :: Word64 -> OccName -> OccName
 shortenName m n
     | isVarOcc n = mkVarOcc newString
     | isTvOcc n = mkTyVarOcc newString
@@ -68,7 +69,7 @@ shortenName m n
         os = occNameString n
         newString = renameName m os
 
-renameName :: Word -> String -> String
+renameName :: Word64 -> String -> String
 renameName m (c : _)
     | isUpper c = randomNameString m Upper
     | isLower c = randomNameString m Lower
@@ -81,7 +82,7 @@ renameName _ s = s
 data Case = Upper | Lower | Operator
 
 -- | create a random operator string
-randomNameString :: Word -> Case -> String
+randomNameString :: Word64 -> Case -> String
 randomNameString lenElems c =
     let symbols = case c of
             Operator -> operatorSymbols

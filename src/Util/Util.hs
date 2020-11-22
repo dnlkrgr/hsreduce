@@ -1,5 +1,6 @@
 module Util.Util where
 
+import Data.Word
 import DynFlags hiding (GhcMode)
 import Control.Applicative
 import Control.Concurrent.Async.Lifted (forConcurrently_)
@@ -22,7 +23,7 @@ import Data.Char (isAlphaNum)
 import Data.Data (Data (gmapQ, toConstr), showConstr)
 import Data.Either (fromRight, isRight)
 import Data.Generics.Aliases (extQ)
-import Data.Generics.Uniplate.Data (transformBi, universeBi)
+import Data.Generics.Uniplate.Data
 import Data.List.Split (chunksOf)
 import Data.Maybe (fromMaybe, isJust)
 import Data.String (IsString (fromString))
@@ -63,6 +64,19 @@ import System.Timeout.Lifted (timeout)
 import Util.Types
 import qualified Util.Types as UT
 
+getASTLengthDiff :: RState -> RState -> Word64
+getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldState
+
+getASTLength :: RState -> Word64
+getASTLength = fromIntegral . T.length . showState Parsed 
+
+getTokenDiff :: (MonadIO m, Num a) => RState -> RState -> m a
+getTokenDiff newState oldState = 
+    liftIO $ do
+        mn1 <- fmap fromIntegral <$> (countTokens $ T.unpack $ showState Parsed newState)
+        mn2 <- fmap fromIntegral <$> (countTokens $ T.unpack $ showState Parsed oldState)
+        pure $ fromMaybe 0 $ (-) <$> mn1 <*> mn2
+
 tryNewState :: String -> (RState -> RState) -> R IO ()
 tryNewState passId f = do
     conf <- ask
@@ -72,7 +86,9 @@ tryNewState passId f = do
         oldStateS = showState Parsed oldState
         newStateS = showState Parsed newState
         isStateNew = oldStateS /= newStateS
-        sizeDiff = T.length newStateS - T.length oldStateS
+        sizeDiff = getASTLengthDiff newState oldState
+
+    tokenDiff <- getTokenDiff newState oldState
 
     if isStateNew
         then do
@@ -86,7 +102,7 @@ tryNewState passId f = do
                             then do
                                 writeTVar (_tState conf) $ newState {_isAlive = True}
 
-                                updateStatisticsHelper conf passId 1 sizeDiff
+                                updateStatisticsHelper conf passId 1 sizeDiff tokenDiff
                                 return True
                             else return False
 
@@ -95,8 +111,8 @@ tryNewState passId f = do
                         else tryNewState passId f
                 Uninteresting -> do
                     -- logStateDiff DebugS oldStateS newStateS
-                    updateStatistics conf passId 0 0
-        else updateStatistics conf passId 0 0
+                    updateStatistics conf passId 0 0 0
+        else updateStatistics conf passId 0 0 0
 
 logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
 logStateDiff severity oldStateS newStateS = do
@@ -179,8 +195,8 @@ applyInterestingChanges name proposedChanges = do
         -- within a thread check out all the changes
         forM_ batch $ \c -> tryNewState name c
 
-updateStatistics :: RConf -> String -> Word -> Int -> R IO ()
-updateStatistics conf name i sizeDiff = atomically $ updateStatisticsHelper conf name i sizeDiff
+updateStatistics :: RConf -> String -> Word64 -> Word64 -> Word64 -> R IO ()
+updateStatistics conf name i sizeDiff tokenDiff = atomically $ updateStatisticsHelper conf name i sizeDiff tokenDiff
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -189,13 +205,13 @@ updateStatistics conf name i sizeDiff = atomically $ updateStatisticsHelper conf
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatisticsHelper :: RConf -> String -> Word -> Int -> STM ()
-updateStatisticsHelper conf name i sizeDiff =
+updateStatisticsHelper :: RConf -> String -> Word64 -> Word64 -> Word64 -> STM ()
+updateStatisticsHelper conf name i sizeDiff tokenDiff =
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
-            Nothing -> Just $ PassStats name i 1 sizeDiff
-            Just (PassStats _ n d r) ->
-                Just $ PassStats name (n + i) (d + 1) (r + sizeDiff)
+            Nothing -> Just $ PassStats name i 1 sizeDiff tokenDiff
+            Just (PassStats _ n d r t) ->
+                Just $ PassStats name (n + i) (d + 1) (r + sizeDiff) (t + tokenDiff)
 
 testNewState :: RConf -> RState -> R IO Interesting
 testNewState conf newState =
@@ -212,7 +228,7 @@ testNewState conf newState =
                 Left (_ :: CE.SomeException) -> traceShow ("testNewState, EXCEPTION:" :: String) $ return Uninteresting
                 Right i -> return i
 
-runTest :: Path Abs File -> Word -> R IO Interesting
+runTest :: Path Abs File -> Word64 -> R IO Interesting
 runTest test duration = do
     let dirName = parent test
     let testName = filename test
@@ -307,15 +323,15 @@ getGhcOutput ghcMode sourcePath = do
 
     (_, stdout, _) <-
         fromMaybe (error "getGhcOutput timeout!")
-            <$> timeout (fromIntegral @Word $ 60 * 60 * 1000 * 1000) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))
+            <$> timeout (fromIntegral @Word64 10 * 60 * 1000 * 1000) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))
 
     return $ case stdout of
         "" -> Nothing
         _ -> fromRight [] . sequence . filter isRight . concat . mapFunc . filterFunc . filter (isJust . UT.span) <$> (sequence . filter isJust . map (decodeStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
     where
         ghcModeString = case ghcMode of
-            Binds -> "-Wunused-binds"
-            Imports -> "-Wunused-imports"
+            UnusedBinds -> "-Wunused-binds"
+            UnusedImports -> "-Wunused-imports"
             _ -> ""
         filterFunc = case ghcMode of
             MissingImport -> filter ((T.isPrefixOf "Not in scope:" <&&> (T.isInfixOf "imported from" <||> T.isInfixOf "No module named")) . doc)
@@ -338,6 +354,15 @@ getGhcOutput ghcMode sourcePath = do
             Indent -> map (\o -> maybe [] (\jpos -> [Right ("", span2SrcSpan jpos)]) $ UT.span o)
             HiddenImport -> map (\o -> maybe [] (\jpos -> [fmap ((,span2SrcSpan jpos) . (removeInternal init)) . useP hiddenImportP $ doc o]) $ UT.span o)
             _ -> map (\o -> maybe [] (\jpos -> [(Right $ ((T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') $ doc o), (span2SrcSpan jpos)))]) $ UT.span o)
+
+getStuffFromGhc :: GhcMode -> R IO (Maybe [T.Text])
+getStuffFromGhc mode = do
+    conf <- ask
+    let sourceFilePath = _sourceFile conf
+    mstuff <- withTempDir (_tempDirs conf) $ \dir -> 
+        liftIO $ getGhcOutput mode (dir </> sourceFilePath)
+    pure $ map fst <$> mstuff
+
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc) (SL.mkRealSrcLoc n el ec)

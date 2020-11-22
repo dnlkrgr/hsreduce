@@ -27,7 +27,6 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
-import Data.Word (Word8)
 import Distribution.PackageDescription hiding (Executable, Library)
 import Distribution.PackageDescription.PrettyPrint
 import GHC hiding (Parsed, Pass, Renamed)
@@ -58,22 +57,25 @@ import Options.Generic
       type (:::),
       type (<?>),
     )
-import Outputable (Outputable (ppr), showSDoc, showSDocUnsafe)
+import Outputable hiding ((<>))
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
+import Data.Word
 
 data CLIOptions w
     = Reduce
           { test :: w ::: FilePath <?> "path to the interestingness test",
             sourceFile :: w ::: FilePath <?> "path to the source file",
-            numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently",
-            recordStatistics :: w ::: Bool <?> "whether or not do record statistics"
+            numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
+            recordStatistics :: w ::: Bool <?> "whether or not do record statistics",
+            timeOut :: w ::: Word64 <?> "timout in seconds"
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     | PackageDesc
           { test :: w ::: FilePath <?> "path to the interestingness test",
             sourceFile :: w ::: FilePath <?> "path to the source file",
-            numberOfThreads :: w ::: Word8 <?> "how many threads you want to run concurrently"
+            numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
+            timeOut :: w ::: Word64 <?> "timout in seconds"
           }
     deriving (Generic)
 
@@ -82,14 +84,14 @@ data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
 
 data Performance = Performance
     { _day :: Day,
-      _origSize :: Word,
-      _endSize :: Word,
-      _ratio :: Word,
+      _origSize :: Word64,
+      _endSize :: Word64,
+      _ratio :: Word64,
       _startTime :: UTCTime,
       _endTime :: UTCTime,
       _duration :: DiffTime,
-      _capabilities :: Word,
-      _threads :: Word
+      _capabilities :: Word64,
+      _threads :: Word64
     }
 
 instance Show Performance where
@@ -108,14 +110,15 @@ instance Show Performance where
 
 data PassStats = PassStats
     { _passName :: String,
-      _successfulAttempts :: Word,
-      _totalAttempts :: Word,
-      _removedBytes :: Int
+      _successfulAttempts :: Word64,
+      _totalAttempts :: Word64,
+      _removedBytes :: Word64,
+      _removedTokens :: Word64
     }
     deriving (Generic, Show)
 
 instance Num PassStats where
-  (PassStats n1 a b c) + (PassStats _ d e f) = PassStats n1 (a + d) (b + e) (c + f)
+  (PassStats n1 sa1 ta1 b1 t1) + (PassStats _ sa2 ta2 b2 t2) = PassStats n1 (sa1 + sa2) (ta1 + ta2) (b1 + b2) (t1 + t2)
 
 instance FromField PassStats
 instance ToRecord PassStats
@@ -145,14 +148,15 @@ data RState
             _parsed :: ParsedSource,
             _isAlive :: Bool,
             _statistics :: Statistics,
-            _numRenamedNames :: Word
+            _numRenamedNames :: Word64,
+            _dflags :: DynFlags
           }
     | TypecheckedState
           { _pragmas :: [Pragma],
             _parsed :: ParsedSource,
             _isAlive :: Bool,
             _statistics :: Statistics,
-            _numRenamedNames :: Word,
+            _numRenamedNames :: Word64,
             _typechecked :: TypecheckedModule,
             _hscEnv :: HscEnv,
             _dflags :: DynFlags
@@ -175,7 +179,7 @@ data RConf = RConf
       logContext :: K.LogContexts,
       logEnv :: K.LogEnv,
       _logRef :: IORef [String],
-      _defaultDuration :: Word
+      _defaultDuration :: Word64
     }
 
 runR :: RConf -> R m a -> m a
@@ -188,18 +192,18 @@ data ShowMode = Parsed | Renamed
 
 showState :: ShowMode -> RState -> T.Text
 showState _ s@(CabalState {}) = T.pack . showGenericPackageDescription $ _pkgDesc s
-showState _ (ParsedState prags ps _ _ _) =
+showState _ (ParsedState prags ps _ _ _ dynFlags) =
     T.unlines $
         showLanguagePragmas prags
-            : [T.pack . showSDocUnsafe . ppr . unLoc $ ps]
-showState Parsed (TypecheckedState prags p _ _ _ _ _ _) =
+            : [T.pack . showSDoc dynFlags . ppr . unLoc $ ps]
+showState Parsed (TypecheckedState prags p _ _ _ _ _ dynFlags) =
     T.unlines $
         showLanguagePragmas prags
-            : [T.pack . showSDocUnsafe . ppr . unLoc $ p]
+            : [T.pack . showSDoc dynFlags . ppr . unLoc $ p]
 showState Renamed (TypecheckedState prags p _ _ _ (TypecheckedModule {tm_renamed_source = Just (rs, _, _, _)}) _ currentDynFlags) =
     T.unlines $
         showLanguagePragmas prags
-            : maybe "" (\n -> "module " <> (T.pack . showSDocUnsafe . ppr $ unLoc n) <> " where") (hsmodName $ unLoc p)
+            : maybe "" (\n -> "module " <> (T.pack . showSDoc currentDynFlags . ppr $ unLoc n) <> " where") (hsmodName $ unLoc p)
             : T.unlines (map (T.pack . showSDoc currentDynFlags . ppr) . hsmodImports $ unLoc p)
             : [T.pack . showSDoc currentDynFlags . ppr $ rs]
 showState _ _ = error "Util.Types.showState: unexpected arguments"
@@ -230,7 +234,7 @@ instance FromJSON GhcOutput
 
 data Tool = Ghc | Cabal deriving (Show)
 
-data GhcMode = Binds | Imports | Indent | MissingImport | HiddenImport | PerhapsYouMeant | NotInScope deriving (Eq, Show)
+data GhcMode = UnusedBinds | UnusedImports | Indent | MissingImport | HiddenImport | PerhapsYouMeant | NotInScope deriving (Eq, Show)
 
 data Interesting = Interesting | Uninteresting
     deriving (Eq, Show)
@@ -300,12 +304,12 @@ instance (MonadIO m) => KatipContext (R m) where
 
 -- #####
 
-mkPerformance :: Word -> Word -> UTCTime -> UTCTime -> Word -> R IO Performance
+mkPerformance :: Word64 -> Word64 -> UTCTime -> UTCTime -> Word64 -> R IO Performance
 mkPerformance oldSize newSize t1 t2 n = do
     c <- fromIntegral <$> liftIO getNumCapabilities
     return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
     where
-        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word
+        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word64
         offset =
             if utctDayTime t2 < utctDayTime t1
                 then 86401
@@ -314,4 +318,4 @@ mkPerformance oldSize newSize t1 t2 n = do
 
 instance ParseRecord (CLIOptions Wrapped)
 
-instance Show (CLIOptions Unwrapped)
+deriving instance Show (CLIOptions Unwrapped)

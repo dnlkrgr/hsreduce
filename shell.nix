@@ -1,17 +1,12 @@
-{ nixpkgs ? import <nixpkgs> {}, compiler ? "ghc884", doBenchmark ? false }:
+{}:
 
 let
   pkgs = import (builtins.fetchGit {
-    name = "nixos-unstable-2020-10-25";
+    name = "nixos-unstable-2020-11-20";
     url = "https://github.com/nixos/nixpkgs-channels/";
-    ref = "refs/heads/nixpkgs-unstable";
-    rev = "502845c3e31ef3de0e424f3fcb09217df2ce6df6";
+    ref = "refs/heads/nixos-unstable";
+    rev = "84d74ae9c9cbed73274b8e4e00be14688ffc93fe";
   }) {};
 
-  haskellPackages = pkgs.haskell.packages.${compiler};
-
-  variant = if doBenchmark then pkgs.haskell.lib.doBenchmark else pkgs.lib.id;
-
-  drv = variant (haskellPackages.callPackage (import ./default.nix) {});
 in
-  if pkgs.lib.inNixShell then drv.env else drv
+  (pkgs.haskell.packages.ghc884.callPackage (import ./default.nix) {}).env

@@ -91,7 +91,7 @@ handleFamDecl name i f@FamDecl {..}
 handleFamDecl _ _ d = d
 
 familyResultSig :: Pass
-familyResultSig = mkPass "familyResultSig" f
+familyResultSig = mkPass "TypeFamilies.familyResultSig" f
     where
         f :: WaysToChange (FamilyResultSig GhcPs)
         f (NoSig _) = []
@@ -99,7 +99,7 @@ familyResultSig = mkPass "familyResultSig" f
         f _ = [const (NoSig NoExt)]
 
 rmvEquations :: Pass
-rmvEquations = mkPass "typefamilies:rmvEquations" f
+rmvEquations = mkPass "TypeFamilies.rmvEquations" f
     where
         f :: WaysToChange (HsDecl GhcPs)
         f = handleSubList g p

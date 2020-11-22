@@ -74,7 +74,7 @@ main = do
                 -- Decls
                 -- *****
                 , ("Decls",         
-                    runPass (Decls.rmvDecls Nothing),                 
+                    runPass (Decls.rmvDecls),                 
                     Nothing,                
                     "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
                 , ("RecCon2Prefix",   
@@ -87,11 +87,11 @@ main = do
                     "\nmodule SplitSigs (\n        a\n    ) where\na :: Int -> String\nb :: Int -> String\na 3 = \"a\"\nb 4 = \"b\"\n")
                 -- deleting only some of the fun ids in a line
                 , ("FunIds",        
-                    mapM_ runPass [Decls.rmvSigs Nothing, Decls.rmvDecls Nothing],   
+                    mapM_ runPass [Decls.rmvSigs, Decls.rmvDecls],   
                     (Just "funids.sh"),     
                     "\nmodule FunIds (\n        foo\n    ) where\nfoo x = 3\n")
                 , ("Cons",          
-                    runPass (Decls.rmvConstructors Nothing),                 
+                    runPass (Decls.rmvConstructors),                 
                     Nothing,                
                     "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
                 -- ********
@@ -197,7 +197,7 @@ main = do
         fileContent <- TIO.readFile $ fromAbsFile filePathAbs
         beginState <- parse filePathAbs
 
-        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState False) >>= \case
+        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState False 25) >>= \case
             Nothing -> assertFailure "test case timed out"
             Just () -> return ()
 
