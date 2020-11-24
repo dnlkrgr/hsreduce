@@ -1,6 +1,6 @@
 module Reduce.Passes.Stubbing
     ( contexts,
-      simplifyDeriving,
+      rmvDerivingClause,
       simplifyDerivingClause,
       localBinds,
       tyVarBndr,
@@ -64,8 +64,8 @@ contexts = mkPass "contexts" f
 
 -- ***************************************************************************
 
-simplifyDeriving :: Pass
-simplifyDeriving = mkPass "simplifyDeriving" f
+rmvDerivingClause :: Pass
+rmvDerivingClause = mkPass "rmvDerivingClause" f
     where
         f :: WaysToChange [LHsDerivingClause GhcPs]
         f = handleSubList g p

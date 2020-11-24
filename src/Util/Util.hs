@@ -64,10 +64,10 @@ import System.Timeout.Lifted (timeout)
 import Util.Types
 import qualified Util.Types as UT
 
-getASTLengthDiff :: RState -> RState -> Word64
+getASTLengthDiff :: RState -> RState -> Integer
 getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldState
 
-getASTLength :: RState -> Word64
+getASTLength :: RState -> Integer
 getASTLength = fromIntegral . T.length . showState Parsed 
 
 getTokenDiff :: (MonadIO m, Num a) => RState -> RState -> m a
@@ -88,31 +88,35 @@ tryNewState passId f = do
         isStateNew = oldStateS /= newStateS
         sizeDiff = getASTLengthDiff newState oldState
 
-    tokenDiff <- getTokenDiff newState oldState
+    -- passes might have produced garbage, so we need to be extra careful here
+    CE.try (do
+        tokenDiff <- getTokenDiff newState oldState
 
-    if isStateNew
-        then do
-            testNewState conf newState >>= \case
-                Interesting -> do
-                    success <- atomically $ do
-                        currentCommonStateS <- showState Parsed <$> (readTVar $ _tState conf)
+        if isStateNew
+            then do
+                testNewState conf newState >>= \case
+                    Interesting -> do
+                        success <- atomically $ do
+                            currentCommonStateS <- showState Parsed <$> (readTVar $ _tState conf)
 
-                        -- is the state we worked still the same?
-                        if oldStateS == currentCommonStateS
-                            then do
-                                writeTVar (_tState conf) $ newState {_isAlive = True}
+                            -- is the state we worked still the same?
+                            if oldStateS == currentCommonStateS
+                                then do
+                                    writeTVar (_tState conf) $ newState {_isAlive = True}
 
-                                updateStatisticsHelper conf passId 1 sizeDiff tokenDiff
-                                return True
-                            else return False
+                                    updateStatisticsHelper conf passId 1 sizeDiff tokenDiff
+                                    return True
+                                else return False
 
-                    if success
-                        then logStateDiff NoticeS oldStateS newStateS
-                        else tryNewState passId f
-                Uninteresting -> do
-                    -- logStateDiff DebugS oldStateS newStateS
-                    updateStatistics conf passId 0 0 0
-        else updateStatistics conf passId 0 0 0
+                        if success
+                            then logStateDiff NoticeS oldStateS newStateS
+                            else tryNewState passId f
+                    Uninteresting -> do
+                        when (_debug conf) $ logStateDiff DebugS oldStateS newStateS
+                        updateStatistics conf passId 0 0 0
+            else updateStatistics conf passId 0 0 0) >>= \case
+        Left (_ :: CE.SomeException) -> traceShow ("tryNewState / isStateNew, EXCEPTION:" :: String) $ pure ()
+        _ -> pure ()
 
 logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
 logStateDiff severity oldStateS newStateS = do
@@ -195,7 +199,7 @@ applyInterestingChanges name proposedChanges = do
         -- within a thread check out all the changes
         forM_ batch $ \c -> tryNewState name c
 
-updateStatistics :: RConf -> String -> Word64 -> Word64 -> Word64 -> R IO ()
+updateStatistics :: RConf -> String -> Word64 -> Integer -> Integer -> R IO ()
 updateStatistics conf name i sizeDiff tokenDiff = atomically $ updateStatisticsHelper conf name i sizeDiff tokenDiff
 
 -- 1. if the interestingness test was successful:
@@ -205,7 +209,7 @@ updateStatistics conf name i sizeDiff tokenDiff = atomically $ updateStatisticsH
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatisticsHelper :: RConf -> String -> Word64 -> Word64 -> Word64 -> STM ()
+updateStatisticsHelper :: RConf -> String -> Word64 -> Integer -> Integer -> STM ()
 updateStatisticsHelper conf name i sizeDiff tokenDiff =
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
@@ -222,7 +226,7 @@ testNewState conf newState =
         CE.try
             ( do
                   liftIO . TIO.writeFile (fromAbsFile sourceFile) $ showState Parsed newState
-                  runTest test (UT._defaultDuration conf)
+                  runTest test (UT._timeout conf)
             )
             >>= \case
                 Left (_ :: CE.SomeException) -> traceShow ("testNewState, EXCEPTION:" :: String) $ return Uninteresting
@@ -233,13 +237,15 @@ runTest test duration = do
     let dirName = parent test
     let testName = filename test
 
-    (timeout (fromIntegral duration) $ liftIO $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
-        Nothing -> do
-            $(logTM) WarningS "runTest: timed out"
-            return Uninteresting
-        Just (exitCode, _, _) -> return $ case exitCode of
-            ExitFailure _ -> Uninteresting
-            ExitSuccess -> Interesting
+    CE.try (timeout (fromIntegral duration) $ liftIO $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
+        Left (_ :: CE.SomeException) -> traceShow ("runTest, EXCEPTION:" :: String) $ return Uninteresting
+        Right m -> case m of
+            Nothing -> do
+                $(logTM) WarningS "runTest: timed out"
+                return Uninteresting
+            Just (exitCode, _, _) -> return $ case exitCode of
+                ExitFailure _ -> Uninteresting
+                ExitSuccess -> Interesting
 
 printInfo :: String -> R IO ()
 printInfo context = do

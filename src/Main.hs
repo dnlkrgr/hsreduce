@@ -17,7 +17,7 @@ main :: IO ()
 main =
     unwrapRecord "hsreduce" >>= \case
         Reduce {..} -> do
-            hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut
+            hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug
             -- hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState
         Merge {..} -> hsmerge sourceFile
         PackageDesc {..} -> do
@@ -29,4 +29,4 @@ main =
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             p <- readGenericPackageDescription normal $ fromAbsFile filePathAbs
             let beginState = CabalState False emptyStats p
-            hsreduce' cabalActions numberOfThreads testAbs filePathAbs fileContent beginState True timeOut
+            hsreduce' cabalActions numberOfThreads testAbs filePathAbs fileContent beginState True timeOut True

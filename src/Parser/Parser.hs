@@ -125,7 +125,7 @@ parse fileName = do
 
 initDynFlagsPure :: GHC.GhcMonad m => FilePath -> m GHC.DynFlags
 initDynFlagsPure fp = do
-    s <- liftIO $ readFile fp
+    s <- liftIO $ T.unpack <$> TIO.readFile fp
     -- I was told we could get away with using the unsafeGlobalDynFlags.
     -- as long as `parseDynamicFilePragma` is impure there seems to be
     -- no reason to use it.
@@ -161,8 +161,8 @@ countTokens fp = do
     try (runGhc (Just libdir) (initDynFlagsPure fp)) >>= \case
         Left (_ :: SomeException) -> pure Nothing
         Right flags -> do
-            str <- readFile fp
-            pure $ countTokensHelper flags str
+            str <- TIO.readFile fp
+            pure $ countTokensHelper flags $ T.unpack str
 
 countTokensHelper :: DynFlags -> String -> Maybe Int
 countTokensHelper flags str = do

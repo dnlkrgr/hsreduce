@@ -59,8 +59,8 @@ import qualified Data.Text.IO as TIO
 import Parser.Parser
 import Data.Word
 
-hsreduce :: [R IO ()] -> Word64 -> FilePath -> FilePath -> Bool -> Word64 -> IO ()
-hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStatistics timeOut = do
+hsreduce :: [R IO ()] -> Word64 -> FilePath -> FilePath -> Bool -> Word64 -> Bool -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStatistics timeOut debug = do
             testAbs <- resolveFile' test
             filePathAbs <- resolveFile' sourceFile
             -- 1. parse the test case once at the beginning so we can work on the AST
@@ -68,10 +68,10 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStat
             -- 3. record the starting time
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             beginState <- parse filePathAbs
-            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState recordStatistics timeOut
+            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState recordStatistics timeOut debug
 
-hsreduce' :: [R IO ()] -> Word64 -> Path Abs File -> Path Abs File -> T.Text -> RState -> Bool -> Word64 -> IO ()
-hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState recordStatistics timeOut = do
+hsreduce' :: [R IO ()] -> Word64 -> Path Abs File -> Path Abs File -> T.Text -> RState -> Bool -> Word64 -> Bool -> IO ()
+hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState recordStatistics timeOut debug = do
     -- get old stats, fail as fast as possible
     let statFilePath = [absfile|/home/daniel/hsreduce_statistics.csv|]
     oldStats <- if recordStatistics 
@@ -114,7 +114,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
         bracket mkLogEnv closeScribes $ \le -> do
             logRef <- newIORef []
-            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (timeOut * 1000 * 1000)
+            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (timeOut * 1000 * 1000) debug
 
             -- run the reducing functions
             runR beginConf $ do

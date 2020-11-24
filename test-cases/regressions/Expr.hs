@@ -1,10 +1,23 @@
 module Expr where
 
-main = do
-    putStrLn brst
+import Control.Monad
 
-brst = case compare 3 4 of
-    GT -> crst
+main = do
+    putStrLn a
+    when undefined $ pure ()
+
+a = case compare 3 4 of
+    GT -> b
     EQ -> undefined
     
-crst = "arst"
+b = "arst"
+
+c p n = [p, p + p .. n]
+
+d = [ undefined | (c, _) <- undefined ]
+
+e = (\_ -> "arst") 42
+
+f = id "arst"
+
+g = \h -> 3 * h + 5 - 512

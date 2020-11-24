@@ -7,7 +7,7 @@ import Reduce.Passes.Decls as Decls
     ( splitSigs, rmvSigs, rmvDecls, rmvConstructors, simplifyConDecl )
 import Reduce.Passes.Exports as Exports (reduce)
 import Reduce.Passes.Expr as Expr
-    ( expr2Undefined, filterExprSubList, simplifyExpr, simplifyLit )
+    ( expr2Undefined, filterExprSubList, simplifyExpr, simplifyLit)
 import Reduce.Passes.Functions as Functions (etaReduceMatches, inline, rmvGuards, rmvMatches, rmvRHSs, betaReduceExprs)
 import Reduce.Passes.Imports as Imports
     ( unqualImport, rmvImports )
@@ -18,7 +18,7 @@ import Reduce.Passes.Pragmas as Pragmas (reduce)
 import Reduce.Passes.Stubbing as Stubbing
     ( contexts,
       localBinds,
-      simplifyDeriving,
+      rmvDerivingClause,
       simplifyDerivingClause,
       tyVarBndr )
 import Reduce.Passes.TypeFamilies as TypeFamilies
@@ -63,14 +63,13 @@ slow = do
           Types.simplifyType,
           Pat.pat2Wildcard,
           Stubbing.contexts,
-          Stubbing.simplifyDeriving,
+          Stubbing.rmvDerivingClause,
           Stubbing.simplifyDerivingClause,
           Stubbing.localBinds,
           Functions.rmvRHSs,
           Functions.rmvMatches,
           Functions.rmvGuards,
           Stubbing.tyVarBndr,
-        --   Names.unqualNames,
           DataTypes.inline,
           DataTypes.rmvConArgs,
           Imports.unqualImport,
@@ -84,7 +83,8 @@ slow = do
           Typeclasses.rmvUnusedParams,
           TypeFamilies.rmvEquations,
           TypeFamilies.rmvUnusedParams,
-        --   Types.type2WildCard,
+          Types.type2WildCard,
+        --   Names.unqualNames,
           Types.type2Unit
         ]
     Pragmas.reduce

@@ -67,8 +67,9 @@ data CLIOptions w
           { test :: w ::: FilePath <?> "path to the interestingness test",
             sourceFile :: w ::: FilePath <?> "path to the source file",
             numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
+            timeOut :: w ::: Word64 <?> "timout in seconds",
             recordStatistics :: w ::: Bool <?> "whether or not do record statistics",
-            timeOut :: w ::: Word64 <?> "timout in seconds"
+            debug :: w ::: Bool <?> "whether to print additional, more verbose debug information"
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     | PackageDesc
@@ -112,8 +113,8 @@ data PassStats = PassStats
     { _passName :: String,
       _successfulAttempts :: Word64,
       _totalAttempts :: Word64,
-      _removedBytes :: Word64,
-      _removedTokens :: Word64
+      _removedBytes :: Integer,
+      _removedTokens :: Integer
     }
     deriving (Generic, Show)
 
@@ -179,7 +180,8 @@ data RConf = RConf
       logContext :: K.LogContexts,
       logEnv :: K.LogEnv,
       _logRef :: IORef [String],
-      _defaultDuration :: Word64
+      _timeout :: Word64,
+      _debug :: Bool
     }
 
 runR :: RConf -> R m a -> m a

@@ -22,7 +22,7 @@ import qualified Reduce.Passes.Decls                   as Decls
 import qualified Reduce.Passes.Parameters       as Parameters
 import qualified Reduce.Passes.Stubbing                as Stubbing 
     ( contexts,
-      simplifyDeriving,
+      rmvDerivingClause,
       simplifyDerivingClause,
       localBinds,
       tyVarBndr,
@@ -107,7 +107,7 @@ main = do
                     Nothing,                
                     "\nmodule Contexts where\narst :: () => a -> a\narst = undefined\n")
                 , ("Deriving",   
-                    runPass Stubbing.simplifyDeriving,           
+                    runPass Stubbing.rmvDerivingClause,           
                     Nothing,                
                     "\nmodule Deriving where\ndata Arst = Arst\n")
                 , ("Deriving2",   
@@ -145,7 +145,7 @@ main = do
                 , ("Expr",   
                     mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
                     Just "expr.sh",                
-                    "\nmodule Expr where\nmain = do brst\nbrst = undefined\ncrst = \"arst\"\n")
+                    "\nmodule Expr where\nimport Control.Monad\nmain = do a\na = undefined\nb = \"arst\"\nc p n = []\nd = []\ne = \"arst\"\nf = \"arst\"\ng = \\ h -> h\n")
                 , ("Functions",   
                     -- mapM_ runPass [Functions.inline, Functions.betaReduceExprs],
                     mapM_ runPass [Functions.inline, Functions.betaReduceExprs, Functions.etaReduceMatches],
@@ -183,7 +183,6 @@ main = do
                 --     "")
                 ]
 
-    -- TODO: make this parametric, give a list of test cases with their reduce functions and a title
     results <- forM sources $ \(src, a, mt, expected) -> do
         let 
             filePath    = fromRelFile src
@@ -197,7 +196,7 @@ main = do
         fileContent <- TIO.readFile $ fromAbsFile filePathAbs
         beginState <- parse filePathAbs
 
-        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState False 25) >>= \case
+        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState False 25 True) >>= \case
             Nothing -> assertFailure "test case timed out"
             Just () -> return ()
 

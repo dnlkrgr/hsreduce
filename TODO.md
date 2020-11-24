@@ -2,18 +2,6 @@
 
 ## Evaluation
 
-
-## Ausarbeitung
-
-- Passes
-  - was gab es anfangs für Probleme? wie wurden die behoben?
-    - welche Änderungen musste man durchführen, um die Pässe zu verbessern?
-  - welche Feinheiten sind zu beachten?
-  - welche syntaktischen Elemente sind "wieviel wert"?
-  - wie effektiv sind die Pässe?
-  - was waren Herausforderungen für Implementierung der Pässe?
-
-
 ## Reporting to implement
 
 - general info
@@ -41,8 +29,8 @@ do
       if result == OK
         if is_interesting(variant)
           current = variant     // also a file copy
-  else
-          state = p::advance(current, option, state)
+      else
+        state = p::advance(current, option, state)
     while result == OK
 while size(current) < size_at_start
 ```
@@ -291,3 +279,14 @@ while size(current) < size_at_start
     - real	154m8.747s
     - user	100m25.036s
     - sys	26m15.715s
+
+
+## Ausarbeitung
+
+- Passes
+  - was gab es anfangs für Probleme? wie wurden die behoben?
+    - welche Änderungen musste man durchführen, um die Pässe zu verbessern?
+  - welche Feinheiten sind zu beachten?
+  - welche syntaktischen Elemente sind "wieviel wert"?
+  - wie effektiv sind die Pässe?
+  - was waren Herausforderungen für Implementierung der Pässe?
