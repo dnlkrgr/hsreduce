@@ -42,7 +42,60 @@ import qualified Reduce.Passes.Functions      as Functions
 import qualified Reduce.Passes.Expr  as Expr
 import qualified Reduce.Passes.Types as Types
 import Util.Util
+import Reduce.Passes
+import Control.Exception
+import System.Process
+import System.Exit
 
+testPerformanceRegressions :: IO ()
+testPerformanceRegressions = do
+    forM_  testCases $ \(testCaseName, NumberOfTokens desiredTokenNumber, ByteSize desiredByteSize, TimeSpent desiredTimeSpent) -> do
+        banner testCaseName
+
+        let 
+            testCaseDir = "../hsreduce-test-cases/" <> testCaseName <> "/"
+            commandString = "hsreduce reduce --test interesting.sh --sourceFile Bug.hs --numberOfThreads 8 --recordStatistics --timeOut 30"
+
+        (flip readCreateProcessWithExitCode "" $ (shell $ "nix-shell --run '" <> commandString <> "'") {cwd = Just testCaseDir}) >>= \case
+            (ExitSuccess, _, _) -> do
+                let 
+                    reducedFileName = testCaseDir <> "Bug_hsreduce.hs"
+                    performanceFileName = testCaseDir <> "hsreduce_performance.csv"
+
+                Just tokenNumber <- countTokens reducedFileName
+
+                [_, timeSpent, _, _, _, byteSize, _] <- map T.unpack . T.words . T.map (\c -> if c == ',' then ' ' else c) . last . T.lines <$> TIO.readFile performanceFileName
+
+                print tokenNumber
+                print byteSize
+                print timeSpent
+
+                let desiredCondition = 
+                        tokenNumber <= desiredTokenNumber 
+                        && read byteSize <= desiredByteSize 
+                        && read timeSpent <= desiredTimeSpent
+
+                assert desiredCondition $ pure ()
+            e -> print e
+        pure ()
+
+    putStrLn ""
+    putStrLn "ALL GOOD!"
+  where
+        testCases = 
+            [ ("ticket14040",   NumberOfTokens 130, ByteSize 520,  TimeSpent 110)
+            , ("ticket14270",   NumberOfTokens 110, ByteSize 441,  TimeSpent 100)
+            , ("ticket14779",   NumberOfTokens 124, ByteSize 588,  TimeSpent 90)
+            , ("ticket15696_1", NumberOfTokens 117, ByteSize 436,  TimeSpent 190)
+            , ("ticket16979",   NumberOfTokens 826, ByteSize 3040, TimeSpent 1700)
+            , ("ticket18098",   NumberOfTokens 792, ByteSize 3576, TimeSpent 1700)
+            , ("ticket8763",    NumberOfTokens 240, ByteSize 1400, TimeSpent 3400) 
+            , ("ticket15696_2", NumberOfTokens 240, ByteSize 1400, TimeSpent 3000) ]
+            -- , ("ticket14827",   NumberOfTokens 121, ByteSize 2533, TimeSpent 2700) 
+
+newtype NumberOfTokens = NumberOfTokens Int
+newtype ByteSize = ByteSize Int
+newtype TimeSpent = TimeSpent Double
 
 main :: IO ()
 main = do
@@ -145,7 +198,7 @@ main = do
                 , ("Expr",   
                     mapM_ runPass [Expr.filterExprSubList, Expr.simplifyExpr],
                     Just "expr.sh",                
-                    "\nmodule Expr where\nimport Control.Monad\nmain = do a\na = undefined\nb = \"arst\"\nc p n = []\nd = []\ne = \"arst\"\nf = \"arst\"\ng = \\ h -> h\n")
+                    "\nmodule Expr where\nimport Control.Monad\nmain = do a\na = undefined\nb = \"arst\"\nc p n = []\nd = []\ne = \"arst\"\nf = \"arst\"\ng = \\ h -> h\nh = \"arst\"\n")
                 , ("Functions",   
                     -- mapM_ runPass [Functions.inline, Functions.betaReduceExprs],
                     mapM_ runPass [Functions.inline, Functions.betaReduceExprs, Functions.etaReduceMatches],

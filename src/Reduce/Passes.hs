@@ -83,9 +83,9 @@ slow = do
           Typeclasses.rmvUnusedParams,
           TypeFamilies.rmvEquations,
           TypeFamilies.rmvUnusedParams,
-          Types.type2WildCard,
-        --   Names.unqualNames,
-          Types.type2Unit
+          Types.type2Unit,
+          Types.type2WildCard
+        --   Names.unqualNames
         ]
     Pragmas.reduce
     Exports.reduce

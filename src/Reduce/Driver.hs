@@ -50,9 +50,9 @@ import Katip.Scribes.Handle
       colorBySeverity )
 import Path
 import Path.IO
-import System.IO ( stdout, IOMode(WriteMode), hClose, openFile )
+import System.IO 
 import Util.Types
-import Util.Util ( updateStatistics, isTestStillFresh)
+import Util.Util
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -108,9 +108,9 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
     -- KATIP STUFF
     let mkFileHandle = openFile "hsreduce.log" WriteMode
 
-    bracket mkFileHandle hClose $ \_ -> do
-        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal stdout (permitItem DebugS) V2
-        let mkLogEnv = registerScribe "stdout" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
+    bracket mkFileHandle hClose $ \logFile -> do
+        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal logFile (permitItem DebugS) V2
+        let mkLogEnv = registerScribe "hsreduce.log" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
 
         bracket mkLogEnv closeScribes $ \le -> do
             logRef <- newIORef []
@@ -126,6 +126,11 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
                 -- handling of the result and outputting useful information
                 let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
                     newSize = T.length . showState Parsed $ newState
+
+                printDebugInfo "*******************************************************"
+                printDebugInfo "Finished."
+                printDebugInfo $ "Old size:        " <> show oldSize
+                printDebugInfo $ "Reduced size:    " <> show newSize
 
                 $(logTM) InfoS "*******************************************************"
                 $(logTM) InfoS "Finished."
@@ -153,6 +158,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
         removeDirRecur t
 
 
+
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
 -- 2. set alive variable to false
 -- 3. run reducing function f
@@ -163,6 +169,7 @@ largestFixpoint f = do
     go tState
     where
         go tState = do
+            printDebugInfo "***NEW ITERATION***"
             $(logTM) InfoS "***NEW ITERATION***"
             isTestStillFresh "largestFixpoint"
 

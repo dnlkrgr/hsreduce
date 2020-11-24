@@ -1,6 +1,15 @@
 # ToDo's / Protocol
 
 ## Evaluation
+- run different orderings of passes
+- record: time, reduced size, reduced number of tokens
+
+## Testing
+- run passes that take less than an hour
+- count number of tokens
+- check: 
+  - that number of tokens is not above a certain value
+  - that time didn't grow excessively
 
 ## Reporting to implement
 

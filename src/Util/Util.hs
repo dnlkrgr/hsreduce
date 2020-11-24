@@ -54,7 +54,7 @@ import Path
       parent,
     )
 import SrcLoc as SL
-import System.Exit (ExitCode (ExitFailure, ExitSuccess))
+import System.Exit
 import System.Process
     ( CreateProcess (cwd),
       readCreateProcessWithExitCode,
@@ -90,7 +90,7 @@ tryNewState passId f = do
 
     -- passes might have produced garbage, so we need to be extra careful here
     CE.try (do
-        tokenDiff <- getTokenDiff newState oldState
+        tokenDiff <- pure 0 -- getTokenDiff newState oldState
 
         if isStateNew
             then do
@@ -124,7 +124,9 @@ logStateDiff severity oldStateS newStateS = do
             DebugS -> "TRIED CHANGE"
             _ -> "APPLIED CHANGE"
 
-    $(logTM) severity title
+    printDebugInfo title
+    $(logTM) severity $ fromString title
+
     forM_
         ( filter
               ( \case
@@ -133,7 +135,8 @@ logStateDiff severity oldStateS newStateS = do
               )
               $ getDiff (T.lines oldStateS) (T.lines newStateS)
         )
-        $ \line ->
+        $ \line -> do
+            printDebugInfo (fromString (show line))
             $(logTM) severity (fromString (show line))
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
@@ -173,7 +176,8 @@ runPass _ = return ()
 
 applyInterestingChanges :: String -> [RState -> RState] -> R IO ()
 applyInterestingChanges name proposedChanges = do
-    $(logTM) InfoS (fromString $ "# proposed changes: " <> (show $ length proposedChanges))
+    printDebugInfo $ "# proposed changes: " <> (show $ length proposedChanges)
+    $(logTM) InfoS . fromString $ "# proposed changes: " <> (show $ length proposedChanges)
 
     numberOfThreads <- asks _numberOfThreads
 
@@ -191,8 +195,11 @@ applyInterestingChanges name proposedChanges = do
                                 else temp
                         _ -> temp
 
-    $(logTM) InfoS (fromString $ "# batches: " <> (show $ length batches))
-    $(logTM) InfoS (fromString $ "batch sizes: " <> (show $ map length batches))
+    printDebugInfo $ "# batches: " <> (show $ length batches)
+    printDebugInfo $ "batch sizes: " <> (show $ map length batches)
+
+    $(logTM) InfoS . fromString $ "# batches: " <> (show $ length batches)
+    $(logTM) InfoS . fromString $ "batch sizes: " <> (show $ map length batches)
 
     -- run one thread for each batch
     forConcurrently_ batches $ \batch -> do
@@ -240,12 +247,17 @@ runTest test duration = do
     CE.try (timeout (fromIntegral duration) $ liftIO $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
         Left (_ :: CE.SomeException) -> traceShow ("runTest, EXCEPTION:" :: String) $ return Uninteresting
         Right m -> case m of
+            Just (ExitSuccess, _, _) -> pure Interesting
             Nothing -> do
+                printDebugInfo "[WARNING] runTest: timed out"
                 $(logTM) WarningS "runTest: timed out"
                 return Uninteresting
-            Just (exitCode, _, _) -> return $ case exitCode of
-                ExitFailure _ -> Uninteresting
-                ExitSuccess -> Interesting
+            _ -> pure Uninteresting
+
+printDebugInfo :: String -> R IO ()
+printDebugInfo = liftIO . putStrLn
+-- printDebugInfo s = (asks _debug) >>= flip when (liftIO $ putStrLn s)
+
 
 printInfo :: String -> R IO ()
 printInfo context = do
@@ -254,9 +266,13 @@ printInfo context = do
 
     let info = "state size: " <> (show . T.length . showState Parsed $ oldState)
 
+    printDebugInfo "****************************************"
+    printDebugInfo context
+    printDebugInfo info
+
     $(logTM) InfoS "****************************************"
-    $(logTM) InfoS (fromString context)
-    $(logTM) InfoS (fromString info)
+    $(logTM) InfoS $ fromString context
+    $(logTM) InfoS $ fromString info
 
 isTestStillFresh :: String -> R IO ()
 isTestStillFresh context = do

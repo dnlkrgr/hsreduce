@@ -21,3 +21,5 @@ e = (\_ -> "arst") 42
 f = id "arst"
 
 g = \h -> 3 * h + 5 - 512
+
+h = id $ "arst"

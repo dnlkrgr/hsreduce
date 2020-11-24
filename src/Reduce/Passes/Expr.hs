@@ -1,11 +1,9 @@
 module Reduce.Passes.Expr where
 
 import OccName
-import Debug.Trace
 import Data.String
 import Data.Maybe
 import GHC hiding (Pass)
-import OccName (mkOccName, varName)
 import Util.Types (Pass, WaysToChange)
 import Util.Util 
 
