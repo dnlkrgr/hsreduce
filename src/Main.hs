@@ -18,7 +18,7 @@ import Util.Util
 main :: IO ()
 main =
     unwrapRecord "hsreduce" >>= \case
-        Reduce {..} -> case customOrdering of
+        Reduce {..} -> case customPassOrdering of
             Just (useP passesP -> Right myPasses) -> hsreduce ([mapM_ runPass myPasses]) numberOfThreads test sourceFile recordStatistics timeOut debug
             _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug
 
