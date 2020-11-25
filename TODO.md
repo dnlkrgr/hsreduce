@@ -1,22 +1,30 @@
 # ToDo's / Protocol
 
 ## Evaluation
+- call hsreduce from cli with list of passes as an argument
+
+- [x] parse list of passes
+  - [x] filter "allPasses" to look if the pass is in there, return that pass
+
+- some passes should have a fixed place
+  - at the start:
+    - rmvDecls
+  - at the end:
+    - simplifyExpr
+    - simplifyLit
+
 - run different orderings of passes
-- record: time, reduced size, reduced number of tokens
+- record: chosen list of passes, time, reduced size, reduced number of tokens
 
 ## Testing
-- run passes that take less than an hour
-- count number of tokens
+- [x] run passes that take less than an hour
+- [x] count number of tokens
 - check: 
-  - that number of tokens is not above a certain value
-  - that time didn't grow excessively
+  - [x] that number of tokens is not above a certain value
+  - [x] that time didn't grow excessively
 
 ## Reporting to implement
 
-- general info
-  - [ ] Performance
-    - [ ] bytes / minute
-    - [ ] total % reduced
 - Passes
   - [ ] how much time was spent during the pass
   - [ ] if a pass looks at different elements: what kind of expression / element brought the most reduction

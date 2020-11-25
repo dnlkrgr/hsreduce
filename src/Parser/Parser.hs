@@ -7,7 +7,7 @@ import StringBuffer
 import FastString
 import SrcLoc
 import Lexer
-import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char as MC
 import Control.Applicative (Alternative ((<|>), many, some))
 import Data.Either (fromRight, isRight)
@@ -37,7 +37,6 @@ import qualified Language.Haskell.GHC.ExactPrint as EP
 import Outputable (ppr, showSDocUnsafe)
 import Path (Abs, File, Path, fromAbsFile)
 import qualified StringBuffer as GHC
-import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
     ( alphaNumChar,
       char,
@@ -63,14 +62,14 @@ getPragmas f =
 
 pragmasP :: Parser [Pragma]
 pragmasP = do
-    void $ string "{-#"
+    _ <- string "{-#"
     space
     f <- pragmaType
     space
     n <- T.pack <$> some letterChar
     ns <- many (char ',' >> space >> T.pack <$> some letterChar)
     space
-    void $ string "#-}"
+    _ <- string "#-}"
     return . map f $ n : ns
 
 pragmaType :: Parser (T.Text -> Pragma)
@@ -178,11 +177,11 @@ getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModNam
 
 getModName' :: Parser T.Text
 getModName' = do
-    void space
-    void $ string "module"
-    void space
+    _ <- space
+    _ <- string "module"
+    _ <- space
     n <- T.concat <$> some nameP
-    void space
+    _ <- space
     return n
 
 nameP :: Parser T.Text
@@ -194,41 +193,43 @@ nameP' = do
     cs <- many alphaNumChar
     return . T.pack $ c : cs
 
-useP :: M.Parsec e s a -> s -> Either (M.ParseErrorBundle s e) a
-useP = flip M.parse ""
+useP :: MP.Parsec e s a -> s -> Either (MP.ParseErrorBundle s e) a
+useP = flip MP.parse ""
 
 notInScopeP :: Parser T.Text
 notInScopeP = do
-    void $ M.chunk "Not in scope:"
+    _ <- MP.chunk "Not in scope:"
     somethingInTicksP
 
 perhapsYouMeantP :: Parser T.Text
 perhapsYouMeantP = do
-    M.try
+    MP.try
         ( do
-              void $ M.chunk "Not in scope:"
-              void $ somethingInTicksP
-              void $ MC.char '\8217'
+              _ <- MP.chunk "Not in scope:"
+              _ <-  somethingInTicksP
+              _ <- MC.char '\8217'
+              pure ()
         )
-        <|> M.try (dotsP "Variable not in scope:")
+        <|> MP.try (dotsP "Variable not in scope:")
         <|> dotsP "Data constructor not in scope:"
     MC.space
-    void $ (M.try (M.chunk "Perhaps you meant") <|> M.chunk "Perhaps you meant one of these:")
+    _ <- (MP.try (MP.chunk "Perhaps you meant") <|> MP.chunk "Perhaps you meant one of these:")
     somethingInTicksP
 
 somethingInTicksP :: Parser T.Text
 somethingInTicksP = do
-    void $ M.some (M.satisfy (/= '\8216'))
-    void $ MC.char '\8216'
-    T.pack <$> M.some (M.satisfy (/= '\8217'))
+    _ <- MP.some (MP.satisfy (/= '\8216'))
+    _ <- MC.char '\8216'
+    T.pack <$> MP.some (MP.satisfy (/= '\8217'))
 
 dotsP :: T.Text -> Parser ()
 dotsP s = do
-    void $ MC.char '\8226'
+    _ <- MC.char '\8226'
     MC.space
-    void $ M.chunk s
-    void $ M.some (M.satisfy (/= '\8226'))
-    void $ MC.char '\8226'
+    _ <- MP.chunk s
+    _ <- MP.some (MP.satisfy (/= '\8226'))
+    _ <- MC.char '\8226'
+    pure ()
 
 removeUseOfHidden :: T.Text -> T.Text
 removeUseOfHidden s
@@ -247,35 +248,35 @@ removeInternal f s
 
 hiddenImportP :: Parser T.Text
 hiddenImportP = do
-    void $ M.chunk "Could not load module"
+    _ <- MP.chunk "Could not load module"
     MC.space
-    void $ MC.char '‘'
-    T.pack <$> M.some (M.satisfy (/= '’'))
+    _ <- MC.char '‘'
+    T.pack <$> MP.some (MP.satisfy (/= '’'))
 
 noModuleNamedP :: Parser T.Text
 noModuleNamedP = do
-    void $ M.chunk "Not in scope:"
+    _ <- MP.chunk "Not in scope:"
     MC.space
     go
-    void $ MC.char '‘'
-    T.pack <$> M.some (M.satisfy (/= '’'))
+    _ <- MC.char '‘'
+    T.pack <$> MP.some (MP.satisfy (/= '’'))
     where
         go = do
-            M.try (M.chunk "No module named" >> MC.space)
+            MP.try (MP.chunk "No module named" >> MC.space)
                 <|> do
-                    void $ M.some (M.satisfy (/= '\n'))
+                    _ <- MP.some (MP.satisfy (/= '\n'))
                     MC.space
                     go
 
 importedFromP :: Parser T.Text
 importedFromP = do
-    void $ M.some $ M.satisfy (/= '(')
-    void $ MC.char '('
-    void $ M.chunk "imported"
+    _ <- MP.some $ MP.satisfy (/= '(')
+    _ <- MC.char '('
+    _ <- MP.chunk "imported"
     MC.space
-    void $ M.chunk "from"
+    _ <- MP.chunk "from"
     MC.space
-    fmap T.pack . M.some $ M.satisfy (/= ')')
+    fmap T.pack . MP.some $ MP.satisfy (/= ')')
 
 
 modname2components :: T.Text -> [T.Text]

@@ -1,4 +1,4 @@
-module Merge.HsAllInOne (hsmerge) where
+module Merge.Merge (hsmerge) where
 
 import Control.Monad
 import qualified Data.List.NonEmpty as NE

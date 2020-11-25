@@ -1,7 +1,5 @@
 module Util.Util where
 
-import Data.Word
-import DynFlags hiding (GhcMode)
 import Control.Applicative
 import Control.Concurrent.Async.Lifted (forConcurrently_)
 import Control.Concurrent.STM.Lifted
@@ -30,10 +28,11 @@ import Data.String (IsString (fromString))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
+import Data.Word
 import Debug.Trace (traceShow)
+import DynFlags hiding (GhcMode)
 import FastString (mkFastString)
-import GHC hiding (Parsed, Severity, Pass, GhcMode, Renamed)
-    
+import GHC hiding (GhcMode, Parsed, Pass, Renamed, Severity)
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
       logTM,
@@ -68,10 +67,10 @@ getASTLengthDiff :: RState -> RState -> Integer
 getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldState
 
 getASTLength :: RState -> Integer
-getASTLength = fromIntegral . T.length . showState Parsed 
+getASTLength = fromIntegral . T.length . showState Parsed
 
 getTokenDiff :: (MonadIO m, Num a) => RState -> RState -> m a
-getTokenDiff newState oldState = 
+getTokenDiff newState oldState =
     liftIO $ do
         mn1 <- fmap fromIntegral <$> (countTokens $ T.unpack $ showState Parsed newState)
         mn2 <- fmap fromIntegral <$> (countTokens $ T.unpack $ showState Parsed oldState)
@@ -89,34 +88,36 @@ tryNewState passId f = do
         sizeDiff = getASTLengthDiff newState oldState
 
     -- passes might have produced garbage, so we need to be extra careful here
-    CE.try (do
-        tokenDiff <- pure 0 -- getTokenDiff newState oldState
+    CE.try
+        ( do
+              tokenDiff <- pure 0 -- getTokenDiff newState oldState
+              if isStateNew
+                  then do
+                      testNewState conf newState >>= \case
+                          Interesting -> do
+                              success <- atomically $ do
+                                  currentCommonStateS <- showState Parsed <$> (readTVar $ _tState conf)
 
-        if isStateNew
-            then do
-                testNewState conf newState >>= \case
-                    Interesting -> do
-                        success <- atomically $ do
-                            currentCommonStateS <- showState Parsed <$> (readTVar $ _tState conf)
+                                  -- is the state we worked still the same?
+                                  if oldStateS == currentCommonStateS
+                                      then do
+                                          writeTVar (_tState conf) $ newState {_isAlive = True}
 
-                            -- is the state we worked still the same?
-                            if oldStateS == currentCommonStateS
-                                then do
-                                    writeTVar (_tState conf) $ newState {_isAlive = True}
+                                          updateStatisticsHelper conf passId 1 sizeDiff tokenDiff
+                                          return True
+                                      else return False
 
-                                    updateStatisticsHelper conf passId 1 sizeDiff tokenDiff
-                                    return True
-                                else return False
-
-                        if success
-                            then logStateDiff NoticeS oldStateS newStateS
-                            else tryNewState passId f
-                    Uninteresting -> do
-                        when (_debug conf) $ logStateDiff DebugS oldStateS newStateS
-                        updateStatistics conf passId 0 0 0
-            else updateStatistics conf passId 0 0 0) >>= \case
-        Left (_ :: CE.SomeException) -> traceShow ("tryNewState / isStateNew, EXCEPTION:" :: String) $ pure ()
-        _ -> pure ()
+                              if success
+                                  then logStateDiff NoticeS oldStateS newStateS
+                                  else tryNewState passId f
+                          Uninteresting -> do
+                              when (_debug conf) $ logStateDiff DebugS oldStateS newStateS
+                              updateStatistics conf passId 0 0 0
+                  else updateStatistics conf passId 0 0 0
+        )
+        >>= \case
+            Left (_ :: CE.SomeException) -> traceShow ("[Warning] [EXCEPTION @ Util.Util.tryNewState] " :: String) $ pure ()
+            _ -> pure ()
 
 logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
 logStateDiff severity oldStateS newStateS = do
@@ -156,22 +157,24 @@ mkCabalPass :: (Eq a, Data a) => String -> WaysToChange a -> Pass
 mkCabalPass name pass = CabalPass name (\ast -> concat [map (transformBi . overwriteWithEq e) $ pass e | e <- universeBi ast])
 
 runPass :: Pass -> R IO ()
-runPass (AST name pass) = do
-    printInfo name
-    -- unless isInProduction $ do
-    --     isTestStillFresh name
+runPass (AST name pass) =
+    do
+        printInfo name
+        -- unless isInProduction $ do
+        --     isTestStillFresh name
 
-    ask
-    >>= fmap (map (parsed %~) . pass . _parsed) . liftIO . readTVarIO . _tState
-    >>= applyInterestingChanges name
-runPass (CabalPass name pass) = do
-    printInfo name
-    -- unless isInProduction $ do
-    --     isTestStillFresh name
+        ask
+        >>= fmap (map (parsed %~) . pass . _parsed) . liftIO . readTVarIO . _tState
+        >>= applyInterestingChanges name
+runPass (CabalPass name pass) =
+    do
+        printInfo name
+        -- unless isInProduction $ do
+        --     isTestStillFresh name
 
-    ask
-    >>= fmap (map (pkgDesc %~) . pass . _pkgDesc) . liftIO . readTVarIO . _tState
-    >>= applyInterestingChanges name
+        ask
+        >>= fmap (map (pkgDesc %~) . pass . _pkgDesc) . liftIO . readTVarIO . _tState
+        >>= applyInterestingChanges name
 runPass _ = return ()
 
 applyInterestingChanges :: String -> [RState -> RState] -> R IO ()
@@ -236,7 +239,7 @@ testNewState conf newState =
                   runTest test (UT._timeout conf)
             )
             >>= \case
-                Left (_ :: CE.SomeException) -> traceShow ("testNewState, EXCEPTION:" :: String) $ return Uninteresting
+                Left (e :: CE.SomeException) -> traceShow ("[Warning] [EXCEPTION @ Util.Util.testNewState] " <> show e :: String) $ return Uninteresting
                 Right i -> return i
 
 runTest :: Path Abs File -> Word64 -> R IO Interesting
@@ -245,7 +248,7 @@ runTest test duration = do
     let testName = filename test
 
     CE.try (timeout (fromIntegral duration) $ liftIO $ flip readCreateProcessWithExitCode "" $ (shell $ "./" <> fromRelFile testName) {cwd = Just $ fromAbsDir dirName}) >>= \case
-        Left (_ :: CE.SomeException) -> traceShow ("runTest, EXCEPTION:" :: String) $ return Uninteresting
+        Left (e :: CE.SomeException) -> traceShow ("[Warning] [EXCEPTION @ Util.Util.runTest] " <> show e <> show e :: String) $ return Uninteresting
         Right m -> case m of
             Just (ExitSuccess, _, _) -> pure Interesting
             Nothing -> do
@@ -256,8 +259,8 @@ runTest test duration = do
 
 printDebugInfo :: String -> R IO ()
 printDebugInfo = liftIO . putStrLn
--- printDebugInfo s = (asks _debug) >>= flip when (liftIO $ putStrLn s)
 
+-- printDebugInfo s = (asks _debug) >>= flip when (liftIO $ putStrLn s)
 
 printInfo :: String -> R IO ()
 printInfo context = do
@@ -284,10 +287,11 @@ isTestStillFresh context = do
             when (all (== Uninteresting) results) $ do
                 liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState Parsed newState
                 $(logTM) ErrorS (fromString $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<")
-                error $ 
+                error $
                     "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<"
-                    <> "\n" 
-                    <> "sourceFile: " <> show (_sourceFile conf)
+                        <> "\n"
+                        <> "sourceFile: "
+                        <> show (_sourceFile conf)
         _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression
@@ -343,13 +347,12 @@ getGhcOutput ghcMode sourcePath = do
         fileName = filename sourcePath
         command = "ghc " <> ghcModeString <> " -ddump-json " <> unwords (("-X" ++) . T.unpack . showExtension <$> allPragmas) <> " " <> fromRelFile fileName
 
-    (_, stdout, _) <-
-        fromMaybe (error "getGhcOutput timeout!")
-            <$> timeout (fromIntegral @Word64 10 * 60 * 1000 * 1000) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))
-
-    return $ case stdout of
-        "" -> Nothing
-        _ -> fromRight [] . sequence . filter isRight . concat . mapFunc . filterFunc . filter (isJust . UT.span) <$> (sequence . filter isJust . map (decodeStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
+    CE.try (timeout (fromIntegral @Word64 10 * 60 * 1000 * 1000) (flip readCreateProcessWithExitCode "" ((shell command) {cwd = Just $ fromAbsDir dirName}))) >>= \case
+        Right (Just (_, stdout, _)) -> return $ case stdout of
+            "" -> Nothing
+            _ -> fromRight [] . sequence . filter isRight . concat . mapFunc . filterFunc . filter (isJust . UT.span) <$> (sequence . filter isJust . map (decodeStrict . TE.encodeUtf8) . T.lines . T.pack $ stdout)
+        Left (e :: CE.SomeException) -> traceShow ("[Warning] [EXCEPTION @ Util.Util.getGhcOutput] " <> show e :: String) $ pure Nothing
+        _ -> pure Nothing
     where
         ghcModeString = case ghcMode of
             UnusedBinds -> "-Wunused-binds"
@@ -381,10 +384,9 @@ getStuffFromGhc :: GhcMode -> R IO (Maybe [T.Text])
 getStuffFromGhc mode = do
     conf <- ask
     let sourceFilePath = _sourceFile conf
-    mstuff <- withTempDir (_tempDirs conf) $ \dir -> 
+    mstuff <- withTempDir (_tempDirs conf) $ \dir ->
         liftIO $ getGhcOutput mode (dir </> sourceFilePath)
     pure $ map fst <$> mstuff
-
 
 span2SrcSpan :: Span -> SL.RealSrcSpan
 span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc) (SL.mkRealSrcLoc n el ec)
@@ -398,7 +400,6 @@ span2SrcSpan (Span f sl' sc el ec) = SL.mkRealSrcSpan (SL.mkRealSrcLoc n sl' sc)
 (<||>) = liftA2 (||)
 
 infixr 8 <&&>
-
 
 mshow :: Outputable a => DynFlags -> a -> String
 mshow dynflags = showSDocForUser dynflags alwaysQualify . ppr

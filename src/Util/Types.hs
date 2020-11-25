@@ -69,7 +69,8 @@ data CLIOptions w
             numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
             timeOut :: w ::: Word64 <?> "timout in seconds",
             recordStatistics :: w ::: Bool <?> "whether or not do record statistics",
-            debug :: w ::: Bool <?> "whether to print additional, more verbose debug information"
+            debug :: w ::: Bool <?> "whether to print additional, more verbose debug information",
+            customPassOrdering :: w ::: Maybe T.Text <?> "your custom ordered list of passes to use"
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     | PackageDesc
@@ -272,6 +273,18 @@ data Pass
     = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
     | STATE String (RState -> [RState -> RState])
     | CabalPass String (GenericPackageDescription -> [GenericPackageDescription -> GenericPackageDescription])
+
+instance Show Pass where
+  show (AST s1 _) = s1
+  show (STATE s1 _) = s1
+  show (CabalPass s1 _) = s1
+
+instance Eq Pass where
+  AST s1 _ == AST s2 _ = s1 == s2
+  STATE s1 _ == STATE s2 _ = s1 == s2
+  CabalPass s1 _ == CabalPass s2 _ = s1 == s2
+  _ == _ = False
+
 
 -- instance Semigroup Pass where
 --     AST s1 f <> AST s2 g = AST (s1 <> "<>" <> s2) $ \ast -> (.) <$> f ast <*> g ast

@@ -1,6 +1,6 @@
 module Main where
 
-import Merge.HsAllInOne
+import Merge.Merge
 import Options.Generic
 
 import Reduce.Driver
@@ -12,13 +12,16 @@ import Path
 import Reduce.Passes.Cabal
 import Distribution.PackageDescription.Parsec
 import Distribution.Verbosity
+import Parser.Parser
+import Util.Util
 
 main :: IO ()
 main =
     unwrapRecord "hsreduce" >>= \case
-        Reduce {..} -> do
-            hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug
-            -- hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState
+        Reduce {..} -> case customOrdering of
+            Just (useP passesP -> Right myPasses) -> hsreduce ([mapM_ runPass myPasses]) numberOfThreads test sourceFile recordStatistics timeOut debug
+            _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug
+
         Merge {..} -> hsmerge sourceFile
         PackageDesc {..} -> do
             testAbs <- resolveFile' test

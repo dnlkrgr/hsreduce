@@ -101,7 +101,7 @@ library lib-hsreduce
     import:
         dry
     exposed-modules:   
-        Merge.HsAllInOne
+        Merge.Merge
         Reduce.Driver
         Reduce.Passes
         Reduce.Passes.Expr
