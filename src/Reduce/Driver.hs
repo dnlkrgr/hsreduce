@@ -4,6 +4,7 @@ module Reduce.Driver
     )
 where
 
+import Control.Applicative
 import Lens.Micro.Platform
 import qualified Data.Vector as DV
 import Data.IORef
@@ -19,7 +20,7 @@ import Control.Concurrent.STM.Lifted
       readTVarIO,
       atomically )
 import Control.Exception ( bracket )
-import Control.Monad ( when, forM_ )
+import Control.Monad
 import Control.Monad.Reader ( asks, MonadIO(liftIO) )
 import Data.Text(pack)
 import Data.Text.Lazy.Builder ( fromText, fromString )
@@ -56,11 +57,11 @@ import Util.Util
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Parser.Parser
+import Util.Parser
 import Data.Word
 
-hsreduce :: [R IO ()] -> Word64 -> FilePath -> FilePath -> Bool -> Word64 -> Bool -> IO ()
-hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStatistics timeOut debug = do
+hsreduce :: [R IO ()] -> Word64 -> FilePath -> FilePath -> Bool -> Word64 -> Bool -> Maybe T.Text -> IO ()
+hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStatistics timeOut debug mUnusedPassName = do
             testAbs <- resolveFile' test
             filePathAbs <- resolveFile' sourceFile
             -- 1. parse the test case once at the beginning so we can work on the AST
@@ -68,12 +69,19 @@ hsreduce allActions (fromIntegral -> numberOfThreads) test sourceFile recordStat
             -- 3. record the starting time
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             beginState <- parse filePathAbs
-            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState recordStatistics timeOut debug
+            hsreduce' allActions numberOfThreads testAbs filePathAbs fileContent beginState recordStatistics timeOut debug mUnusedPassName
 
-hsreduce' :: [R IO ()] -> Word64 -> Path Abs File -> Path Abs File -> T.Text -> RState -> Bool -> Word64 -> Bool -> IO ()
-hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState recordStatistics timeOut debug = do
+hsreduce' :: [R IO ()] -> Word64 -> Path Abs File -> Path Abs File -> T.Text -> RState -> Bool -> Word64 -> Bool -> Maybe T.Text -> IO ()
+hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileContent beginState recordStatistics timeOut debug mUnusedPassName = do
     -- get old stats, fail as fast as possible
-    let statFilePath = [absfile|/home/daniel/hsreduce_statistics.csv|]
+    -- TODO: check if we need to create this dir
+    statDir <- liftA2 (</>) getHomeDir (pure [reldir|.hsreduce|])
+    ensureDir statDir
+
+    statFilePath <- case mUnusedPassName of
+            Nothing -> pure $ statDir </> [relfile|stats.csv|]
+            Just unusedPassName -> liftA2 (</>) (pure statDir) (parseRelFile $ "stats_" <> T.unpack unusedPassName <> ".csv")
+
     oldStats <- if recordStatistics 
         then do 
             doesFileExist statFilePath >>= \case
@@ -118,7 +126,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
             -- run the reducing functions
             runR beginConf $ do
-                updateStatistics beginConf "formatting" 1 (fromIntegral (T.length $ showState Parsed beginState) - fromIntegral oldSize) 0
+                updateStatistics beginConf "formatting" 1 (fromIntegral (T.length $ showState Parsed beginState) - fromIntegral oldSize) 0 0
                 mapM_ largestFixpoint allActions
 
                 newState <- readTVarIO tState
@@ -142,7 +150,9 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
                 when recordStatistics $ do 
                     t2 <- liftIO getCurrentTime
 
-                    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads)
+                    let successfulInvocations = sum . map _successfulAttempts . M.elems $ newState ^. statistics . passStats
+                    let totalInvocations = sum . map _totalAttempts . M.elems $ newState ^. statistics . passStats
+                    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations
                     liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
 
                     liftIO 
@@ -152,6 +162,14 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
                         . map snd 
                         . M.toList 
                         $ M.unionWith (+) (oldStats ^. passStats) (newState ^. statistics . passStats)
+
+                    liftIO 
+                        . BS.writeFile (fromRelFile [relfile|./hsreduce_statistics.csv|])
+                        . LBS.toStrict
+                        . encodeDefaultOrderedByName
+                        . map snd 
+                        . M.toList 
+                        $ (newState ^. statistics . passStats)
 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan

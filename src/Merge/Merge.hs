@@ -5,7 +5,7 @@ import qualified Data.List.NonEmpty as NE
 import Control.Monad.Random 
 import Data.Generics.Uniplate.Data (transformBi)
 import Data.Hashable (hash)
-import Data.List (nub)
+import Data.List
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Traversable (for)
 import Data.Void (Void)
@@ -22,7 +22,7 @@ import HIE.Bios
       initSession,
       loadCradle,
     )
-import Parser.Parser (getPragmas)
+import Util.Parser (getPragmas)
 import Path 
 import Path.IO
 import TcRnTypes (tcg_rdr_env)
@@ -105,7 +105,7 @@ hsmerge filePath = do
 
                 liftIO . writeFile "AllInOne.hs" $ unlines $
                     extensions
-                        <> [ "module AllInOne where",
+                        <> [ if "Main.hs" `isInfixOf` filePath then "module Main where" else "module AllInOne where",
                              "import qualified Prelude"
                            ]
                         <> map oshow imports
@@ -341,7 +341,7 @@ randomOpString = do
 
 getAllPragmas :: [FilePath] -> IO [Pragma]
 getAllPragmas =
-    fmap concat . mapM (getPragmas . (\f -> fromMaybe (error $ "could not parse path as absolute file: " <> f) $ parseAbsFile f))
+    fmap concat . mapM (getPragmas <=< resolveFile')
 
 -- ***************************************************************************
 -- CLEANING UP

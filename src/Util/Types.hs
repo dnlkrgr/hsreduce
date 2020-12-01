@@ -50,13 +50,6 @@ import Katip as K
     )
 import Lens.Micro.Platform (makeLenses)
 import Options.Generic
-    ( Generic,
-      ParseRecord,
-      Unwrapped,
-      Wrapped,
-      type (:::),
-      type (<?>),
-    )
 import Outputable hiding ((<>))
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
@@ -70,7 +63,8 @@ data CLIOptions w
             timeOut :: w ::: Word64 <?> "timout in seconds",
             recordStatistics :: w ::: Bool <?> "whether or not do record statistics",
             debug :: w ::: Bool <?> "whether to print additional, more verbose debug information",
-            customPassOrdering :: w ::: Maybe T.Text <?> "your custom ordered list of passes to use"
+            customPassOrdering :: w ::: Maybe T.Text <?> "your custom ordered list of passes to use",
+            dontUsePass :: w ::: Maybe T.Text <?> "name of pass you don't want to use"
           }
     | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
     | PackageDesc
@@ -93,7 +87,9 @@ data Performance = Performance
       _endTime :: UTCTime,
       _duration :: DiffTime,
       _capabilities :: Word64,
-      _threads :: Word64
+      _threads :: Word64,
+      _successfulTestInvocations :: Word64,
+      _totalInvocations :: Word64
     }
 
 instance Show Performance where
@@ -106,7 +102,9 @@ instance Show Performance where
               show _threads,
               show _origSize,
               show _endSize,
-              show _ratio
+              show _ratio,
+              show _successfulTestInvocations,
+              show _totalInvocations
             ]
             <> "\n"
 
@@ -115,12 +113,13 @@ data PassStats = PassStats
       _successfulAttempts :: Word64,
       _totalAttempts :: Word64,
       _removedBytes :: Integer,
-      _removedTokens :: Integer
+      _removedTokens :: Integer,
+      _removedNames :: Integer
     }
     deriving (Generic, Show)
 
 instance Num PassStats where
-  (PassStats n1 sa1 ta1 b1 t1) + (PassStats _ sa2 ta2 b2 t2) = PassStats n1 (sa1 + sa2) (ta1 + ta2) (b1 + b2) (t1 + t2)
+  (PassStats n1 sa1 ta1 b1 t1 nn1) + (PassStats _ sa2 ta2 b2 t2 nn2) = PassStats n1 (sa1 + sa2) (ta1 + ta2) (b1 + b2) (t1 + t2) (nn1 + nn2)
 
 instance FromField PassStats
 instance ToRecord PassStats
@@ -319,10 +318,10 @@ instance (MonadIO m) => KatipContext (R m) where
 
 -- #####
 
-mkPerformance :: Word64 -> Word64 -> UTCTime -> UTCTime -> Word64 -> R IO Performance
-mkPerformance oldSize newSize t1 t2 n = do
+mkPerformance :: Word64 -> Word64 -> UTCTime -> UTCTime -> Word64 -> Word64 -> Word64 -> R IO Performance
+mkPerformance oldSize newSize t1 t2 numberOfThreads s totalInvocations = do
     c <- fromIntegral <$> liftIO getNumCapabilities
-    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c n
+    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c numberOfThreads s totalInvocations
     where
         ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word64
         offset =

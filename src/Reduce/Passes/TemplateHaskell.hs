@@ -3,7 +3,7 @@ module Reduce.Passes.TemplateHaskell where
 import Control.Concurrent.STM.Lifted
 import Control.Monad.Reader
 import qualified Data.Text.IO as TIO
-import Parser.Parser
+import Util.Parser
 import Path
 import Util.Types
 import Util.Util

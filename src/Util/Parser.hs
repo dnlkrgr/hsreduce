@@ -1,6 +1,5 @@
-module Parser.Parser where
+module Util.Parser where
 
-import Control.Monad
 import Control.Exception
 import Control.Monad.IO.Class
 import StringBuffer
@@ -15,22 +14,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Void (Void)
 import qualified DynFlags as GHC
-import GHC
-    ( getModSummary,
-      guessTarget,
-      parseModule,
-      runGhc,
-      setSessionDynFlags,
-      setTargets,
-      typecheckModule,
-      load,
-      getSessionDynFlags,
-      mkModuleName,
-      DynFlags,
-      GeneralFlag(Opt_KeepRawTokenStream),
-      gcatch,
-      LoadHowMuch(LoadAllTargets),
-      GhcMonad(getSession) )
+import GHC hiding (parser)
 import GHC.Paths (libdir)
 import qualified HeaderInfo as GHC
 import qualified Language.Haskell.GHC.ExactPrint as EP
@@ -145,32 +129,6 @@ runParser flags parser str = unP parser parseState
       location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
       buffer = stringToStringBuffer str
       parseState = mkPState flags buffer location
-
-countTokensOfTestCases :: IO ()
-countTokensOfTestCases = do
-    l1 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
-    l2 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
-    l3 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
-    forM_ (zip testCases $ zip3 l1 l2 l3) print
-    where
-        testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
-
-countTokens :: FilePath -> IO (Maybe Int)
-countTokens fp = do
-    try (runGhc (Just libdir) (initDynFlagsPure fp)) >>= \case
-        Left (_ :: SomeException) -> pure Nothing
-        Right flags -> do
-            str <- TIO.readFile fp
-            pure $ countTokensHelper flags $ T.unpack str
-
-countTokensHelper :: DynFlags -> String -> Maybe Int
-countTokensHelper flags str = do
-    let buffer = stringToStringBuffer str
-    case lexTokenStream buffer location flags of
-        POk _ toks -> Just $ length toks
-        _ -> Nothing
-    where 
-        location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
 
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines

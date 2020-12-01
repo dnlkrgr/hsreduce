@@ -1,20 +1,48 @@
 # ToDo's / Protocol
 
 ## Evaluation
-- call hsreduce from cli with list of passes as an argument
+- disable each pass and see how performance changes
+  - [x] might need to change how we receive a list of passes
+    - [x] in Driver: get a name of pass
 
-- [x] parse list of passes
-  - [x] filter "allPasses" to look if the pass is in there, return that pass
+  - [x] need to change how we store statistics
+    - let's do it in <hsreduce-dir>/statistics
+    - naming scheme: hsreduce_<name-of-filtered-out-pass>_statistics.csv
 
-- some passes should have a fixed place
-  - at the start:
-    - rmvDecls
-  - at the end:
-    - simplifyExpr
-    - simplifyLit
+  - [x] running test iterations:
+  - then for each pass:
+    - filter it out
+    - call hsreduce
+    - read statistics file
+    - take difference of tokens, bytes reduced and running time
+    - append a file: <hsreduce-dir>/hsreduce_diff_stats.csv
+      - (tokens, bytes, seconds)
 
-- run different orderings of passes
-- record: chosen list of passes, time, reduced size, reduced number of tokens
+  <!-- WE DON'T NEED THAT, WE CAN JUST COMPARE THE NUMBER OF TOKENS DIRECTLY -->
+  <!-- - first, we need to record the baseline
+    - check running time => total amount will be ~ 31 times that amount -->
+
+  - examine:
+    - which are the most valuable passes?
+      - how much tokens less do we reduce
+      - how do the successful attempts change for the other passes?
+    - which are the most expensive (running time) passes?
+
+<!-- TAKES TOO MUCH TIME -->
+<!-- - run different orderings of passes
+  - call hsreduce from cli with list of passes as an argument
+  
+  - [x] parse list of passes
+    - [x] filter "allPasses" to look if the pass is in there, return that pass
+  
+  - some passes should have a fixed place
+    - at the start:
+      - rmvDecls
+    - at the end:
+      - simplifyExpr
+      - simplifyLit
+  
+  - record: chosen list of passes, time, reduced size, reduced number of tokens -->
 
 ## Testing
 - [x] run passes that take less than an hour

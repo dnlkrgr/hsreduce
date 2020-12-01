@@ -22,7 +22,7 @@ import Control.Monad.Reader
 import Data.Array (elems)
 import Lexer
 import Parser
-import Parser.Parser
+import Util.Parser
 import Path
 import TcRnTypes
 import TcHsType
@@ -116,7 +116,7 @@ rmvEquations = mkPass "TypeFamilies.rmvEquations" f
 
 -- from commit 66bb499
 apply :: Pass
-apply = AST "TypeFamilies:apply" $ \oldAST ->
+apply = AST "TypeFamilies.apply" $ \oldAST ->
     concatMap
         (applyHelper oldAST)
         [f | f@FamEqn {} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi oldAST]

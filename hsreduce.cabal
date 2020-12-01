@@ -49,6 +49,7 @@ common dry
         , word8
         , transformers-base
         , vector
+        , random-shuffle
     default-extensions:
         TypeApplications
         DataKinds
@@ -122,8 +123,8 @@ library lib-hsreduce
         Reduce.Passes.Cabal
         Util.Util
         Util.Types
-    other-modules:
-        Parser.Parser
+        Util.Evaluation
+        Util.Parser
 
 test-suite test-hsreduce
     import: 

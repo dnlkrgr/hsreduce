@@ -12,15 +12,20 @@ import Path
 import Reduce.Passes.Cabal
 import Distribution.PackageDescription.Parsec
 import Distribution.Verbosity
-import Parser.Parser
+import Util.Parser
 import Util.Util
 
 main :: IO ()
 main =
     unwrapRecord "hsreduce" >>= \case
         Reduce {..} -> case customPassOrdering of
-            Just (useP passesP -> Right myPasses) -> hsreduce ([mapM_ runPass myPasses]) numberOfThreads test sourceFile recordStatistics timeOut debug
-            _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug
+            -- Just (useP passP -> Right myPass) -> 
+            --     let newPasses = filterOutPass myPass
+            --     in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug dontUsePass
+            Just (useP passesP -> Right myPasses) -> 
+                let newPasses = [mapM_ runPass myPasses]
+                in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+            _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
 
         Merge {..} -> hsmerge sourceFile
         PackageDesc {..} -> do
@@ -32,4 +37,4 @@ main =
             fileContent <- TIO.readFile $ fromAbsFile filePathAbs
             p <- readGenericPackageDescription normal $ fromAbsFile filePathAbs
             let beginState = CabalState False emptyStats p
-            hsreduce' cabalActions numberOfThreads testAbs filePathAbs fileContent beginState True timeOut True
+            hsreduce' cabalActions numberOfThreads testAbs filePathAbs fileContent beginState True timeOut True Nothing

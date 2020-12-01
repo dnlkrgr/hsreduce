@@ -44,10 +44,11 @@ reduce = do
                                   }
                     }
         let sizeDiff = getASTLengthDiff newState oldState
-        tokenDiff <- getTokenDiff newState oldState
+        let tokenDiff = getTokenDiff newState oldState
+        let nameDiff = getNameDiff newState oldState
 
         atomically $ writeTVar tState newState
-        updateStatistics conf "mkExportsExplicit" 1 sizeDiff tokenDiff
+        updateStatistics conf "mkExportsExplicit" 1 sizeDiff tokenDiff nameDiff
     -- TODO: if no exports were removed, turn it into Nothing again
 
     runPass removeExports

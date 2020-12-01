@@ -6,6 +6,7 @@
 , split, stdenv, stm-lifted, syb, text, time, transformers-base
 , uniplate, unordered-containers, vector, word8
 , haskell-language-server
+, random-shuffle
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -21,6 +22,7 @@ mkDerivation {
     path path-io process regex split stm-lifted syb text time
     transformers-base uniplate unordered-containers vector word8
     haskell-language-server
+    random-shuffle
   ];
   executableHaskellDepends = [
     aeson array base bytestring Cabal cassava containers Diff
@@ -30,6 +32,7 @@ mkDerivation {
     path path-io process regex split stm-lifted syb text time
     transformers-base uniplate unordered-containers vector word8
     haskell-language-server
+    random-shuffle
   ];
   testHaskellDepends = [
     aeson array base bytestring Cabal cassava containers Diff
@@ -39,6 +42,7 @@ mkDerivation {
     path path-io process regex split stm-lifted syb text time
     transformers-base uniplate unordered-containers vector word8
     haskell-language-server
+    random-shuffle
   ];
   doHaddock = false;
   license = stdenv.lib.licenses.bsd3;

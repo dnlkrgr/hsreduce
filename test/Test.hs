@@ -1,6 +1,6 @@
 module Main where
 
-import Parser.Parser
+import Util.Parser
 import Path.IO
 import qualified Data.Text.IO as TIO
 import Test.HUnit.Lang
@@ -42,10 +42,10 @@ import qualified Reduce.Passes.Functions      as Functions
 import qualified Reduce.Passes.Expr  as Expr
 import qualified Reduce.Passes.Types as Types
 import Util.Util
-import Reduce.Passes
 import Control.Exception
 import System.Process
 import System.Exit
+
 
 testPerformanceRegressions :: IO ()
 testPerformanceRegressions = do
@@ -93,8 +93,8 @@ testPerformanceRegressions = do
             , ("ticket15696_2", NumberOfTokens 240, ByteSize 1400, TimeSpent 3000) ]
             -- , ("ticket14827",   NumberOfTokens 121, ByteSize 2533, TimeSpent 2700) 
 
-newtype NumberOfTokens = NumberOfTokens Int
-newtype ByteSize = ByteSize Int
+newtype NumberOfTokens = NumberOfTokens Integer
+newtype ByteSize = ByteSize Integer
 newtype TimeSpent = TimeSpent Double
 
 main :: IO ()
@@ -249,7 +249,7 @@ main = do
         fileContent <- TIO.readFile $ fromAbsFile filePathAbs
         beginState <- parse filePathAbs
 
-        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState False 25 True) >>= \case
+        timeout (30 * 1000 * 1000) (hsreduce' [a] 1 testAbs filePathAbs fileContent beginState False 25 True Nothing) >>= \case
             Nothing -> assertFailure "test case timed out"
             Just () -> return ()
 

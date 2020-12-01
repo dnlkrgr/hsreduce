@@ -23,15 +23,12 @@ import Data.Either (fromRight, isRight)
 import Data.Generics.Aliases (extQ)
 import Data.Generics.Uniplate.Data
 import Data.List.Split (chunksOf)
-import Data.Maybe (fromMaybe, isJust)
 import Data.String (IsString (fromString))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Data.Word
-import Debug.Trace (traceShow)
 import DynFlags hiding (GhcMode)
-import FastString (mkFastString)
 import GHC hiding (GhcMode, Parsed, Pass, Renamed, Severity)
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
@@ -39,29 +36,21 @@ import Katip
     )
 import Lens.Micro.Platform ((%~), (&), at)
 import Outputable hiding ((<>))
-import Parser.Parser
-import Path
-    ( (</>),
-      Abs,
-      Dir,
-      File,
-      Path,
-      filename,
-      fromAbsDir,
-      fromAbsFile,
-      fromRelFile,
-      parent,
-    )
+import Util.Parser
 import SrcLoc as SL
 import System.Exit
-import System.Process
-    ( CreateProcess (cwd),
-      readCreateProcessWithExitCode,
-      shell,
-    )
 import System.Timeout.Lifted (timeout)
 import Util.Types
 import qualified Util.Types as UT
+import Control.Exception
+import Lexer
+import GHC.Paths (libdir)
+import StringBuffer
+import FastString
+import Path
+import System.Process
+import Data.Maybe
+import Debug.Trace
 
 getASTLengthDiff :: RState -> RState -> Integer
 getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldState
@@ -69,12 +58,6 @@ getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldSta
 getASTLength :: RState -> Integer
 getASTLength = fromIntegral . T.length . showState Parsed
 
-getTokenDiff :: (MonadIO m, Num a) => RState -> RState -> m a
-getTokenDiff newState oldState =
-    liftIO $ do
-        mn1 <- fmap fromIntegral <$> (countTokens $ T.unpack $ showState Parsed newState)
-        mn2 <- fmap fromIntegral <$> (countTokens $ T.unpack $ showState Parsed oldState)
-        pure $ fromMaybe 0 $ (-) <$> mn1 <*> mn2
 
 tryNewState :: String -> (RState -> RState) -> R IO ()
 tryNewState passId f = do
@@ -90,7 +73,8 @@ tryNewState passId f = do
     -- passes might have produced garbage, so we need to be extra careful here
     CE.try
         ( do
-              tokenDiff <- pure 0 -- getTokenDiff newState oldState
+              let tokenDiff = getTokenDiff newState oldState
+              let nameDiff = getNameDiff newState oldState
               if isStateNew
                   then do
                       testNewState conf newState >>= \case
@@ -103,7 +87,7 @@ tryNewState passId f = do
                                       then do
                                           writeTVar (_tState conf) $ newState {_isAlive = True}
 
-                                          updateStatisticsHelper conf passId 1 sizeDiff tokenDiff
+                                          updateStatisticsHelper conf passId 1 sizeDiff tokenDiff nameDiff
                                           return True
                                       else return False
 
@@ -112,8 +96,8 @@ tryNewState passId f = do
                                   else tryNewState passId f
                           Uninteresting -> do
                               when (_debug conf) $ logStateDiff DebugS oldStateS newStateS
-                              updateStatistics conf passId 0 0 0
-                  else updateStatistics conf passId 0 0 0
+                              updateStatistics conf passId 0 0 0 0
+                  else updateStatistics conf passId 0 0 0 0
         )
         >>= \case
             Left (_ :: CE.SomeException) -> traceShow ("[Warning] [EXCEPTION @ Util.Util.tryNewState] " :: String) $ pure ()
@@ -209,8 +193,8 @@ applyInterestingChanges name proposedChanges = do
         -- within a thread check out all the changes
         forM_ batch $ \c -> tryNewState name c
 
-updateStatistics :: RConf -> String -> Word64 -> Integer -> Integer -> R IO ()
-updateStatistics conf name i sizeDiff tokenDiff = atomically $ updateStatisticsHelper conf name i sizeDiff tokenDiff
+updateStatistics :: RConf -> String -> Word64 -> Integer -> Integer -> Integer -> R IO ()
+updateStatistics conf name i sizeDiff tokenDiff nameDiff = atomically $ updateStatisticsHelper conf name i sizeDiff tokenDiff nameDiff
 
 -- 1. if the interestingness test was successful:
 --      a) increment number of successful invocations
@@ -219,13 +203,13 @@ updateStatistics conf name i sizeDiff tokenDiff = atomically $ updateStatisticsH
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatisticsHelper :: RConf -> String -> Word64 -> Integer -> Integer -> STM ()
-updateStatisticsHelper conf name i sizeDiff tokenDiff =
+updateStatisticsHelper :: RConf -> String -> Word64 -> Integer -> Integer -> Integer -> STM ()
+updateStatisticsHelper conf name i sizeDiff tokenDiff nameDiff =
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
-            Nothing -> Just $ PassStats name i 1 sizeDiff tokenDiff
-            Just (PassStats _ n d r t) ->
-                Just $ PassStats name (n + i) (d + 1) (r + sizeDiff) (t + tokenDiff)
+            Nothing -> Just $ PassStats name i 1 sizeDiff tokenDiff nameDiff
+            Just (PassStats _ n d r t nn) ->
+                Just $ PassStats name (n + i) (d + 1) (r + sizeDiff) (t + tokenDiff) (nn + nameDiff)
 
 testNewState :: RConf -> RState -> R IO Interesting
 testNewState conf newState =
@@ -475,3 +459,42 @@ handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt 
             map snd
                 . filter ((/= i) . fst)
                 . zip [1 ..]
+
+-- EVALUATION
+getNameDiff :: RState -> RState -> Integer
+getNameDiff newState oldState = (countNames $ _parsed newState) - (countNames $ _parsed oldState) 
+
+countNames :: ParsedSource -> Integer
+countNames ast = fromIntegral $ length [ () | _ :: RdrName <- universeBi ast ]
+
+getTokenDiff :: RState -> RState -> Integer
+getTokenDiff newState oldState = fromMaybe 0 $ do
+    mn1 <- countTokensHelper (_dflags newState) $ T.unpack $ showState Parsed newState
+    mn2 <- countTokensHelper (_dflags oldState) $ T.unpack $ showState Parsed oldState
+    pure $ mn1 - mn2
+
+countTokensOfTestCases :: IO ()
+countTokensOfTestCases = do
+    l1 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
+    l2 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
+    l3 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
+    forM_ (zip testCases $ zip3 l1 l2 l3) print
+    where
+        testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
+
+countTokens :: FilePath -> IO (Maybe Integer)
+countTokens fp = do
+    try (runGhc (Just libdir) (initDynFlagsPure fp)) >>= \case
+        Left (_ :: SomeException) -> pure Nothing
+        Right flags -> do
+            str <- TIO.readFile fp
+            pure $ countTokensHelper flags $ T.unpack str
+
+countTokensHelper :: DynFlags -> String -> Maybe Integer
+countTokensHelper flags str = do
+    let buffer = stringToStringBuffer str
+    case lexTokenStream buffer location flags of
+        POk _ toks -> Just $ fromIntegral $ length toks
+        _ -> Nothing
+    where 
+        location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
