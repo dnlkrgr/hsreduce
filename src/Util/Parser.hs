@@ -15,6 +15,7 @@ import qualified Data.Text.IO as TIO
 import Data.Void (Void)
 import qualified DynFlags as GHC
 import GHC hiding (parser)
+import Parser
 import GHC.Paths (libdir)
 import qualified HeaderInfo as GHC
 import qualified Language.Haskell.GHC.ExactPrint as EP
@@ -92,7 +93,7 @@ parse fileName = do
           modSum <- getModSummary . mkModuleName . T.unpack $ if modName == "" then "Main" else modName
           -- liftIO $ print $ "modName: " <> modName
 
-          pm <- parseModule modSum
+          pm <- GHC.parseModule modSum
           hEnv <- getSession
 
           gcatch
@@ -129,6 +130,16 @@ runParser flags parser str = unP parser parseState
       location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
       buffer = stringToStringBuffer str
       parseState = mkPState flags buffer location
+
+quickParse :: FilePath -> IO (Maybe ParsedSource)
+quickParse fp = do
+    try (runGhc (Just libdir) (initDynFlagsPure fp)) >>= \case
+        Left (_ :: SomeException) -> pure Nothing
+        Right flags -> do
+            str <- T.unpack <$> TIO.readFile fp
+            case runParser flags Parser.parseModule str of
+                POk _ pr -> pure $ Just pr
+                _ -> pure Nothing
 
 getModName :: T.Text -> Either (MP.ParseErrorBundle T.Text Void) T.Text
 getModName = fmap T.concat . sequence . filter isRight . map (MP.parse getModName' "") . T.lines

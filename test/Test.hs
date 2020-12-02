@@ -62,9 +62,10 @@ testPerformanceRegressions = do
                     reducedFileName = testCaseDir <> "Bug_hsreduce.hs"
                     performanceFileName = testCaseDir <> "hsreduce_performance.csv"
 
-                Just tokenNumber <- countTokens reducedFileName
+                tokenNumber <- countTokensM reducedFileName
 
-                [_, timeSpent, _, _, _, byteSize, _] <- map T.unpack . T.words . T.map (\c -> if c == ',' then ' ' else c) . last . T.lines <$> TIO.readFile performanceFileName
+                (_: timeSpent: _: _: _: byteSize: _) <- 
+                    map T.unpack . T.words . T.map (\c -> if c == ',' then ' ' else c) . last . T.lines <$> TIO.readFile performanceFileName
 
                 print tokenNumber
                 print byteSize
@@ -83,14 +84,14 @@ testPerformanceRegressions = do
     putStrLn "ALL GOOD!"
   where
         testCases = 
-            [ ("ticket14040",   NumberOfTokens 130, ByteSize 520,  TimeSpent 110)
-            , ("ticket14270",   NumberOfTokens 110, ByteSize 441,  TimeSpent 100)
-            , ("ticket14779",   NumberOfTokens 124, ByteSize 588,  TimeSpent 90)
-            , ("ticket15696_1", NumberOfTokens 117, ByteSize 436,  TimeSpent 190)
-            , ("ticket16979",   NumberOfTokens 826, ByteSize 3040, TimeSpent 1700)
-            , ("ticket18098",   NumberOfTokens 792, ByteSize 3576, TimeSpent 1700)
-            , ("ticket8763",    NumberOfTokens 240, ByteSize 1400, TimeSpent 3400) 
-            , ("ticket15696_2", NumberOfTokens 240, ByteSize 1400, TimeSpent 3000) ]
+            -- [ ("ticket14779",   NumberOfTokens 114, ByteSize 534,  TimeSpent 85)
+            -- , ("ticket14270",   NumberOfTokens 110, ByteSize 441,  TimeSpent 90)
+            -- , ("ticket14040",   NumberOfTokens 150, ByteSize 564,  TimeSpent 110)
+            -- [ ("ticket15696_1", NumberOfTokens 117, ByteSize 436,  TimeSpent 190)
+            -- [ ("ticket16979",   NumberOfTokens 832, ByteSize 3044, TimeSpent 1700)
+            [ ("ticket18098",   NumberOfTokens 763, ByteSize 3380, TimeSpent 1700)
+            , ("ticket8763",    NumberOfTokens 192, ByteSize 927, TimeSpent 2500) 
+            , ("ticket15696_2", NumberOfTokens 200, ByteSize 1255, TimeSpent 3000) ]
             -- , ("ticket14827",   NumberOfTokens 121, ByteSize 2533, TimeSpent 2700) 
 
 newtype NumberOfTokens = NumberOfTokens Integer

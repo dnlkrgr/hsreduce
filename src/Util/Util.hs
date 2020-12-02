@@ -467,31 +467,44 @@ getNameDiff newState oldState = (countNames $ _parsed newState) - (countNames $ 
 countNames :: ParsedSource -> Integer
 countNames ast = fromIntegral $ length [ () | _ :: RdrName <- universeBi ast ]
 
-getTokenDiff :: RState -> RState -> Integer
-getTokenDiff newState oldState = fromMaybe 0 $ do
-    mn1 <- countTokensHelper (_dflags newState) $ T.unpack $ showState Parsed newState
-    mn2 <- countTokensHelper (_dflags oldState) $ T.unpack $ showState Parsed oldState
-    pure $ mn1 - mn2
+countNamesM :: FilePath -> IO Integer
+countNamesM = fmap (fromMaybe 0 . fmap countNames) . quickParse 
 
-countTokensOfTestCases :: IO ()
-countTokensOfTestCases = do
-    l1 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
-    l2 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
-    l3 <- traverse (countTokens . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
+countNamesOfTestCases :: IO ()
+countNamesOfTestCases = do
+    l1 <- traverse (countNamesM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
+    l2 <- traverse (countNamesM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
+    l3 <- traverse (countNamesM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
     forM_ (zip testCases $ zip3 l1 l2 l3) print
     where
         testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
 
-countTokens :: FilePath -> IO (Maybe Integer)
-countTokens fp = do
+getTokenDiff :: RState -> RState -> Integer
+getTokenDiff newState oldState = 
+    let mn1 = countTokensHelper (_dflags newState) $ T.unpack $ showState Parsed newState
+        mn2 = countTokensHelper (_dflags oldState) $ T.unpack $ showState Parsed oldState
+    in mn1 - mn2
+
+countTokensOfTestCases :: IO ()
+countTokensOfTestCases = do
+    l1 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
+    l2 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
+    l3 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
+    forM_ (zip testCases $ zip3 l1 l2 l3) print
+    where
+        testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
+
+
+countTokensM :: FilePath -> IO Integer
+countTokensM fp = fromMaybe 0 <$> do
     try (runGhc (Just libdir) (initDynFlagsPure fp)) >>= \case
         Left (_ :: SomeException) -> pure Nothing
         Right flags -> do
             str <- TIO.readFile fp
-            pure $ countTokensHelper flags $ T.unpack str
+            pure $ Just $ countTokensHelper flags $ T.unpack str
 
-countTokensHelper :: DynFlags -> String -> Maybe Integer
-countTokensHelper flags str = do
+countTokensHelper :: DynFlags -> String -> Integer
+countTokensHelper flags str = fromMaybe 0 $ do
     let buffer = stringToStringBuffer str
     case lexTokenStream buffer location flags of
         POk _ toks -> Just $ fromIntegral $ length toks

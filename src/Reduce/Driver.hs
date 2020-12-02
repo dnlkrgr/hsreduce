@@ -98,7 +98,8 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
     let sourceDir = parent testAbs
         oldSize = T.length fileContent
-    (dirs, files) <- listDir sourceDir
+    startTokenNumber <- countTokensM $ fromAbsFile filePathAbs
+    startNamesNumber <- countNamesM $ fromAbsFile filePathAbs
 
     -- 1. create a channel
     -- 2. create as many temp dirs as we have threads
@@ -108,6 +109,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
     forM_ [1 .. numberOfThreads] $ \_ -> do
         tempDir <- createTempDir [absdir|/tmp|] "hsreduce"
 
+        (dirs, files) <- listDir sourceDir
         forM_ dirs $ \d -> copyDirRecur d (tempDir </> dirname d)
         forM_ files $ \f -> copyFile f (tempDir </> filename f)
 
@@ -126,7 +128,10 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
             -- run the reducing functions
             runR beginConf $ do
-                updateStatistics beginConf "formatting" 1 (fromIntegral (T.length $ showState Parsed beginState) - fromIntegral oldSize) 0 0
+                let newTokenNumber = countTokensHelper (_dflags beginState) $ T.unpack fileContent
+                let newNamesNumber = countNames (_parsed beginState) 
+
+                updateStatistics beginConf "formatting" 1 (fromIntegral (T.length $ showState Parsed beginState) - fromIntegral oldSize) (newTokenNumber - startTokenNumber) (newNamesNumber - startNamesNumber)
                 mapM_ largestFixpoint allActions
 
                 newState <- readTVarIO tState
@@ -152,7 +157,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
                     let successfulInvocations = sum . map _successfulAttempts . M.elems $ newState ^. statistics . passStats
                     let totalInvocations = sum . map _totalAttempts . M.elems $ newState ^. statistics . passStats
-                    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations
+                    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations (getTokenDiff newState beginState) (getNameDiff newState beginState)
                     liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
 
                     liftIO 

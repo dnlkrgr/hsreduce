@@ -89,7 +89,9 @@ data Performance = Performance
       _capabilities :: Word64,
       _threads :: Word64,
       _successfulTestInvocations :: Word64,
-      _totalInvocations :: Word64
+      _totalInvocations :: Word64,
+      _tokensRemoved :: Integer,
+      _namesRemoved :: Integer
     }
 
 instance Show Performance where
@@ -104,7 +106,9 @@ instance Show Performance where
               show _endSize,
               show _ratio,
               show _successfulTestInvocations,
-              show _totalInvocations
+              show _totalInvocations,
+              show _tokensRemoved,
+              show _namesRemoved
             ]
             <> "\n"
 
@@ -318,10 +322,10 @@ instance (MonadIO m) => KatipContext (R m) where
 
 -- #####
 
-mkPerformance :: Word64 -> Word64 -> UTCTime -> UTCTime -> Word64 -> Word64 -> Word64 -> R IO Performance
-mkPerformance oldSize newSize t1 t2 numberOfThreads s totalInvocations = do
+mkPerformance :: Word64 -> Word64 -> UTCTime -> UTCTime -> Word64 -> Word64 -> Word64 -> Integer -> Integer -> R IO Performance
+mkPerformance oldSize newSize t1 t2 numberOfThreads s totalInvocations tokensRemoved namesRemoved = do
     c <- fromIntegral <$> liftIO getNumCapabilities
-    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c numberOfThreads s totalInvocations
+    return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c numberOfThreads s totalInvocations tokensRemoved namesRemoved
     where
         ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word64
         offset =
