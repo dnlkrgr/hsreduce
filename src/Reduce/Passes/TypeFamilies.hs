@@ -1,5 +1,6 @@
 module Reduce.Passes.TypeFamilies where
 
+import Debug.Trace
 import Data.Char (isUpper)
 import Data.Generics.Uniplate.Data
 import Data.List (isInfixOf, isPrefixOf)
@@ -123,9 +124,7 @@ apply = AST "TypeFamilies.apply" $ \oldAST ->
 
 applyHelper :: p ~ GhcPs => ParsedSource -> FamEqn p (HsTyPats p) (LHsType p) -> [ParsedSource -> ParsedSource]
 applyHelper ast (FamEqn {..}) =
-    let index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
-        tycon = unLoc feqn_tycon
-     in map
+     map
             ( \(L l _) oldAST ->
                   let c =
                           if any (isContainedIn feqn_rhs) feqn_pats
@@ -140,7 +139,10 @@ applyHelper ast (FamEqn {..}) =
                           then newAST
                           else oldAST
             )
-            [t | t :: LHsType GhcPs <- universeBi ast, length (words (oshow t)) >= 2, let first = head . words $ oshow t, isUpper (head first) || head first == '\'']
+            [t | t@(unLoc -> HsAppTy _ lhs _) :: LHsType GhcPs <- universeBi ast, traceShowId $ traceShow ("tycon: " <> oshow tycon) tycon `isContainedIn` (traceShow ("lhs: " <> oshow lhs) lhs), length (words (oshow t)) >= 2, let first = head . words $ oshow t, isUpper (head first) || head first == '\'']
+  where 
+    index = fst . head . filter (isContainedIn feqn_rhs . snd) $ zip [1 ..] feqn_pats
+    tycon = unLoc feqn_tycon
 -- the rhs is not found in any of the patterns
 -- find occurrences of the type family
 -- replace them by rhs

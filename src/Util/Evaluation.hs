@@ -98,12 +98,12 @@ passesGridSearch = do
         appendFile (fromAbsFile resultFile) $ (intercalate "," [show bs, show tn, show nn, show ts, show si, show ti, show td, show nd, show (fromIntegral td / ts), show (fromIntegral nd / ts), show myPasses] <> "\n")
     where
             testCases = 
-                [ "ticket14779" ]
-                -- [ "ticket14779",
-                -- "ticket14040",
-                -- "ticket14270",
-                -- "ticket15696_1",
-                -- "ticket16979",   
-                -- "ticket18098",
-                -- "ticket8763"]
+                -- [ "ticket14779" ]
+                [ "ticket14779",
+                "ticket14040",
+                "ticket14270",
+                "ticket15696_1",
+                "ticket16979",   
+                "ticket18098",
+                "ticket8763"]
                 --   "ticket15696_2" ]

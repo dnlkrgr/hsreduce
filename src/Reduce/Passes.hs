@@ -114,45 +114,7 @@ rest = do
     TemplateHaskell.dumpSplices
 
 allPurePasses :: [Pass]
-allPurePasses =
-    [ Decls.rmvDecls,
-      Expr.filterExprSubList,
-      TypeFamilies.apply,
-      Decls.splitSigs,
-      Decls.rmvSigs,
-      Decls.rmvConstructors,
-      Decls.simplifyConDecl,
-      Expr.simplifyExpr,
-      Expr.expr2Undefined,
-      Types.simplifyType,
-      Typeclasses.rmvFunDeps,
-      TypeFamilies.familyResultSig,
-      Stubbing.contexts,
-      Stubbing.rmvDerivingClause,
-      Stubbing.simplifyDerivingClause,
-      Stubbing.localBinds,
-      Functions.rmvRHSs,
-      Functions.rmvMatches,
-      Functions.rmvGuards,
-      Stubbing.tyVarBndr,
-      DataTypes.inline,
-      DataTypes.rmvConArgs,
-      Parameters.rmvUnusedParams,
-      Functions.etaReduceMatches,
-      Functions.inline,
-      Functions.betaReduceExprs,
-      Imports.rmvImports,
-      Typeclasses.rmvTyClMethods,
-      Typeclasses.handleMultiParams,
-      Typeclasses.rmvUnusedParams,
-      TypeFamilies.rmvEquations,
-      TypeFamilies.rmvUnusedParams,
-      Pat.pat2Wildcard,
-      Types.type2Unit,
-      Types.type2WildCard,
-      Imports.unqualImport
-      --   Names.unqualNames
-    ]
+allPurePasses = fast <> medium <> slow
 
 bestOrdering :: [R IO ()]
 bestOrdering = [do
