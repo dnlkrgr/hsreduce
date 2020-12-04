@@ -7,7 +7,6 @@ import FastString
 import SrcLoc
 import Lexer
 import qualified Text.Megaparsec as MP
-import qualified Text.Megaparsec.Char as MC
 import Control.Applicative (Alternative ((<|>), many, some))
 import Data.Either (fromRight, isRight)
 import qualified Data.Text as T
@@ -164,89 +163,3 @@ nameP' = do
 
 useP :: MP.Parsec e s a -> s -> Either (MP.ParseErrorBundle s e) a
 useP = flip MP.parse ""
-
-notInScopeP :: Parser T.Text
-notInScopeP = do
-    _ <- MP.chunk "Not in scope:"
-    somethingInTicksP
-
-perhapsYouMeantP :: Parser T.Text
-perhapsYouMeantP = do
-    MP.try
-        ( do
-              _ <- MP.chunk "Not in scope:"
-              _ <-  somethingInTicksP
-              _ <- MC.char '\8217'
-              pure ()
-        )
-        <|> MP.try (dotsP "Variable not in scope:")
-        <|> dotsP "Data constructor not in scope:"
-    MC.space
-    _ <- (MP.try (MP.chunk "Perhaps you meant") <|> MP.chunk "Perhaps you meant one of these:")
-    somethingInTicksP
-
-somethingInTicksP :: Parser T.Text
-somethingInTicksP = do
-    _ <- MP.some (MP.satisfy (/= '\8216'))
-    _ <- MC.char '\8216'
-    T.pack <$> MP.some (MP.satisfy (/= '\8217'))
-
-dotsP :: T.Text -> Parser ()
-dotsP s = do
-    _ <- MC.char '\8226'
-    MC.space
-    _ <- MP.chunk s
-    _ <- MP.some (MP.satisfy (/= '\8226'))
-    _ <- MC.char '\8226'
-    pure ()
-
-removeUseOfHidden :: T.Text -> T.Text
-removeUseOfHidden s
-    | length components > 2 =
-        removeInternal init (T.intercalate "." $ init components) <> "." <> (last components)
-    | otherwise = s
-    where
-        components = modname2components s
-
-removeInternal :: ([T.Text] -> [T.Text]) -> T.Text -> T.Text
-removeInternal f s
-    | length components > 2 = T.intercalate "." . (\wrds -> if "Internal" `elem` wrds then takeWhile (/= "Internal") wrds else f wrds) $ components
-    | otherwise = s
-    where
-        components = modname2components s
-
-hiddenImportP :: Parser T.Text
-hiddenImportP = do
-    _ <- MP.chunk "Could not load module"
-    MC.space
-    _ <- MC.char '‘'
-    T.pack <$> MP.some (MP.satisfy (/= '’'))
-
-noModuleNamedP :: Parser T.Text
-noModuleNamedP = do
-    _ <- MP.chunk "Not in scope:"
-    MC.space
-    go
-    _ <- MC.char '‘'
-    T.pack <$> MP.some (MP.satisfy (/= '’'))
-    where
-        go = do
-            MP.try (MP.chunk "No module named" >> MC.space)
-                <|> do
-                    _ <- MP.some (MP.satisfy (/= '\n'))
-                    MC.space
-                    go
-
-importedFromP :: Parser T.Text
-importedFromP = do
-    _ <- MP.some $ MP.satisfy (/= '(')
-    _ <- MC.char '('
-    _ <- MP.chunk "imported"
-    MC.space
-    _ <- MP.chunk "from"
-    MC.space
-    fmap T.pack . MP.some $ MP.satisfy (/= ')')
-
-
-modname2components :: T.Text -> [T.Text]
-modname2components = T.words . T.map (\c -> if c == '.' then ' ' else c)

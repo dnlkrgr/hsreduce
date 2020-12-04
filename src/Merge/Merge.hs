@@ -31,7 +31,8 @@ import Util.Util
 
 -- namesToWatch = ["IntersectionOf", "Dim", "Index", "IxValue", "~", "VertexId"]
 namesToWatch :: [String]
-namesToWatch = ["deriveJSON", "defaultOptions", "D"]
+namesToWatch = ["try", "Seq", "fromDistinctAscList"]
+-- namesToWatch = ["deriveJSON", "defaultOptions", "D"]
 -- namesToWatch = ["Iso", "iso", "~", "HasDataOf", "ToJSON", "Object", "valueConName"]
 
 hsmerge :: FilePath -> IO ()

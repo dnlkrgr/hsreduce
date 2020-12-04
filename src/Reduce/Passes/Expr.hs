@@ -88,8 +88,8 @@ handleCaseMulti expr@(HsMultiIf _ _) = handleSubList fCaseMulti pCaseMutli expr
 handleCaseMulti _ = []
 
 fCaseMulti :: SrcSpan -> HsExpr GhcPs -> HsExpr GhcPs
-fCaseMulti loc (HsCase _ _ (MG _ (L _ lmatches) _)) = unLoc . fromJust . grhs2Body . unLoc . head . grhssGRHSs . m_grhss . unLoc . head $ filter ((==loc) . getLoc) lmatches
-fCaseMulti loc (HsMultiIf _ lgrhss) = undefined . unLoc . fromJust . grhs2Body . unLoc . head $ filter ((==loc) . getLoc) lgrhss
+fCaseMulti loc e@(HsCase _ _ (MG _ (L _ lmatches) _)) = fromMaybe e . fmap unLoc . grhs2Body . unLoc . head . grhssGRHSs . m_grhss . unLoc . head $ filter ((==loc) . getLoc) lmatches
+fCaseMulti loc e@(HsMultiIf _ lgrhss) = fromMaybe e . fmap unLoc . grhs2Body . unLoc . head $ filter ((==loc) . getLoc) lgrhss
 fCaseMulti _ e = e
 
 pCaseMutli :: HsExpr p -> [SrcSpan]

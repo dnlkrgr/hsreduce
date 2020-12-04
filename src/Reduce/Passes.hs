@@ -52,89 +52,66 @@ import qualified Text.Megaparsec.Char as MC
 import Util.Types
 import Util.Util
 
-passesP :: Parser [Pass]
-passesP = do
-    _ <- MC.char '['
-    MC.space
-    passes <- many passP
-    MC.space
-    _ <- MC.char ']'
-    pure passes
-    where
-
-passP :: Parser Pass
-passP = do
-    MC.space
-    s <- some $ MC.alphaNumChar <|> MC.digitChar <|> MC.char '.' <|> MC.char ':'
-    MC.space
-    _ <- optional $ MC.char ','
-    MC.space
-    let search = filter ((== s) . show)
-    case search allPurePasses of
-        [p] -> pure p
-        _ -> error $ "Pass \"" <> s <> "\" does not exist!"
 
 allActions :: [R IO ()]
-allActions = [fast, medium, slow]
+allActions = map (mapM_ runPass) [fast, medium, slow] <> [rest]
 
-fast :: R IO ()
-fast = do
-    mapM_
-        runPass
+
+fast :: [Pass]
+fast = 
         [ TypeFamilies.apply,
           Decls.splitSigs,
           Decls.rmvSigs,
-          Decls.rmvDecls
-        ]
-
-medium :: R IO ()
-medium = do
-    mapM_
-        runPass
-        [Expr.expr2Undefined]
-    fast
-
-slow :: R IO ()
-slow = do
-    mapM_
-        runPass
-        [ Typeclasses.rmvFunDeps,
-          TypeFamilies.familyResultSig,
+          Decls.rmvDecls,
           Decls.rmvConstructors,
-          Decls.simplifyConDecl,
-          Expr.filterExprSubList,
-          Expr.simplifyExpr,
-          Types.simplifyType,
-          Pat.pat2Wildcard,
-          Stubbing.contexts,
-          Stubbing.rmvDerivingClause,
-          Stubbing.simplifyDerivingClause,
-          Stubbing.localBinds,
-          Functions.rmvRHSs,
-          Functions.rmvMatches,
-          Functions.rmvGuards,
-          Stubbing.tyVarBndr,
-          DataTypes.inline,
-          DataTypes.rmvConArgs,
-          Imports.unqualImport,
-          Parameters.rmvUnusedParams,
-          Functions.etaReduceMatches,
-          Functions.inline,
-          Functions.betaReduceExprs,
-          Imports.rmvImports,
-          Typeclasses.rmvTyClMethods,
-          Typeclasses.handleMultiParams,
-          Typeclasses.rmvUnusedParams,
-          TypeFamilies.rmvEquations,
-          TypeFamilies.rmvUnusedParams,
-          Types.type2Unit,
-          Types.type2WildCard
-          --   Names.unqualNames
+          Decls.simplifyConDecl
         ]
+
+medium :: [Pass]
+medium =
+    [ DataTypes.inline,
+      DataTypes.rmvConArgs,
+      Functions.rmvRHSs,
+      Functions.rmvMatches,
+      Functions.rmvGuards,
+      Expr.expr2Undefined]
+    <> fast
+
+slow :: [Pass]
+slow =
+    [ Typeclasses.rmvFunDeps,
+      TypeFamilies.familyResultSig,
+      Expr.filterExprSubList,
+      Expr.simplifyExpr,
+      Types.simplifyType,
+      Stubbing.contexts,
+      Stubbing.rmvDerivingClause,
+      Stubbing.simplifyDerivingClause,
+      Stubbing.localBinds,
+      Stubbing.tyVarBndr,
+      Imports.unqualImport,
+      Parameters.rmvUnusedParams,
+      Functions.etaReduceMatches,
+      Functions.inline,
+      Functions.betaReduceExprs,
+      Imports.rmvImports,
+      Typeclasses.rmvTyClMethods,
+      Typeclasses.handleMultiParams,
+      Typeclasses.rmvUnusedParams,
+      TypeFamilies.rmvEquations,
+      TypeFamilies.rmvUnusedParams,
+      Pat.pat2Wildcard,
+      Types.type2Unit,
+      Types.type2WildCard
+      --   Names.unqualNames
+    ] <> medium
+    
+rest :: R IO ()
+rest = do
+    mapM_ runPass slow
     Pragmas.reduce
     Exports.reduce
     TemplateHaskell.dumpSplices
-    medium
 
 allPurePasses :: [Pass]
 allPurePasses =
@@ -177,56 +154,77 @@ allPurePasses =
       --   Names.unqualNames
     ]
 
--- filterOutPass :: Pass -> [R IO ()]
--- filterOutPass pass = 
---     [mapM_ runPass $ filter (/= pass) allPurePasses
---     , do
---       Pragmas.reduce
---       Exports.reduce
---       TemplateHaskell.dumpSplices]
+bestOrdering :: [R IO ()]
+bestOrdering = [do
+    mapM_ 
+      runPass 
+      [rmvRHSs
+      , TypeFamilies.apply
+      , TypeFamilies.rmvUnusedParams
+      , pat2Wildcard
+      , rmvFunDeps
+      , localBinds
+      , betaReduceExprs
+      , TypeFamilies.familyResultSig
+      , Functions.inline
+      , Parameters.rmvUnusedParams
+      , rmvConstructors
+      , unqualImport
+      , rmvDerivingClause
+      , DataTypes.inline
+      , simplifyType
+      , TypeFamilies.rmvEquations
+      , rmvConArgs
+      , rmvGuards
+      , rmvMatches
+      , simplifyDerivingClause
+      , tyVarBndr
+      , contexts
+      , type2WildCard
+      , rmvImports
+      , filterExprSubList
+      , etaReduceMatches
+      , rmvSigs
+      , handleMultiParams
+      , splitSigs
+      , rmvTyClMethods
+      , type2Unit
+      , expr2Undefined
+      , simplifyConDecl
+      , Typeclasses.rmvUnusedParams
+      , rmvDecls
+      , simplifyExpr]
+    Pragmas.reduce
+    Exports.reduce
+    TemplateHaskell.dumpSplices ]
 
--- mkPasses :: [Pass] -> [[Pass]]
--- mkPasses myPasses = 
---     [ [splitSigs, rmvSigs, rmvDecls, rmvConstructors, simplifyConDecl]
---     , [expr2Undefined]
---     , myPasses
---     , [simplifyExpr, filterExprSubList, simplifyType, type2Unit, type2WildCard, Pat.pat2Wildcard]]
 
--- passesThatCanBeReordered :: [Pass]
--- passesThatCanBeReordered =
---     --   Decls.splitSigs,
---     --   Decls.rmvSigs,
---     --   Decls.rmvDecls,
---     --   Expr.expr2Undefined,
---       -- Decls.rmvConstructors,
---       -- Decls.simplifyConDecl,
---     [ TypeFamilies.apply,
---       Typeclasses.rmvFunDeps,
---       TypeFamilies.familyResultSig,
---       Stubbing.contexts,
---       Stubbing.rmvDerivingClause,
---       Stubbing.simplifyDerivingClause,
---       Stubbing.localBinds,
---       Functions.rmvRHSs,
---       Functions.rmvMatches,
---       Functions.rmvGuards,
---       Stubbing.tyVarBndr,
---       DataTypes.inline,
---       DataTypes.rmvConArgs,
---       -- Imports.unqualImport,
---       -- Imports.rmvImports,
---       Parameters.rmvUnusedParams,
---       Functions.etaReduceMatches,
---       Functions.inline,
---       Functions.betaReduceExprs,
---       Typeclasses.rmvTyClMethods,
---       Typeclasses.handleMultiParams,
---       Typeclasses.rmvUnusedParams,
---       TypeFamilies.rmvEquations,
---       TypeFamilies.rmvUnusedParams ]
---     --   Expr.filterExprSubList,
---     --   Pat.pat2Wildcard,
---     --   Expr.simplifyExpr,
---     --   Types.simplifyType,
---     --   Types.type2Unit,
---     --   Types.type2WildCard
+nestedPassesP :: Parser [[Pass]]
+nestedPassesP = do
+    _ <- MC.char '['
+    MC.space
+    passes <- many passesP
+    MC.space
+    _ <- MC.char ']'
+    pure passes
+
+passesP :: Parser [Pass]
+passesP = do
+    _ <- MC.char '['
+    MC.space
+    passes <- many passP
+    MC.space
+    _ <- MC.char ']'
+    pure passes
+
+passP :: Parser Pass
+passP = do
+    MC.space
+    s <- some $ MC.alphaNumChar <|> MC.digitChar <|> MC.char '.' <|> MC.char ':'
+    MC.space
+    _ <- optional $ MC.char ','
+    MC.space
+    let search = filter ((== s) . show)
+    case search allPurePasses of
+        [p] -> pure p
+        _ -> error $ "Pass \"" <> s <> "\" does not exist!"

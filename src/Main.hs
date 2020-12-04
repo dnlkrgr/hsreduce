@@ -22,10 +22,11 @@ main =
             -- Just (useP passP -> Right myPass) -> 
             --     let newPasses = filterOutPass myPass
             --     in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug dontUsePass
-            Just (useP passesP -> Right myPasses) -> 
-                let newPasses = [mapM_ runPass myPasses]
+            Just (useP nestedPassesP -> Right myPasses) -> 
+                let newPasses = map (mapM_ runPass) myPasses <> [rest]
                 in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
             _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+            -- _ -> hsreduce bestOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
 
         Merge {..} -> hsmerge sourceFile
         PackageDesc {..} -> do

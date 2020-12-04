@@ -140,6 +140,17 @@ overwriteWithEq a f oldValue
 mkCabalPass :: (Eq a, Data a) => String -> WaysToChange a -> Pass
 mkCabalPass name pass = CabalPass name (\ast -> concat [map (transformBi . overwriteWithEq e) $ pass e | e <- universeBi ast])
 
+-- surprisingly, this is actually worse, performance-wise
+runAllPasses :: [Pass] -> R IO ()
+runAllPasses passes = do
+    conf <- ask
+    oldState <- liftIO . readTVarIO $ _tState conf
+    let proposedChanges = concatMap (\case
+            AST _ pass -> map (parsed %~) $ pass $ _parsed oldState 
+            _ -> []) passes
+    applyInterestingChanges "allPassesAtOnce" proposedChanges
+
+
 runPass :: Pass -> R IO ()
 runPass (AST name pass) =
     do
@@ -343,25 +354,10 @@ getGhcOutput ghcMode sourcePath = do
             UnusedImports -> "-Wunused-imports"
             _ -> ""
         filterFunc = case ghcMode of
-            MissingImport -> filter ((T.isPrefixOf "Not in scope:" <&&> (T.isInfixOf "imported from" <||> T.isInfixOf "No module named")) . doc)
-            NotInScope -> filter (T.isPrefixOf "Not in scope:" . doc)
-            PerhapsYouMeant -> id -- filter ((T.isPrefixOf "Not in scope:" <&&> (T.isInfixOf "Perhaps you meant")) . doc)
-            HiddenImport -> filter (T.isInfixOf "is a hidden module in the package" . doc)
             Indent -> filter (T.isInfixOf "parse error (possibly incorrect indentation" . doc)
             _ -> filter ((isJust . UT.span) <&&> (isJust . reason) <&&> (maybe False (T.isPrefixOf "Opt_WarnUnused") . reason))
         mapFunc = case ghcMode of
-            MissingImport ->
-                map
-                    ( \o ->
-                          let importSuggestion = fmap (removeInternal id) . useP importedFromP $ doc o
-                              noModuleNamed = fmap (removeInternal id) . useP noModuleNamedP $ doc o
-                              pos = UT.span o
-                           in maybe [] (\jpos -> [(,span2SrcSpan jpos) <$> importSuggestion, (,span2SrcSpan jpos) <$> noModuleNamed]) pos
-                    )
-            NotInScope -> map (\o -> maybe [] (\jpos -> [fmap ((,span2SrcSpan jpos) . removeUseOfHidden) . useP notInScopeP $ doc o]) $ UT.span o)
-            PerhapsYouMeant -> map (\o -> maybe [] (\jpos -> [fmap (,span2SrcSpan jpos) . useP perhapsYouMeantP $ doc o]) $ UT.span o)
             Indent -> map (\o -> maybe [] (\jpos -> [Right ("", span2SrcSpan jpos)]) $ UT.span o)
-            HiddenImport -> map (\o -> maybe [] (\jpos -> [fmap ((,span2SrcSpan jpos) . (removeInternal init)) . useP hiddenImportP $ doc o]) $ UT.span o)
             _ -> map (\o -> maybe [] (\jpos -> [(Right $ ((T.takeWhile (/= '’') . T.drop 1 . T.dropWhile (/= '‘') $ doc o), (span2SrcSpan jpos)))]) $ UT.span o)
 
 getStuffFromGhc :: GhcMode -> R IO (Maybe [T.Text])

@@ -84,15 +84,24 @@ testPerformanceRegressions = do
     putStrLn "ALL GOOD!"
   where
         testCases = 
+            [ ("ticket14779",   NumberOfTokens 999, ByteSize 999,  TimeSpent 99)
+            , ("ticket14270",   NumberOfTokens 999, ByteSize 999,  TimeSpent 99)
+            , ("ticket14040",   NumberOfTokens 999, ByteSize 999,  TimeSpent 990)
+            , ("ticket15696_1", NumberOfTokens 999, ByteSize 999,  TimeSpent 990)
+            , ("ticket16979",   NumberOfTokens 999, ByteSize 9994, TimeSpent 9900)
+            , ("ticket8763",    NumberOfTokens 999, ByteSize 999,  TimeSpent 9900) 
+            , ("ticket18098",   NumberOfTokens 999, ByteSize 9990, TimeSpent 9900)
+            , ("ticket15696_2", NumberOfTokens 999, ByteSize 9995, TimeSpent 9900) 
+            , ("ticket14827",   NumberOfTokens 999, ByteSize 9993, TimeSpent 9900) ]
             -- [ ("ticket14779",   NumberOfTokens 114, ByteSize 534,  TimeSpent 85)
             -- , ("ticket14270",   NumberOfTokens 110, ByteSize 441,  TimeSpent 90)
             -- , ("ticket14040",   NumberOfTokens 150, ByteSize 564,  TimeSpent 110)
-            -- [ ("ticket15696_1", NumberOfTokens 117, ByteSize 436,  TimeSpent 190)
-            -- [ ("ticket16979",   NumberOfTokens 832, ByteSize 3044, TimeSpent 1700)
-            [ ("ticket18098",   NumberOfTokens 763, ByteSize 3380, TimeSpent 1700)
-            , ("ticket8763",    NumberOfTokens 192, ByteSize 927, TimeSpent 2500) 
-            , ("ticket15696_2", NumberOfTokens 200, ByteSize 1255, TimeSpent 3000) ]
-            -- , ("ticket14827",   NumberOfTokens 121, ByteSize 2533, TimeSpent 2700) 
+            -- , ("ticket15696_1", NumberOfTokens 117, ByteSize 436,  TimeSpent 190)
+            -- , ("ticket16979",   NumberOfTokens 832, ByteSize 3044, TimeSpent 1700)
+            -- , ("ticket8763",    NumberOfTokens 192, ByteSize 927,  TimeSpent 2500) 
+            -- , ("ticket18098",   NumberOfTokens 763, ByteSize 3380, TimeSpent 1700)
+            -- , ("ticket15696_2", NumberOfTokens 200, ByteSize 1255, TimeSpent 3000) 
+            -- , ("ticket14827",   NumberOfTokens 121, ByteSize 2533, TimeSpent 2700) ]
 
 newtype NumberOfTokens = NumberOfTokens Integer
 newtype ByteSize = ByteSize Integer
