@@ -1,9 +1,15 @@
 module Merge.Merge (hsmerge) where
 
+import Debug.Trace
+import Text.EditDistance
+import qualified Data.Map as M
+import Data.IORef
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Control.Monad
 import qualified Data.List.NonEmpty as NE
 import Control.Monad.Random 
-import Data.Generics.Uniplate.Data (transformBi)
+import Data.Generics.Uniplate.Data 
 import Data.Hashable (hash)
 import Data.List
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
@@ -31,7 +37,8 @@ import Util.Util
 
 -- namesToWatch = ["IntersectionOf", "Dim", "Index", "IxValue", "~", "VertexId"]
 namesToWatch :: [String]
-namesToWatch = ["try", "Seq", "fromDistinctAscList"]
+namesToWatch = ["number"]
+-- namesToWatch = ["try", "Seq", "fromDistinctAscList", "number"]
 -- namesToWatch = ["deriveJSON", "defaultOptions", "D"]
 -- namesToWatch = ["Iso", "iso", "~", "HasDataOf", "ToJSON", "Object", "valueConName"]
 
@@ -53,6 +60,8 @@ hsmerge filePath = do
 
                 liftIO $ print $ map oshow $ ours
 
+                moduleName2imports <- liftIO $ newIORef M.empty
+
                 importsAndannASTs <- for modSums $ \modSum -> do
                     t <- typecheckModule =<< parseModule modSum
                     dynFlags <- getDynFlags
@@ -69,13 +78,19 @@ hsmerge filePath = do
                                 . pm_parsed_source
                                 $ tm_parsed_module t
 
+
+
                         -- rename module
                         (renamedGroups, _, _, _) = fromMaybe (error "HsAllInOne->hsmerge: no renamed source!") $ tm_renamed_source t
-                        newGroups =
+
+
+                    firstGroups <- liftIO $ transformBiM (renameName moduleName2imports rdrEnv ours myMN) renamedGroups
+
+                    let newGroups =
+
                             transformBi unqualSig
                                 . transformBi unqualFamEqnClsInst
                                 . transformBi unqualBinds
-                                . transformBi (renameName rdrEnv ours myMN)
                                 -- . transformBi (\n -> let newN = renameName rdrEnv ours myMN n 
                                 --                      in (if oshow n `elem` namesToWatch 
                                 --                          then 
@@ -86,7 +101,13 @@ hsmerge filePath = do
                                 --                          else id ) newN)
                                 . transformBi (renameField rdrEnv ours myMN)
                                 . transformBi (renameAmbiguousField rdrEnv ours myMN)
-                                $ renamedGroups
+                                $ firstGroups
+
+                    let myImports = map (unLoc . fmap (unLoc . ideclName)) . hsmodImports . unLoc . pm_parsed_source $ tm_parsed_module t
+
+                    liftIO $ writeIORef moduleName2imports . M.insert (moduleName myMN) myImports =<< readIORef moduleName2imports
+
+
 
                     return (importsModuleNames, mshow dynFlags (newGroups :: HsGroup GhcRn))
 
@@ -112,16 +133,15 @@ hsmerge filePath = do
                         <> map oshow imports
                         <> [decls]
 
-            -- putStrLn "cleaning up"
-            -- dir <- getCurrentDir
-            -- f <- parseRelFile "AllInOne.hs"
-            -- cleanUp Ghc Indent (dir </> f)
-            -- cleanUp Ghc PerhapsYouMeant (dir </> f)
+            putStrLn "cleaning up"
+            dir <- getCurrentDir
+            f <- parseRelFile "AllInOne.hs"
+            cleanUp Ghc Indent (dir </> f)
         CradleFail err -> error $ show err
         _ -> error "Cradle wasn't loaded successfully! Maybe you're missing a hie.yaml file?"
 
-renameName :: GlobalRdrEnv -> [ModuleName] -> Module -> Name -> Name
-renameName rdrEnv ours myMN@(Module unitId _) n
+renameName :: IORef (M.Map ModuleName [ModuleName]) -> GlobalRdrEnv -> [ModuleName] -> Module -> Name -> IO Name
+renameName ref rdrEnv ours myMN@(Module unitId _) n
     | ( if oshow n `elem` namesToWatch
             then
                 traceShow @String ""
@@ -139,27 +159,61 @@ renameName rdrEnv ours myMN@(Module unitId _) n
             else id
       )
           False =
-        n
+        pure n
 
-    | oshow n == "main" = n
-    | oshow n == "~" || oshow n == "~" = n
+    | oshow n == "main" = pure n
+    | oshow n == "~" || oshow n == "~" = pure n
 
     -- -- built-in things
-    | isBuiltInSyntax n = n
+    | isBuiltInSyntax n = pure n
     -- our operator / function / variable
-    | Just mn <- getModuleName rdrEnv ours myMN n,
-      mn `elem` ours =
-        mkInternalName u (mangle mn on) noSrcSpan
-    -- something external
-    | Just mn <- getModuleName rdrEnv ours myMN n =
-        -- using my unit id shouldn't be a problem because
-        -- we're just printing these names and not checking later from which module the names come
-        -- mkExternalName u (mkModule unitId mn) on noSrcSpan
-        (if oshow n `elem` namesToWatch then traceShow @String "" . traceShow @String "mkExternalName" . traceShow (oshow $ mkModule unitId mn) . traceShow (oshow on) else id) $ mkExternalName u (mkModule unitId mn) on noSrcSpan
-    | otherwise = n
+    | otherwise = do
+        getModuleNameM ref rdrEnv ours myMN n >>= \case
+            Just mn -> 
+                if mn `elem` ours
+                    then pure $ mkInternalName u (mangle mn on) noSrcSpan
+                    else pure $ mkExternalName u (mkModule unitId mn) on noSrcSpan
+            _ -> pure n
     where
         u = nameUnique n
         on = occName n
+
+getModuleNameM :: IORef (M.Map ModuleName [ModuleName]) -> GlobalRdrEnv -> [ModuleName] -> Module -> Name -> IO (Maybe ModuleName)
+getModuleNameM ref env ours myMN n
+    | (if oshow n `elem` namesToWatch then traceShow ("header getModuleNameM: " <> oshow n) else id) $ False = undefined
+    | (gre_lcl <$> rdrElt) == Just True = do
+
+        when (oshow n `elem` namesToWatch) $ do
+            print "gre_lcl, getModuleNameM:"
+            print $ oshow myMN
+        pure . Just $ moduleName myMN
+    | otherwise = do
+        let mModuleNames = do
+                imports <- gre_imp <$> rdrElt
+                importMN <- is_mod . is_decl <$> (listToMaybe imports)
+                exactMN <- moduleName <$> nameModule_maybe n
+                Just (importMN, exactMN)
+
+        when (oshow n `elem` namesToWatch) $ do
+            print "otherwise, getModuleNameM:"
+            print $ oshow mModuleNames
+        case (if oshow n `elem` namesToWatch then traceShow (oshow mModuleNames) mModuleNames else mModuleNames) of
+            Just (importMN, exactMN) -> do
+                -- case 1: the importing module is one of ours and it's re-exporting an external module
+                -- case 2: the importing module is one of ours and it's re-exporting one of our modules => should we recurse then?
+                if importMN `elem` ours && importMN /= exactMN
+                    then do
+                        readIORef ref >>= pure . M.lookup importMN . (\e -> if oshow n `elem` namesToWatch then traceShow (oshow e) e else e) >>= \case
+                            -- we should always have a list here
+                            Just imports -> do
+                                case listToMaybe $ sortOn snd $ map (\i -> (i, levenshteinDistance defaultEditCosts (oshow exactMN) $ oshow i)) imports of
+                                    Just (i, _) -> pure $ Just i
+                                    Nothing -> pure $ Just exactMN
+                            _ -> pure $ Just exactMN
+                    else pure $ Just importMN
+            _ -> pure Nothing
+    where
+        rdrElt = lookupGRE_Name env n
 
 getModuleName :: GlobalRdrEnv -> [ModuleName] -> Module -> Name -> Maybe ModuleName
 getModuleName env ours myMN n
@@ -173,7 +227,7 @@ getModuleName env ours myMN n
             then pure exactMN
             else pure importMN
     where
-        rdrElt = lookupGRE_Name env n
+        rdrElt = lookupGRE_Name env n        
 
 getModuleNameFromRdrName :: GlobalRdrEnv -> Module -> RdrName -> Maybe ModuleName
 getModuleNameFromRdrName env mn n
@@ -346,8 +400,48 @@ getAllPragmas =
 
 -- ***************************************************************************
 -- CLEANING UP
-
 -- ***************************************************************************
+
+allowedToLoop :: [GhcMode]
+allowedToLoop = [Indent]
+
+cleanUp :: Tool -> GhcMode -> Path Abs File -> IO ()
+cleanUp tool mode sourcePath = do
+    fileContent <- TIO.readFile (fromAbsFile sourcePath)
+
+    getGhcOutput mode sourcePath >>= \case
+        Nothing -> return ()
+        Just [] -> return ()
+        Just mySpans -> do
+            banner (show mode)
+
+            let rightSpans =
+                    (if mode == Indent then id else filter ((/= "") . fst)) $ mySpans
+                newFileContent = case mode of
+                    Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
+                    _ -> fileContent
+
+            TIO.writeFile (fromAbsFile sourcePath) newFileContent
+            when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
+
+
+insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+insertIndent (_, (startLoc, _)) fileContent =
+    T.unlines $ prevLines <> [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] <> succLines
+    where
+        contentLines = T.lines fileContent
+        lineStart = srcLocLine startLoc
+        currentIndex = lineStart -1
+        prevLines = take currentIndex contentLines
+        succLines = drop lineStart contentLines
+        currentLine = contentLines !! currentIndex
+        newLineContent = "  " <> currentLine
+
+span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
+span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
+
+
+
 
 instance {-# OVERLAPPABLE #-} Eq (ImportDecl GhcPs) where
     i1 == i2 = oshow i1 == oshow i2

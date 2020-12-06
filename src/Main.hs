@@ -1,5 +1,7 @@
 module Main where
 
+import qualified Data.Text.IO as TIO
+import qualified Data.Text as T
 import Merge.Merge
 import Options.Generic
 
@@ -15,6 +17,7 @@ import Distribution.Verbosity
 import Util.Parser
 import Util.Util
 
+
 main :: IO ()
 main =
     unwrapRecord "hsreduce" >>= \case
@@ -25,8 +28,8 @@ main =
             Just (useP nestedPassesP -> Right myPasses) -> 
                 let newPasses = map (mapM_ runPass) myPasses <> [rest]
                 in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
-            _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
-            -- _ -> hsreduce bestOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+            -- _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+            _ -> hsreduce bestOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
 
         Merge {..} -> hsmerge sourceFile
         PackageDesc {..} -> do

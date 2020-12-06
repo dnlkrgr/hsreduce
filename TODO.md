@@ -316,6 +316,37 @@ while size(current) < size_at_start
     - method pass_clex :: rm-tok-pattern-4 worked 27 times and failed 30104 times
     - method pass_clex :: rename-toks worked 38 times and failed 245 times
     - method pass_lines :: 0 worked 98 times and failed 1565 times
+- test-cases/ticket18098:
+  - pass statistics:
+    - method pass_clex :: rm-toks-11 worked 1 times and failed 6726 times
+    - method pass_blank :: 0 worked 1 times and failed 0 times
+    - method pass_clex :: rm-toks-14 worked 1 times and failed 6688 times
+    - method pass_clex :: rm-toks-15 worked 1 times and failed 6673 times
+    - method pass_lines :: 8 worked 1 times and failed 2519 times
+    - method pass_balanced :: parens-inside worked 2 times and failed 599 times
+    - method pass_balanced :: curly-only worked 2 times and failed 137 times
+    - method pass_clex :: rm-toks-12 worked 2 times and failed 6702 times
+    - method pass_clex :: rm-toks-6 worked 2 times and failed 6794 times
+    - method pass_clex :: rm-toks-10 worked 3 times and failed 6737 times
+    - method pass_clex :: rm-toks-9 worked 3 times and failed 6767 times
+    - method pass_balanced :: parens worked 4 times and failed 618 times
+    - method pass_balanced :: curly2 worked 4 times and failed 187 times
+    - method pass_clex :: rm-toks-5 worked 5 times and failed 6806 times
+    - method pass_clex :: rm-toks-3 worked 5 times and failed 6895 times
+    - method pass_clex :: delete-string worked 5 times and failed 2 times
+    - method pass_peep :: a worked 7 times and failed 46517 times
+    - method pass_balanced :: square worked 8 times and failed 17 times
+    - method pass_balanced :: parens-only worked 8 times and failed 542 times
+    - method pass_balanced :: curly worked 9 times and failed 191 times
+    - method pass_balanced :: parens-to-zero worked 11 times and failed 713 times
+    - method pass_clex :: rm-toks-4 worked 16 times and failed 6831 times
+    - method pass_clex :: rm-toks-2 worked 18 times and failed 6910 times
+    - method pass_lines :: 2 worked 20 times and failed 2549 times
+    - method pass_clex :: rm-toks-1 worked 32 times and failed 6947 times
+    - method pass_clex :: rm-tok-pattern-4 worked 35 times and failed 52768 times
+    - method pass_lines :: 0 worked 41 times and failed 2595 times
+    - method pass_lines :: 1 worked 55 times and failed 2597 times
+    - method pass_clex :: rename-toks worked 63 times and failed 501 times
 
 ## structureshrink performance
 

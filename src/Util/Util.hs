@@ -460,6 +460,12 @@ handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt 
 getNameDiff :: RState -> RState -> Integer
 getNameDiff newState oldState = (countNames $ _parsed newState) - (countNames $ _parsed oldState) 
 
+getTokenDiff :: RState -> RState -> Integer
+getTokenDiff newState oldState = 
+    let mn1 = countTokensHelper (_dflags newState) $ T.unpack $ showState Parsed newState
+        mn2 = countTokensHelper (_dflags oldState) $ T.unpack $ showState Parsed oldState
+    in mn1 - mn2
+
 countNames :: ParsedSource -> Integer
 countNames ast = fromIntegral $ length [ () | _ :: RdrName <- universeBi ast ]
 
@@ -472,14 +478,7 @@ countNamesOfTestCases = do
     l2 <- traverse (countNamesM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
     l3 <- traverse (countNamesM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
     forM_ (zip testCases $ zip3 l1 l2 l3) print
-    where
-        testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
 
-getTokenDiff :: RState -> RState -> Integer
-getTokenDiff newState oldState = 
-    let mn1 = countTokensHelper (_dflags newState) $ T.unpack $ showState Parsed newState
-        mn2 = countTokensHelper (_dflags oldState) $ T.unpack $ showState Parsed oldState
-    in mn1 - mn2
 
 countTokensOfTestCases :: IO ()
 countTokensOfTestCases = do
@@ -487,8 +486,6 @@ countTokensOfTestCases = do
     l2 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
     l3 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
     forM_ (zip testCases $ zip3 l1 l2 l3) print
-    where
-        testCases = ["ticket14040", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
 
 
 countTokensM :: FilePath -> IO Integer
@@ -507,3 +504,12 @@ countTokensHelper flags str = fromMaybe 0 $ do
         _ -> Nothing
     where 
         location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
+
+countTestInvocationsHelper = fmap (listToMaybe . drop 10 . words . map (\c -> if c == ',' then ' ' else c) . last . lines) . readFile
+
+-- 2020-12-01&&&1567.927965916&&&1&&&8&&&7558&&&3381&&&55&&&309
+
+countTestInvocations =
+    traverse (countTestInvocationsHelper . (\s -> "../hsreduce-test-cases/" <> s <> "/hsreduce_performance.csv")) testCases
+
+testCases = ["ticket13877", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]

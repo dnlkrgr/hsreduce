@@ -18,6 +18,10 @@ import Debug.Trace
 import Data.IORef
 import Util.Types
 import Util.Util
+import Util.Parser
+import Text.Megaparsec hiding (some, many)
+import Text.Megaparsec.Char
+
 
 drawRandomOrdering :: IORef [[Pass]] -> [Pass] -> IO [Pass]
 drawRandomOrdering ref origOrdering = do
@@ -107,3 +111,64 @@ passesGridSearch = do
                 "ticket18098",
                 "ticket8763"]
                 --   "ticket15696_2" ]
+
+readTestInvocations = do
+    TIO.readFile "creduce_test_invocations.txt" >>= pure . useP parseBlock >>= \case
+        Left p -> print p
+        Right (t, sizes) -> do
+            print t
+            print $ sum sizes
+   
+parseBlock :: Parser (String, [Int])
+parseBlock = do
+    t <- parseHeader
+    sizes <- some parseLine
+    pure (t, sizes)
+
+parseHeader :: Parser String
+parseHeader = do
+    space
+    char '-'
+    space
+    chunk "test-cases/ticket"
+    n <- some $ noneOf [':']
+    char ':'
+    space
+    pure n
+
+parseLine :: Parser Int
+parseLine = do
+    space
+    char '-'
+    space
+    chunk "method"
+    space
+    someStuff
+    space
+    chunk "::"
+    space
+    someStuff
+    space
+    chunk "worked"
+    space
+    someStuff
+    space
+    chunk "times"
+    space
+    chunk "and"
+    space
+    chunk "failed"
+    space
+    n <- read <$> some digitChar
+    space
+    chunk "times"
+    return n
+
+someStuff = many $ noneOf [' ']
+
+-- testString = T.pack $ " - method pass_balanced :: " -- square-inside worked 1 times and failed 1 times"
+-- testString = T.pack $ " - method pass_balanced :: square-inside worked 1 times and failed 123 times"
+-- testString = T.pack "- test-cases/ticket14270:"
+
+testString = T.pack " - test-cases/ticket14270:\n - method pass_balanced :: square-only worked 1 times and failed 1 times\n - method pass_clex :: rm-toks-9 worked 1 times and failed 522 times"
+
