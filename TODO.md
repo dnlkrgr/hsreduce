@@ -347,6 +347,31 @@ while size(current) < size_at_start
     - method pass_lines :: 0 worked 41 times and failed 2595 times
     - method pass_lines :: 1 worked 55 times and failed 2597 times
     - method pass_clex :: rename-toks worked 63 times and failed 501 times
+- test-cases/ticket18140_1:
+  - pass statistics:
+    - method pass_clex :: rm-toks-16 worked 1 times and failed 967 times
+    - method pass_balanced :: parens-to-zero worked 1 times and failed 155 times
+    - method pass_clex :: delete-string worked 1 times and failed 0 times
+    - method pass_blank :: 0 worked 1 times and failed 0 times
+    - method pass_clex :: rm-toks-3 worked 1 times and failed 1526 times
+    - method pass_clex :: rm-toks-15 worked 1 times and failed 983 times
+    - method pass_peep :: a worked 1 times and failed 387 times
+    - method pass_clex :: rm-toks-12 worked 2 times and failed 1066 times
+    - method pass_clex :: rm-toks-10 worked 2 times and failed 1090 times
+    - method pass_clex :: rm-toks-13 worked 2 times and failed 1040 times
+    - method pass_clex :: rm-toks-14 worked 3 times and failed 998 times
+    - method pass_balanced :: parens-inside worked 4 times and failed 91 times
+    - method pass_clex :: rm-toks-2 worked 5 times and failed 1529 times
+    - method pass_clex :: rm-toks-8 worked 5 times and failed 1110 times
+    - method pass_clex :: rm-toks-6 worked 6 times and failed 1234 times
+    - method pass_lines :: 2 worked 10 times and failed 1073 times
+    - method pass_lines :: 1 worked 10 times and failed 1113 times
+    - method pass_clex :: rm-toks-7 worked 12 times and failed 1150 times
+    - method pass_clex :: rm-tok-pattern-4 worked 16 times and failed 7384 times
+    - method pass_clex :: rename-toks worked 21 times and failed 59 times
+    - method pass_clex :: rm-toks-1 worked 23 times and failed 1539 times
+    - method pass_clex :: rm-toks-4 worked 64 times and failed 1270 times
+    - method pass_lines :: 0 worked 110 times and failed 1334 times
 
 ## structureshrink performance
 
