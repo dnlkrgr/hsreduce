@@ -56,55 +56,50 @@ import Util.Util
 quickerOrdering :: [R IO ()]
 quickerOrdering = map (mapM_ runPass) [fast, medium, slow] <> [rest]
 
-
 fast :: [Pass]
-fast = 
-        [ TypeFamilies.apply,
-          Decls.splitSigs,
-          Decls.rmvSigs,
-          Decls.rmvDecls,
-          Decls.rmvConstructors,
-          Decls.simplifyConDecl
-        ]
+fast = [ TypeFamilies.apply,
+         Decls.splitSigs,
+         Decls.rmvSigs,
+         Decls.rmvDecls
+       ]
 
 medium :: [Pass]
-medium =
-    [ DataTypes.inline,
-      DataTypes.rmvConArgs,
-      Functions.rmvRHSs,
-      Functions.rmvMatches,
-      Functions.rmvGuards,
-      Expr.expr2Undefined]
-    <> fast
+medium = [Expr.expr2Undefined] <> fast
 
 slow :: [Pass]
-slow =
-    [ Typeclasses.rmvFunDeps,
-      TypeFamilies.familyResultSig,
-      Expr.filterExprSubList,
-      Expr.simplifyExpr,
-      Types.simplifyType,
-      Stubbing.contexts,
-      Stubbing.rmvDerivingClause,
-      Stubbing.simplifyDerivingClause,
-      Stubbing.localBinds,
-      Stubbing.tyVarBndr,
-      Imports.unqualImport,
-      Parameters.rmvUnusedParams,
-      Functions.etaReduceMatches,
-      Functions.inline,
-      Functions.betaReduceExprs,
-      Imports.rmvImports,
-      Typeclasses.rmvTyClMethods,
-      Typeclasses.handleMultiParams,
-      Typeclasses.rmvUnusedParams,
-      TypeFamilies.rmvEquations,
-      TypeFamilies.rmvUnusedParams,
-      Pat.pat2Wildcard,
-      Types.type2Unit,
-      Types.type2WildCard
-      --   Names.unqualNames
-    ] <> medium
+slow = [ Typeclasses.rmvFunDeps,
+         TypeFamilies.familyResultSig,
+         Decls.rmvConstructors,
+         Decls.simplifyConDecl,
+         Expr.filterExprSubList,
+         Expr.simplifyExpr,
+         Types.simplifyType,
+         Pat.pat2Wildcard,
+         Stubbing.contexts,
+         Stubbing.rmvDerivingClause,
+         Stubbing.simplifyDerivingClause,
+         Stubbing.localBinds,
+         Functions.rmvRHSs,
+         Functions.rmvMatches,
+         Functions.rmvGuards,
+         Stubbing.tyVarBndr,
+         DataTypes.inline,
+         DataTypes.rmvConArgs,
+         Imports.unqualImport,
+         Parameters.rmvUnusedParams,
+         Functions.etaReduceMatches,
+         Functions.inline,
+         Functions.betaReduceExprs,
+         Imports.rmvImports,
+         Typeclasses.rmvTyClMethods,
+         Typeclasses.handleMultiParams,
+         Typeclasses.rmvUnusedParams,
+         TypeFamilies.rmvEquations,
+         TypeFamilies.rmvUnusedParams,
+         Types.type2Unit,
+         Types.type2WildCard
+         --   Names.unqualNames
+        ] <> medium
     
 rest :: R IO ()
 rest = do
@@ -112,6 +107,7 @@ rest = do
     Pragmas.reduce
     Exports.reduce
     TemplateHaskell.dumpSplices
+
 
 allPurePasses :: [Pass]
 allPurePasses = fast <> medium <> slow
