@@ -8,7 +8,6 @@ import Options.Generic
 import Reduce.Driver
 import Reduce.Passes
 import Util.Types
-import qualified Data.Text.IO as TIO
 import Path.IO
 import Path
 import Reduce.Passes.Cabal
@@ -29,7 +28,11 @@ main =
                 let newPasses = map (mapM_ runPass) myPasses <> [rest]
                 in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
             -- _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
-            _ -> hsreduce bestOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+            _ -> do
+                fileLength <- T.length <$> TIO.readFile sourceFile
+                if fileLength > 15_000
+                    then hsreduce quickerOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+                    else hsreduce bestOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
 
         Merge {..} -> hsmerge sourceFile
         PackageDesc {..} -> do

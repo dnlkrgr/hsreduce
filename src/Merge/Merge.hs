@@ -1,5 +1,8 @@
 module Merge.Merge (hsmerge) where
 
+
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Maybe
 import qualified Data.Map as M
 import Data.IORef
@@ -9,7 +12,6 @@ import Control.Monad.Random
 import Data.Generics.Uniplate.Data 
 import Data.Hashable (hash)
 import Data.List
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Traversable (for)
 import Data.Void (Void)
 import Debug.Trace 
@@ -35,6 +37,7 @@ import Util.Util
 -- namesToWatch = ["IntersectionOf", "Dim", "Index", "IxValue", "~", "VertexId"]
 namesToWatch :: [String]
 namesToWatch = ["Int32" ]
+
 -- namesToWatch = ["Maybe", "Int32", "Seq", "Bool"]
 -- namesToWatch = ["try", "Seq", "fromDistinctAscList"]
 -- namesToWatch = ["deriveJSON", "defaultOptions", "D"]
@@ -68,7 +71,6 @@ hsmerge filePath = do
                     liftIO $ print $ oshow $ moduleName $ ms_mod modSum
 
                     let myMN = ms_mod modSum
-                        modName = moduleName myMN
                         rdrEnv = tcg_rdr_env . fst $ tm_internals_ t
 
                         -- get imports
@@ -131,11 +133,10 @@ hsmerge filePath = do
                         <> map oshow imports
                         <> [decls]
 
-            -- putStrLn "cleaning up"
-            -- dir <- getCurrentDir
-            -- f <- parseRelFile "AllInOne.hs"
-            -- cleanUp Ghc Indent (dir </> f)
-            -- cleanUp Ghc PerhapsYouMeant (dir </> f)
+            putStrLn "cleaning up"
+            dir <- getCurrentDir
+            f <- parseRelFile "AllInOne.hs"
+            cleanUp Ghc Indent (dir </> f)
         CradleFail err -> error $ show err
         _ -> error "Cradle wasn't loaded successfully! Maybe you're missing a hie.yaml file?"
 
@@ -388,6 +389,43 @@ getAllPragmas =
 -- CLEANING UP
 
 -- ***************************************************************************
+
+allowedToLoop :: [GhcMode]
+allowedToLoop = [Indent, PerhapsYouMeant]
+
+cleanUp :: Tool -> GhcMode -> Path Abs File -> IO ()
+cleanUp tool mode sourcePath = do
+    fileContent <- TIO.readFile (fromAbsFile sourcePath)
+
+    getGhcOutput mode sourcePath >>= \case
+        Nothing -> return ()
+        Just [] -> return ()
+        Just mySpans -> do
+            banner (show mode)
+
+            let rightSpans =
+                    (if mode == Indent then id else filter ((/= "") . fst)) $ mySpans
+                newFileContent = case mode of
+                    Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
+                    _ -> fileContent
+
+            TIO.writeFile (fromAbsFile sourcePath) newFileContent
+            when (mode `elem` allowedToLoop) $ cleanUp tool mode sourcePath
+
+insertIndent :: (T.Text, (RealSrcLoc, RealSrcLoc)) -> T.Text -> T.Text
+insertIndent (_, (startLoc, _)) fileContent =
+    T.unlines $ prevLines <> [traceShow ("inserting indent at line " <> show (currentIndex + 1)) newLineContent] <> succLines
+    where
+        contentLines = T.lines fileContent
+        lineStart = srcLocLine startLoc
+        currentIndex = lineStart -1
+        prevLines = take currentIndex contentLines
+        succLines = drop lineStart contentLines
+        currentLine = contentLines !! currentIndex
+        newLineContent = "  " <> currentLine
+
+span2Locs :: RealSrcSpan -> (RealSrcLoc, RealSrcLoc)
+span2Locs s = (realSrcSpanStart s, realSrcSpanEnd s)
 
 instance {-# OVERLAPPABLE #-} Eq (ImportDecl GhcPs) where
     i1 == i2 = oshow i1 == oshow i2

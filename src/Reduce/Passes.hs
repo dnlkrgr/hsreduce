@@ -53,8 +53,8 @@ import Util.Types
 import Util.Util
 
 
-allActions :: [R IO ()]
-allActions = map (mapM_ runPass) [fast, medium, slow] <> [rest]
+quickerOrdering :: [R IO ()]
+quickerOrdering = map (mapM_ runPass) [fast, medium, slow] <> [rest]
 
 
 fast :: [Pass]

@@ -78,6 +78,7 @@ common dry
         UndecidableInstances      
         ViewPatterns
         StandaloneDeriving
+        NumericUnderscores
     default-language:    
         Haskell2010
     ghc-options:       
