@@ -34,15 +34,6 @@ import TcRnTypes (tcg_rdr_env)
 import Util.Types
 import Util.Util
 
--- namesToWatch = ["IntersectionOf", "Dim", "Index", "IxValue", "~", "VertexId"]
-namesToWatch :: [String]
-namesToWatch = ["Int32" ]
-
--- namesToWatch = ["Maybe", "Int32", "Seq", "Bool"]
--- namesToWatch = ["try", "Seq", "fromDistinctAscList"]
--- namesToWatch = ["deriveJSON", "defaultOptions", "D"]
--- namesToWatch = ["Iso", "iso", "~", "HasDataOf", "ToJSON", "Object", "valueConName"]
-
 hsmerge :: FilePath -> IO ()
 hsmerge filePath = do
     cradle <- loadCradle . fromMaybe (error "cradle could not be found!") =<< findCradle filePath
@@ -59,6 +50,7 @@ hsmerge filePath = do
                 let modSums = concatMap flattenSCC $ topSortModuleGraph False mg Nothing
                     ours = map (moduleName . ms_mod) modSums
 
+                liftIO $ putStrLn "merging these modules together:"
                 liftIO $ print $ map oshow $ ours
 
                 modName2Map <- liftIO . newIORef $ M.empty
@@ -68,7 +60,6 @@ hsmerge filePath = do
                     dynFlags <- getDynFlags
 
                     solveReexportMap <- liftIO $ readIORef modName2Map
-                    liftIO $ print $ oshow $ moduleName $ ms_mod modSum
 
                     let myMN = ms_mod modSum
                         rdrEnv = tcg_rdr_env . fst $ tm_internals_ t
@@ -89,21 +80,12 @@ hsmerge filePath = do
                                 . transformBi unqualFamEqnClsInst
                                 . transformBi unqualBinds
                                 . transformBi (renameName rdrEnv solveReexportMap ours myMN)
-                                -- . transformBi (\n -> let newN = renameName rdrEnv ours myMN n 
-                                --                      in (if oshow n `elem` namesToWatch 
-                                --                          then 
-                                --                              traceShow @String ""
-                                --                              . traceShow @String "afterRename"
-                                --                              . traceShow (oshow newN) 
-                                --                              . traceShow (isExternalName newN) 
-                                --                          else id ) newN)
                                 . transformBi (renameField rdrEnv solveReexportMap ours myMN)
                                 . transformBi (renameAmbiguousField rdrEnv solveReexportMap ours myMN)
                                 $ renamedGroups
 
                     let exportNames = case mexports of
                             Just exports -> [ n | n :: Name <- concatMap (ieNames . unLoc . fst) exports]
-                            -- Just exports -> (if "Basic" `isInfixOf` oshow modName then (\l -> traceShow "MAP!!!!!" $ traceShow (oshow l) l) else id) $ nub $ [ n | n :: Name <- map (ieName . unLoc . fst) exports] <> [ n | n :: Name <- concatMap (ieNames . unLoc . fst) exports]
                             Nothing -> []
                     let name2ModName = M.fromList $ catMaybes $ map (sequence . (\n -> (n, getModuleName rdrEnv solveReexportMap ours myMN n))) $ exportNames <> [ n | n :: Name <- universeBi renamedGroups ]
                     
@@ -142,25 +124,6 @@ hsmerge filePath = do
 
 renameName :: GlobalRdrEnv -> M.Map ModuleName ([ModuleName], M.Map Name ModuleName) -> [ModuleName] -> Module -> Name -> Name
 renameName rdrEnv solveReexportMap ours myMN@(Module unitId _) n
-    | ( if oshow n `elem` namesToWatch
-            then
-                traceShow @String ""
-                    . traceShow @String "renameName"
-                    . traceShow ("name: " <> oshow n)
-                    . traceShow ("my module: " <> oshow myMN)
-                    . traceShow ("namestableString " <> nameStableString n)
-                    . traceShow ("GRE lookup: " <> oshow (lookupGRE_Name rdrEnv n))
-                    . traceShow ("is local? " <> oshow (gre_lcl <$> lookupGRE_Name rdrEnv n))
-                    . traceShow ("nameModule: " <> oshow (nameModule_maybe n))
-                    . traceShow ("getModuleName: " <> oshow (getModuleName rdrEnv solveReexportMap ours myMN n))
-                    . traceShow (show $ isSystemName n)
-                    . traceShow (show $ isBuiltInSyntax n)
-                    . traceShow (show $ isWiredInName n)
-            else id
-      )
-          False =
-        n
-
     | oshow n == "main" = n
     | oshow n == "~" || oshow n == "~" = n
 
@@ -175,7 +138,7 @@ renameName rdrEnv solveReexportMap ours myMN@(Module unitId _) n
         -- using my unit id shouldn't be a problem because
         -- we're just printing these names and not checking later from which module the names come
         -- mkExternalName u (mkModule unitId mn) on noSrcSpan
-        (if oshow n `elem` namesToWatch then traceShow @String "" . traceShow @String "mkExternalName" . traceShow (oshow $ mkModule unitId mn) . traceShow (oshow on) else id) $ mkExternalName u (mkModule unitId mn) on noSrcSpan
+        mkExternalName u (mkModule unitId mn) on noSrcSpan
     | otherwise = n
     where
         u = nameUnique n
@@ -183,7 +146,6 @@ renameName rdrEnv solveReexportMap ours myMN@(Module unitId _) n
 
 getModuleName :: GlobalRdrEnv -> M.Map ModuleName ([ModuleName], M.Map Name ModuleName) -> [ModuleName] -> Module -> Name -> Maybe ModuleName
 getModuleName env solveReexportMap ours myMN n
-    -- /| (if oshow n `elem` namesToWatch then traceShow "inside getModuleName" . traceShow (oshow) else id) $ False = myMN
     | (gre_lcl <$> rdrElt) == Just True = Just $ moduleName myMN
     | otherwise = do
         imports <- gre_imp <$> rdrElt
@@ -193,12 +155,6 @@ getModuleName env solveReexportMap ours myMN n
             then case resolveImportedReexport solveReexportMap n importMN of
                 Nothing -> Just exactMN
                 e -> e
-            -- then case M.lookup importMN solveReexportMap of
-            --     Just tempMap -> case M.lookup n tempMap of
-            --         Just realMN -> Just realMN
-            --         _ -> (if oshow n `elem` namesToWatch then traceShow "no name match!" else id) $ Just exactMN
-            --     -- (fmap (M.lookup n) -> Just (Just realMN)) -> (if oshow n `elem` namesToWatch then traceShow "using new Map" . traceShow (oshow n) . traceShow (oshow importMN) . traceShow (oshow realMN) else id) $ pure realMN
-            --     _ -> (if oshow n `elem` namesToWatch then traceShow "no mod map!" else id) $ Just exactMN
             else Just importMN
     where
         rdrElt = lookupGRE_Name env n
@@ -227,22 +183,6 @@ getModuleNameFromRdrName env mn n
 
 renameAmbiguousField :: GlobalRdrEnv -> M.Map ModuleName ([ModuleName], M.Map Name ModuleName) -> [ModuleName] -> Module -> AmbiguousFieldOcc GhcRn -> AmbiguousFieldOcc GhcRn
 renameAmbiguousField rdrEnv solveReexportMap ours myMN@(Module unitId _) f@(Unambiguous n (L l rn))
---     | ( if (oshow n `elem` ["HasDataOf", "_unV"])
---             then
---                 traceShow @String ""
---                     . traceShow @String "renameField"
---                     . traceShow ("field: " <> gshow f)
---                     . traceShow ("name: " <> oshow n)
---                     . traceShow ("my module: " <> oshow myMN)
---                     . traceShow ("namestableString " <> nameStableString n)
---                     . traceShow ("GRE lookup: " <> oshow (lookupGRE_Name rdrEnv n))
---                     . traceShow ("is local? " <> oshow (gre_lcl <$> lookupGRE_Name rdrEnv n))
---                     . traceShow ("nameModule: " <> oshow (nameModule_maybe n))
---                     . traceShow ("getModuleName: " <> oshow (getModuleName rdrEnv ours myMN n))
---                     . traceShow ("rdrName: " <> oshow (rn))
---             else id
---       )
---           False = f
     -- internal
     | Just mn <- getModuleName rdrEnv solveReexportMap ours myMN n,
       mn `elem` ours =
@@ -269,22 +209,6 @@ renameAmbiguousField _ _ _ _ f = f
 
 renameField :: GlobalRdrEnv -> M.Map ModuleName ([ModuleName], M.Map Name ModuleName) -> [ModuleName] -> Module -> FieldOcc GhcRn -> FieldOcc GhcRn
 renameField rdrEnv solveReexportMap ours myMN@(Module unitId _) (FieldOcc n (L l rn))
---     | ( if (oshow n `elem` ["HasDataOf", "_unV"])
---             then
---                 traceShow @String ""
---                     . traceShow @String "renameField"
---                     . traceShow ("name: " <> oshow n)
---                     . traceShow ("my module: " <> oshow myMN)
---                     . traceShow ("namestableString " <> nameStableString n)
---                     . traceShow ("GRE lookup: " <> oshow (lookupGRE_Name rdrEnv n))
---                     . traceShow ("is local? " <> oshow (gre_lcl <$> lookupGRE_Name rdrEnv n))
---                     . traceShow ("nameModule: " <> oshow (nameModule_maybe n))
---                     . traceShow ("getModuleName: " <> oshow (getModuleName rdrEnv ours myMN n))
---                     . traceShow ("rdrName: " <> oshow (rn))
---             else id
---       )
---           False = f
-        
     | Just mn <- getModuleName rdrEnv solveReexportMap ours myMN n, mn `elem` ours = FieldOcc (mkInternalName u (mangle mn on) noSrcSpan) . L l . Unqual $ mangle mn on
     | Just mn <- getModuleName rdrEnv solveReexportMap ours myMN n = FieldOcc (mkExternalName u (mkModule unitId mn) on noSrcSpan) . L l $ Qual mn on
     where
