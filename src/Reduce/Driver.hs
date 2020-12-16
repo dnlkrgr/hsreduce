@@ -4,6 +4,7 @@ module Reduce.Driver
     )
 where
 
+import Data.Time
 import Control.Applicative
 import Lens.Micro.Platform
 import qualified Data.Vector as DV
@@ -139,24 +140,38 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
                 -- handling of the result and outputting useful information
                 let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
                     newSize = T.length . showState Parsed $ newState
+                let successfulInvocations = sum . map _successfulAttempts . M.elems $ newState ^. statistics . passStats
+                let totalInvocations = sum . map _totalAttempts . M.elems $ newState ^. statistics . passStats
+                t2 <- liftIO getCurrentTime
+
+                let offset =
+                        if utctDayTime t2 < utctDayTime t1
+                        then 86401
+                        else 0
+                let duration = utctDayTime t2 + offset - utctDayTime t1
+
 
                 printDebugInfo "*******************************************************"
                 printDebugInfo "Finished."
-                printDebugInfo $ "Old size:        " <> show oldSize
-                printDebugInfo $ "Reduced size:    " <> show newSize
+                printDebugInfo $ "Old size:     (names)   " <> show (countNames (_parsed beginState))
+                printDebugInfo $ "Reduced size: (names)   " <> show (countNames (_parsed newState))
+                printDebugInfo $ "Duration:               " <> show duration
+                printDebugInfo $ "Total Invocations:      " <> show totalInvocations
+                printDebugInfo $ "Successful Invocations: " <> show successfulInvocations
+                printDebugInfo $ "Old size:     (bytes)   " <> show oldSize
+                printDebugInfo $ "Reduced size: (bytes)   " <> show newSize
+                -- printDebugInfo $ "Old size:     (tokens)   " <> show (countToken (_parsed beginState))
+                -- printDebugInfo $ "Reduced size: (tokens)   " <> show (countNames (_parsed newState))
 
                 $(logTM) InfoS "*******************************************************"
                 $(logTM) InfoS "Finished."
-                $(logTM) InfoS (LogStr . fromString $ "Old size:        " <> show oldSize)
-                $(logTM) InfoS (LogStr . fromString $ "Reduced size:    " <> show newSize)
+                $(logTM) InfoS (LogStr . fromString $ "Old size     (bytes):        " <> show oldSize)
+                $(logTM) InfoS (LogStr . fromString $ "Reduced size (bytes):    " <> show newSize)
 
                 liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState Parsed newState)
 
                 when recordStatistics $ do 
-                    t2 <- liftIO getCurrentTime
 
-                    let successfulInvocations = sum . map _successfulAttempts . M.elems $ newState ^. statistics . passStats
-                    let totalInvocations = sum . map _totalAttempts . M.elems $ newState ^. statistics . passStats
                     perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations (getTokenDiff newState beginState) (getNameDiff newState beginState)
                     liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
 

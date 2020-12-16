@@ -506,7 +506,7 @@ countTokensHelper flags str = fromMaybe 0 $ do
         location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
 
 countTestInvocationsHelper :: FilePath -> IO (Maybe String)
-countTestInvocationsHelper = fmap (listToMaybe . drop 10 . words . map (\c -> if c == ',' then ' ' else c) . last . lines) . readFile
+countTestInvocationsHelper = fmap (listToMaybe . drop 8 . words . map (\c -> if c == ',' then ' ' else c) . last . lines) . readFile
 
 -- 2020-12-01&&&1567.927965916&&&1&&&8&&&7558&&&3381&&&55&&&309
 
@@ -515,4 +515,4 @@ countTestInvocations =
     traverse (countTestInvocationsHelper . (\s -> "../hsreduce-test-cases/" <> s <> "/hsreduce_performance.csv")) testCases
 
 testCases :: [FilePath]
-testCases = ["ticket13877", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2", "ticket8763"]
+testCases = [ "ticket8763", "ticket13877", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2"]

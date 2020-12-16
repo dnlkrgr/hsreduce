@@ -33,7 +33,7 @@ simplifyType = mkPass "simplifyType" f
         f (HsAppTy _ (L l _) u@(L _ (HsTupleTy _ _ []))) = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
         f (HsOpTy _ (L _ l) _ (L _ r)) = map const [l, r]
         f (HsKindSig _ (L _ t) _) = [const t]
-        f (HsBangTy _ _ (L _ t)) = [const t]
+        -- f (HsBangTy _ _ (L _ t)) = [const t]
         f _ = []
         pType :: HsType p -> [SrcSpan]
         pType = \case
