@@ -23,21 +23,21 @@ main =
         Reduce {..} -> case customPassOrdering of
             -- Just (useP passP -> Right myPass) -> 
             --     let newPasses = filterOutPass myPass
-            --     in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug dontUsePass
+            --     in hsreduce newPasses numberOfThreads test testCase recordStatistics timeOut debug dontUsePass
             Just (useP nestedPassesP -> Right myPasses) -> 
                 let newPasses = map (mapM_ runPass) myPasses <> [rest]
-                in hsreduce newPasses numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
-            -- _ -> hsreduce allActions numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+                in hsreduce newPasses numberOfThreads shellScript testCase recordStatistics timeOut debug Nothing
+            -- _ -> hsreduce allActions numberOfThreads shellScript testCase recordStatistics timeOut debug Nothing
             _ -> do
-                fileLength <- T.length <$> TIO.readFile sourceFile
+                fileLength <- T.length <$> TIO.readFile testCase
                 if fileLength > 15_000
-                    then hsreduce quickerOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
-                    else hsreduce bestOrdering numberOfThreads test sourceFile recordStatistics timeOut debug Nothing
+                    then hsreduce quickerOrdering numberOfThreads shellScript testCase recordStatistics timeOut debug Nothing
+                    else hsreduce bestOrdering numberOfThreads shellScript testCase recordStatistics timeOut debug Nothing
 
-        Merge {..} -> hsmerge sourceFile
+        Merge {..} -> hsmerge isExecutable targetName
         PackageDesc {..} -> do
-            testAbs <- resolveFile' test
-            filePathAbs <- resolveFile' sourceFile
+            testAbs <- resolveFile' shellScript
+            filePathAbs <- resolveFile' testCase
             -- 1. parse the test case once at the beginning so we can work on the AST
             -- 2. record all the files in the current directory
             -- 3. record the starting time

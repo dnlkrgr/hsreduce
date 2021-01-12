@@ -16,9 +16,9 @@ splitSigs = mkPass "splitSigs" f
         f :: WaysToChange (HsModule GhcPs)
         f m = [const (m {hsmodDecls = concatMap g $ hsmodDecls m})]
         g ld@(L l d)
-            | SigD _ (TypeSig _ names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExt $ TypeSig NoExt [name] sigType) names
-            | SigD _ (PatSynSig _ names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExt $ PatSynSig NoExt [name] sigType) names
-            | SigD _ (ClassOpSig _ b names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExt $ ClassOpSig NoExt b [name] sigType) names
+            | SigD _ (TypeSig _ names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExtField $ TypeSig NoExtField [name] sigType) names
+            | SigD _ (PatSynSig _ names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExtField $ PatSynSig NoExtField [name] sigType) names
+            | SigD _ (ClassOpSig _ b names sigType) <- d, length names > 1 = map (\name -> L l $ SigD NoExtField $ ClassOpSig NoExtField b [name] sigType) names
             | otherwise = [ld]
 
 rmvSigs :: Pass
@@ -56,7 +56,7 @@ rmvConstructors = mkPass "rmvConstructors" f
                     (TyClD _ (DataDecl _ _ _ _ oldDataDefn)) -> map getLoc $ dd_cons oldDataDefn
                     _ -> []
                 delCons loc = \case
-                    (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) -> TyClD NoExt oDD {tcdDataDefn = oldDataDefn {dd_cons = filter ((/= loc) . getLoc) (dd_cons oldDataDefn)}}
+                    (TyClD _ oDD@(DataDecl _ _ _ _ oldDataDefn)) -> TyClD NoExtField oDD {tcdDataDefn = oldDataDefn {dd_cons = filter ((/= loc) . getLoc) (dd_cons oldDataDefn)}}
                     d -> d
         f _ = []
 
@@ -77,9 +77,9 @@ simplifyConDecl :: Pass
 simplifyConDecl = mkPass "simplifyConDecl" f
     where
         f :: WaysToChange (ConDecl GhcPs)
-        f gadtDecl@(ConDeclGADT {}) =
+        f gadtDecl@ConDeclGADT {} =
             handleSubList
-                (\loc g -> g {con_qvars = HsQTvs NoExt (filter ((/= loc) . getLoc) (hsq_explicit $ con_qvars g))})
+                (\loc g -> g {con_qvars = HsQTvs NoExtField (filter ((/= loc) . getLoc) (hsq_explicit $ con_qvars g))})
                 (map getLoc . hsq_explicit . con_qvars)
                 gadtDecl
         f d
@@ -99,7 +99,7 @@ simplifyConDecl = mkPass "simplifyConDecl" f
                     )
                         . con_args
                 g loc = \case
-                    XConDecl _ -> XConDecl NoExt
+                    XConDecl x -> XConDecl x
                     c ->
                         c
                             { con_args = case con_args c of

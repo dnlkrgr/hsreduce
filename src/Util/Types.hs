@@ -27,6 +27,7 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 import Data.Time (Day, DiffTime, UTCTime (utctDay, utctDayTime))
 import Data.Void (Void)
+import Data.Word
 import Distribution.PackageDescription hiding (Executable, Library)
 import Distribution.PackageDescription.PrettyPrint
 import GHC hiding (Parsed, Pass, Renamed)
@@ -53,12 +54,11 @@ import Options.Generic
 import Outputable hiding ((<>))
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
-import Data.Word
 
 data CLIOptions w
     = Reduce
-          { test :: w ::: FilePath <?> "path to the interestingness test",
-            sourceFile :: w ::: FilePath <?> "path to the source file",
+          { shellScript :: w ::: FilePath <?> "path to the interestingness test",
+            testCase :: w ::: FilePath <?> "path to the source file",
             numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
             timeOut :: w ::: Word64 <?> "timout in seconds",
             recordStatistics :: w ::: Bool <?> "whether or not do record statistics",
@@ -66,10 +66,13 @@ data CLIOptions w
             customPassOrdering :: w ::: Maybe T.Text <?> "your custom ordered list of passes to use",
             dontUsePass :: w ::: Maybe T.Text <?> "name of pass you don't want to use"
           }
-    | Merge {sourceFile :: w ::: FilePath <?> "path to the source file"}
+    | Merge
+          { isExecutable :: w ::: Bool <?> "whether the target is an executable; otherwise it's treated as a library",
+            targetName :: w ::: T.Text <?> "the name of the target you want to merge"
+          }
     | PackageDesc
-          { test :: w ::: FilePath <?> "path to the interestingness test",
-            sourceFile :: w ::: FilePath <?> "path to the source file",
+          { shellScript :: w ::: FilePath <?> "path to the interestingness test",
+            testCase :: w ::: FilePath <?> "path to the source file",
             numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
             timeOut :: w ::: Word64 <?> "timout in seconds"
           }
@@ -113,7 +116,7 @@ instance Show Performance where
             <> "\n"
 
 data PassStats = PassStats
-    { _passName :: String,
+    { _passName :: T.Text,
       _successfulAttempts :: Word64,
       _totalAttempts :: Word64,
       _removedBytes :: Integer,
@@ -123,22 +126,27 @@ data PassStats = PassStats
     deriving (Generic, Show)
 
 instance Num PassStats where
-  (PassStats n1 sa1 ta1 b1 t1 nn1) + (PassStats _ sa2 ta2 b2 t2 nn2) = PassStats n1 (sa1 + sa2) (ta1 + ta2) (b1 + b2) (t1 + t2) (nn1 + nn2)
+    (PassStats n1 sa1 ta1 b1 t1 nn1) + (PassStats _ sa2 ta2 b2 t2 nn2) = PassStats n1 (sa1 + sa2) (ta1 + ta2) (b1 + b2) (t1 + t2) (nn1 + nn2)
 
 instance FromField PassStats
+
 instance ToRecord PassStats
+
 instance ToNamedRecord PassStats
-instance FromNamedRecord (String, PassStats)
+
+instance FromNamedRecord (T.Text, PassStats)
+
 instance FromNamedRecord PassStats
+
 instance DefaultOrdered PassStats
 
 makeLenses ''PassStats
 
-stats2NamedTuple :: PassStats -> (String, PassStats)
-stats2NamedTuple p@PassStats{..} = (_passName, p)
+stats2NamedTuple :: PassStats -> (T.Text, PassStats)
+stats2NamedTuple p@PassStats {..} = (_passName, p)
 
 newtype Statistics = Statistics
-    { _passStats :: M.Map String PassStats
+    { _passStats :: M.Map T.Text PassStats
     }
     deriving (Generic, Show)
 
@@ -175,8 +183,8 @@ data RState
 makeLenses ''RState
 
 data RConf = RConf
-    { _test :: Path Rel File,
-      _sourceFile :: Path Rel File,
+    { _shellScript :: Path Rel File,
+      _testCase :: Path Rel File,
       _numberOfThreads :: Int,
       _tempDirs :: TChan (Path Abs Dir),
       _tState :: TVar RState,
@@ -273,21 +281,20 @@ type Parser = MP.Parsec Void T.Text
 type WaysToChange a = a -> [a -> a]
 
 data Pass
-    = AST String (ParsedSource -> [ParsedSource -> ParsedSource])
-    | STATE String (RState -> [RState -> RState])
-    | CabalPass String (GenericPackageDescription -> [GenericPackageDescription -> GenericPackageDescription])
+    = AST T.Text (ParsedSource -> [ParsedSource -> ParsedSource])
+    | STATE T.Text (RState -> [RState -> RState])
+    | CabalPass T.Text (GenericPackageDescription -> [GenericPackageDescription -> GenericPackageDescription])
 
 instance Show Pass where
-  show (AST s1 _) = s1
-  show (STATE s1 _) = s1
-  show (CabalPass s1 _) = s1
+    show (AST s1 _)       = T.unpack s1
+    show (STATE s1 _)     = T.unpack s1
+    show (CabalPass s1 _) = T.unpack s1
 
 instance Eq Pass where
-  AST s1 _ == AST s2 _ = s1 == s2
-  STATE s1 _ == STATE s2 _ = s1 == s2
-  CabalPass s1 _ == CabalPass s2 _ = s1 == s2
-  _ == _ = False
-
+    AST s1 _ == AST s2 _ = s1 == s2
+    STATE s1 _ == STATE s2 _ = s1 == s2
+    CabalPass s1 _ == CabalPass s2 _ = s1 == s2
+    _ == _ = False
 
 -- instance Semigroup Pass where
 --     AST s1 f <> AST s2 g = AST (s1 <> "<>" <> s2) $ \ast -> (.) <$> f ast <*> g ast

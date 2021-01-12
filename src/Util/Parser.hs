@@ -1,5 +1,6 @@
 module Util.Parser where
 
+import Bag
 import Control.Exception
 import Control.Monad.IO.Class
 import StringBuffer
@@ -18,7 +19,6 @@ import Parser
 import GHC.Paths (libdir)
 import qualified HeaderInfo as GHC
 import qualified Language.Haskell.GHC.ExactPrint as EP
-import Outputable (ppr, showSDocUnsafe)
 import Path (Abs, File, Path, fromAbsFile)
 import qualified StringBuffer as GHC
 import Text.Megaparsec.Char
@@ -68,7 +68,7 @@ parse fileName = do
 
     let filePath = fromAbsFile fileName
     p <- EP.parseModule filePath >>= \case
-        Left e -> error . showSDocUnsafe $ ppr e
+        Left e -> error $ show $ bagToList e
         Right p -> return $ snd p
 
     modName <-
@@ -113,7 +113,7 @@ initDynFlagsPure fp = do
     -- as long as `parseDynamicFilePragma` is impure there seems to be
     -- no reason to use it.
     dflags0 <- GHC.getSessionDynFlags
-    let pragmaInfo = GHC.getOptions dflags0 (GHC.stringToStringBuffer $ s) fp
+    let pragmaInfo = GHC.getOptions dflags0 (GHC.stringToStringBuffer s) fp
     (dflags1, _, _) <- GHC.parseDynamicFilePragma dflags0 pragmaInfo
     -- Turn this on last to avoid T10942
     let dflags2 = dflags1 `GHC.gopt_set` GHC.Opt_KeepRawTokenStream

@@ -15,7 +15,7 @@ dumpSplices = do
 
     when ("TemplateHaskell" `elem` map showExtension (_pragmas oldState)) $ do
         newState <- withTempDir (_tempDirs conf) $ \tempDir -> do
-            let filePath = _sourceFile conf
+            let filePath = _testCase conf
                 absPath = tempDir </> filePath
 
             -- write current AST to file

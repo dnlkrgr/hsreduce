@@ -34,8 +34,17 @@ import TcRnTypes (tcg_rdr_env)
 import Util.Types
 import Util.Util
 
-hsmerge :: FilePath -> IO ()
-hsmerge filePath = do
+
+hsmerge :: Bool -> T.Text -> IO ()
+hsmerge isExecutable targetName = do
+    let filePath = "hie.yaml"
+    let targetTypeS = if isExecutable 
+            then "exe"
+            else "lib"
+    let fileContent = "cradle: {cabal: {component: \"" <> targetTypeS <> ":" <> targetName <> "\" }}"
+
+    TIO.writeFile filePath fileContent
+
     cradle <- loadCradle . fromMaybe (error "cradle could not be found!") =<< findCradle filePath
     putStrLn . ("cradle: " <>) $ show cradle
 
@@ -87,7 +96,7 @@ hsmerge filePath = do
                     let exportNames = case mexports of
                             Just exports -> [ n | n :: Name <- concatMap (ieNames . unLoc . fst) exports]
                             Nothing -> []
-                    let name2ModName = M.fromList $ catMaybes $ map (sequence . (\n -> (n, getModuleName rdrEnv solveReexportMap ours myMN n))) $ exportNames <> [ n | n :: Name <- universeBi renamedGroups ]
+                    let name2ModName = M.fromList $ mapMaybe (sequence . (\n -> (n, getModuleName rdrEnv solveReexportMap ours myMN n))) $ exportNames <> [ n | n :: Name <- universeBi renamedGroups ]
                     
                     liftIO $ modifyIORef modName2Map $ M.insert (moduleName myMN) (map (unLoc . ideclName . unLoc) imports, name2ModName)
 
@@ -125,7 +134,6 @@ hsmerge filePath = do
 renameName :: GlobalRdrEnv -> M.Map ModuleName ([ModuleName], M.Map Name ModuleName) -> [ModuleName] -> Module -> Name -> Name
 renameName rdrEnv solveReexportMap ours myMN@(Module unitId _) n
     | oshow n == "main" = n
-    | oshow n == "~" || oshow n == "~" = n
 
     -- -- built-in things
     | isBuiltInSyntax n = n
@@ -149,7 +157,7 @@ getModuleName env solveReexportMap ours myMN n
     | (gre_lcl <$> rdrElt) == Just True = Just $ moduleName myMN
     | otherwise = do
         imports <- gre_imp <$> rdrElt
-        importMN <- is_mod . is_decl <$> (listToMaybe imports)
+        importMN <- is_mod . is_decl <$> listToMaybe imports
         exactMN <- moduleName <$> nameModule_maybe n
         if importMN `elem` ours && importMN /= exactMN
             then case resolveImportedReexport solveReexportMap n importMN of
@@ -164,13 +172,7 @@ resolveImportedReexport solveReexportMap n importMN = case M.lookup importMN sol
     Just (imports, tempMap) -> case M.lookup n tempMap of
         Just realMN -> Just realMN
         Nothing -> listToMaybe $ catMaybes $ map (resolveImportedReexport solveReexportMap n) imports
-            
     Nothing -> Nothing
--- !!!!!!!!
--- fuer importName nichts gefunden?
--- rekursiv in den Maps schauen
-
-
 
 getModuleNameFromRdrName :: GlobalRdrEnv -> Module -> RdrName -> Maybe ModuleName
 getModuleNameFromRdrName env mn n
@@ -199,9 +201,9 @@ renameAmbiguousField rdrEnv solveReexportMap ours myMN@(Module unitId _) f@(Unam
         u = nameUnique n
         on = rdrNameOcc rn
 renameAmbiguousField rdrEnv _ ours myMN f@(Ambiguous _ (L l rn))
-    | Just mn <- getModuleNameFromRdrName rdrEnv myMN rn, mn `elem` ours = Ambiguous NoExt . L l . Unqual $ mangle mn on
-    | Just mn <- getModuleNameFromRdrName rdrEnv myMN rn = Ambiguous NoExt . L l $ Qual mn on
-    | Qual mn _ <- rn, mn `elem` ours = Ambiguous NoExt . L l . Unqual $ mangle mn on
+    | Just mn <- getModuleNameFromRdrName rdrEnv myMN rn, mn `elem` ours = Ambiguous NoExtField . L l . Unqual $ mangle mn on
+    | Just mn <- getModuleNameFromRdrName rdrEnv myMN rn = Ambiguous NoExtField . L l $ Qual mn on
+    | Qual mn _ <- rn, mn `elem` ours = Ambiguous NoExtField . L l . Unqual $ mangle mn on
     | otherwise = f
     where
         on = rdrNameOcc rn
@@ -220,11 +222,11 @@ renameField _ _ _ _ f = f
 -- MERGING MODULES UTILITIES
 
 -- ***************************************************************************
--- only unqual names associated type families!
+-- only unqual names in associated type families!
 unqualFamEqnClsInst :: p ~ GhcRn => ClsInstDecl p -> ClsInstDecl p
 unqualFamEqnClsInst = transformBi unqualFamEqn
 
-unqualFamEqn :: p ~ GhcRn => FamEqn p (HsTyPats p) (LHsType p) -> FamEqn p (HsTyPats p) (LHsType p)
+unqualFamEqn :: (pass ~ GhcRn) => FamEqn pass (LHsType GhcRn) -> FamEqn pass (LHsType GhcRn)
 unqualFamEqn fe@FamEqn {feqn_tycon = L l n} = fe {feqn_tycon = L l $ unqualName n}
 unqualFamEqn f = f
 
@@ -253,7 +255,7 @@ unqualName n
 
 mangle :: ModuleName -> OccName -> OccName
 mangle mn on 
-    | isSymOcc on, Just os <- mOS = mkOccName ns $ NE.head os : renameOperator (NE.toList os <> filter (/= '.') (moduleNameString mn))
+    | isSymOcc on, Just os <- mOS = mkOccName ns $ T.unpack $ NE.head os `T.cons` renameOperator (T.pack $ NE.toList os <> filter (/= '.') (moduleNameString mn))
     | otherwise, Just os <- mOS = mkOccName ns $ NE.toList os <> "_" <> filter (/= '.') (moduleNameString mn)
     | otherwise = on
     where
@@ -267,7 +269,7 @@ qualImports =
         ( \(L l i) ->
               L l $
                   i
-                      { ideclQualified = True,
+                      { ideclQualified = QualifiedPre,
                         ideclHiding = Nothing,
                         ideclAs = Nothing,
                         ideclSafe = False
@@ -282,11 +284,11 @@ removeImports ours = filter go
             let modName = unLoc . ideclName $ i
              in modName `notElem` ours && "Prelude" /= moduleNameString modName
 
-renameOperator :: String -> String
+renameOperator :: T.Text -> T.Text
 renameOperator = evalRand randomOpString . mkStdGen . hash
 
 -- | create a random operator string
-randomOpString :: MonadRandom m => m String
+randomOpString :: MonadRandom m => m T.Text
 randomOpString = do
     s1 <- replicateM 2 $ do
         i <- getRandomR (0, length operatorSymbols - 1)
@@ -296,7 +298,7 @@ randomOpString = do
 
     s2 <- if b then randomOpString else return ""
 
-    return $ "<" <> s1 <> s2 <> ">"
+    return $ "<" <> T.pack s1 <> s2 <> ">"
     where
         operatorSymbols = "!#$%&*+<>?@^~"
 

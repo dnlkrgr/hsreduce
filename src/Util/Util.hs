@@ -13,44 +13,44 @@ import Control.Concurrent.STM.Lifted
       writeTChan,
       writeTVar,
     )
+import Control.Exception
 import qualified Control.Exception.Lifted as CE
 import Control.Monad.Reader
 import Data.Aeson (decodeStrict)
-import Data.Algorithm.Diff (PolyDiff (Both), getDiff)
+import Data.Algorithm.Diff
 import Data.Char (isAlphaNum)
 import Data.Data (Data (gmapQ, toConstr), showConstr)
 import Data.Either (fromRight, isRight)
 import Data.Generics.Aliases (extQ)
 import Data.Generics.Uniplate.Data
 import Data.List.Split (chunksOf)
+import Data.Maybe
 import Data.String (IsString (fromString))
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Data.Word
+import Debug.Trace
 import DynFlags hiding (GhcMode)
+import FastString
 import GHC hiding (GhcMode, Parsed, Pass, Renamed, Severity)
+import GHC.Paths (libdir)
 import Katip
     ( Severity (DebugS, ErrorS, InfoS, NoticeS, WarningS),
       logTM,
     )
 import Lens.Micro.Platform ((%~), (&), at)
+import Lexer
 import Outputable hiding ((<>))
-import Util.Parser
+import Path
 import SrcLoc as SL
+import StringBuffer
 import System.Exit
+import System.Process
 import System.Timeout.Lifted (timeout)
+import Util.Parser
 import Util.Types
 import qualified Util.Types as UT
-import Control.Exception
-import Lexer
-import GHC.Paths (libdir)
-import StringBuffer
-import FastString
-import Path
-import System.Process
-import Data.Maybe
-import Debug.Trace
 
 getASTLengthDiff :: RState -> RState -> Integer
 getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldState
@@ -58,8 +58,7 @@ getASTLengthDiff newState oldState = getASTLength newState - getASTLength oldSta
 getASTLength :: RState -> Integer
 getASTLength = fromIntegral . T.length . showState Parsed
 
-
-tryNewState :: String -> (RState -> RState) -> R IO ()
+tryNewState :: T.Text -> (RState -> RState) -> R IO ()
 tryNewState passId f = do
     conf <- ask
     oldState <- liftIO . readTVarIO $ _tState conf
@@ -106,30 +105,27 @@ tryNewState passId f = do
 logStateDiff :: Severity -> T.Text -> T.Text -> R IO ()
 logStateDiff severity oldStateS newStateS = do
     let title = case severity of
-            DebugS -> "TRIED CHANGE"
-            _ -> "APPLIED CHANGE"
+            DebugS -> "[TRIED] "
+            _ -> ""
 
-    printDebugInfo title
-    $(logTM) severity $ fromString title
+    let diffs = filter (\case Both l r -> l /= r; _ -> True) $ getDiff (T.lines oldStateS) (T.lines newStateS)
+        firsts  = map (\(First a)  -> a) $ filter (\case First _ -> True;  _ -> False) diffs
+        seconds = map (\(Second b) -> b) $ filter (\case Second _ -> True; _ -> False) diffs
 
-    forM_
-        ( filter
-              ( \case
-                    Both l r -> l /= r
-                    _ -> True
-              )
-              $ getDiff (T.lines oldStateS) (T.lines newStateS)
-        )
-        $ \line -> do
-            printDebugInfo (fromString (show line))
-            $(logTM) severity (fromString (show line))
+        -- if there are only `First` values, only print them
+        line = if length seconds == 0
+            then T.unlines $ [title <> "[DELETE]", T.unlines firsts]
+            else T.unlines $ [title <> "[CHANGE]", T.unlines firsts, "==>", T.unlines seconds]
+
+    printDebugInfo line
+    $(logTM) severity (fromString $ T.unpack line)
 
 overwriteAtLoc :: SrcSpan -> (a -> a) -> Located a -> Located a
 overwriteAtLoc loc f oldValue@(L oldLoc a)
     | loc == oldLoc = L loc $ f a
     | otherwise = oldValue
 
-mkPass :: Data a => String -> WaysToChange a -> Pass
+mkPass :: Data a => T.Text -> WaysToChange a -> Pass
 mkPass name pass = AST name (\ast -> concat [map (transformBi . overwriteAtLoc l) $ pass e | L l e <- universeBi ast])
 
 overwriteWithEq :: Eq a => a -> (a -> a) -> a -> a
@@ -137,7 +133,7 @@ overwriteWithEq a f oldValue
     | a == oldValue = f oldValue
     | otherwise = oldValue
 
-mkCabalPass :: (Eq a, Data a) => String -> WaysToChange a -> Pass
+mkCabalPass :: (Eq a, Data a) => T.Text -> WaysToChange a -> Pass
 mkCabalPass name pass = CabalPass name (\ast -> concat [map (transformBi . overwriteWithEq e) $ pass e | e <- universeBi ast])
 
 -- surprisingly, this is actually worse, performance-wise
@@ -145,11 +141,14 @@ runAllPasses :: [Pass] -> R IO ()
 runAllPasses passes = do
     conf <- ask
     oldState <- liftIO . readTVarIO $ _tState conf
-    let proposedChanges = concatMap (\case
-            AST _ pass -> map (parsed %~) $ pass $ _parsed oldState 
-            _ -> []) passes
+    let proposedChanges =
+            concatMap
+                ( \case
+                      AST _ pass -> map (parsed %~) $ pass $ _parsed oldState
+                      _ -> []
+                )
+                passes
     applyInterestingChanges "allPassesAtOnce" proposedChanges
-
 
 runPass :: Pass -> R IO ()
 runPass (AST name pass) =
@@ -172,9 +171,9 @@ runPass (CabalPass name pass) =
         >>= applyInterestingChanges name
 runPass _ = return ()
 
-applyInterestingChanges :: String -> [RState -> RState] -> R IO ()
+applyInterestingChanges :: T.Text -> [RState -> RState] -> R IO ()
 applyInterestingChanges name proposedChanges = do
-    printDebugInfo $ "# proposed changes: " <> (show $ length proposedChanges)
+    printDebugInfo $ T.pack $ "# proposed changes: " <> (show $ length proposedChanges)
     $(logTM) InfoS . fromString $ "# proposed changes: " <> (show $ length proposedChanges)
 
     numberOfThreads <- asks _numberOfThreads
@@ -193,8 +192,8 @@ applyInterestingChanges name proposedChanges = do
                                 else temp
                         _ -> temp
 
-    printDebugInfo $ "# batches: " <> (show $ length batches)
-    printDebugInfo $ "batch sizes: " <> (show $ map length batches)
+    printDebugInfo $ T.pack $ "# batches: " <> (show $ length batches)
+    printDebugInfo $ T.pack $ "batch sizes: " <> (show $ map length batches)
 
     $(logTM) InfoS . fromString $ "# batches: " <> (show $ length batches)
     $(logTM) InfoS . fromString $ "batch sizes: " <> (show $ map length batches)
@@ -204,7 +203,7 @@ applyInterestingChanges name proposedChanges = do
         -- within a thread check out all the changes
         forM_ batch $ \c -> tryNewState name c
 
-updateStatistics :: RConf -> String -> Word64 -> Integer -> Integer -> Integer -> R IO ()
+updateStatistics :: RConf -> T.Text -> Word64 -> Integer -> Integer -> Integer -> R IO ()
 updateStatistics conf name i sizeDiff tokenDiff nameDiff = atomically $ updateStatisticsHelper conf name i sizeDiff tokenDiff nameDiff
 
 -- 1. if the interestingness test was successful:
@@ -214,7 +213,7 @@ updateStatistics conf name i sizeDiff tokenDiff nameDiff = atomically $ updateSt
 --         number of removed bytes of this pass
 -- 2. if the interestingness test failed:
 --      a) increment number of total invocations
-updateStatisticsHelper :: RConf -> String -> Word64 -> Integer -> Integer -> Integer -> STM ()
+updateStatisticsHelper :: RConf -> T.Text -> Word64 -> Integer -> Integer -> Integer -> STM ()
 updateStatisticsHelper conf name i sizeDiff tokenDiff nameDiff =
     modifyTVar (_tState conf) $ \s ->
         s & statistics . passStats . at name %~ \case
@@ -225,8 +224,8 @@ updateStatisticsHelper conf name i sizeDiff tokenDiff nameDiff =
 testNewState :: RConf -> RState -> R IO Interesting
 testNewState conf newState =
     withTempDir (_tempDirs conf) $ \tempDir -> do
-        let sourceFile = tempDir </> _sourceFile conf
-            test = tempDir </> _test conf
+        let sourceFile = tempDir </> _testCase conf
+            test = tempDir </> _shellScript conf
 
         CE.try
             ( do
@@ -252,12 +251,12 @@ runTest test duration = do
                 return Uninteresting
             _ -> pure Uninteresting
 
-printDebugInfo :: String -> R IO ()
-printDebugInfo = liftIO . putStrLn
+printDebugInfo :: T.Text -> R IO ()
+printDebugInfo = liftIO . TIO.putStrLn
 
 -- printDebugInfo s = (asks _debug) >>= flip when (liftIO $ putStrLn s)
 
-printInfo :: String -> R IO ()
+printInfo :: T.Text -> R IO ()
 printInfo context = do
     tState <- asks _tState
     oldState <- liftIO . atomically $ readTVar tState
@@ -266,10 +265,10 @@ printInfo context = do
 
     printDebugInfo "****************************************"
     printDebugInfo context
-    printDebugInfo info
+    printDebugInfo $ T.pack info
 
     $(logTM) InfoS "****************************************"
-    $(logTM) InfoS $ fromString context
+    $(logTM) InfoS $ fromString $ T.unpack context
     $(logTM) InfoS $ fromString info
 
 isTestStillFresh :: String -> R IO ()
@@ -280,13 +279,13 @@ isTestStillFresh context = do
         Uninteresting -> do
             results <- replicateM 3 (testNewState conf newState)
             when (all (== Uninteresting) results) $ do
-                liftIO . TIO.writeFile ((fromRelFile $ _sourceFile conf) <> ".stale_state") $ showState Parsed newState
+                liftIO . TIO.writeFile ((fromRelFile $ _testCase conf) <> ".stale_state") $ showState Parsed newState
                 $(logTM) ErrorS (fromString $ "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<")
                 error $
                     "potential hsreduce bug: Test case is broken at >>>" <> context <> "<<<"
                         <> "\n"
                         <> "sourceFile: "
-                        <> show (_sourceFile conf)
+                        <> show (_testCase conf)
         _ -> return ()
 
 -- get ways to change an expression that contains a list as an subexpression
@@ -363,7 +362,7 @@ getGhcOutput ghcMode sourcePath = do
 getStuffFromGhc :: GhcMode -> R IO (Maybe [T.Text])
 getStuffFromGhc mode = do
     conf <- ask
-    let sourceFilePath = _sourceFile conf
+    let sourceFilePath = _testCase conf
     mstuff <- withTempDir (_tempDirs conf) $ \dir ->
         liftIO $ getGhcOutput mode (dir </> sourceFilePath)
     pure $ map fst <$> mstuff
@@ -431,10 +430,10 @@ exprFitsNumberOfPatterns _ _ = False
 
 handleSigs :: RdrName -> Int -> Sig GhcPs -> Sig GhcPs
 handleSigs funId i ts@(TypeSig _ [sigId] (HsWC _ (HsIB _ (L l t))))
-    | funId == unLoc sigId = TypeSig NoExt [sigId] . HsWC NoExt . HsIB NoExt . L l $ handleTypes i t
+    | funId == unLoc sigId = TypeSig NoExtField [sigId] . HsWC NoExtField . HsIB NoExtField . L l $ handleTypes i t
     | otherwise = ts
 handleSigs funId i ts@(ClassOpSig _ b [sigId] (HsIB _ (L l t)))
-    | funId == unLoc sigId = ClassOpSig NoExt b [sigId] . HsIB NoExt . L l $ handleTypes i t
+    | funId == unLoc sigId = ClassOpSig NoExtField b [sigId] . HsIB NoExtField . L l $ handleTypes i t
     | otherwise = ts
 handleSigs _ _ d = d
 
@@ -445,11 +444,11 @@ handleTypes _ t = t
 
 handleFunBinds :: RdrName -> Int -> HsBind GhcPs -> HsBind GhcPs
 handleFunBinds funId i (FunBind _ bindId (MG _ (L l m) o) a b)
-    | funId == unLoc bindId = FunBind NoExt bindId (MG NoExt (L l (handleMatches i m)) o) a b
+    | funId == unLoc bindId = FunBind NoExtField bindId (MG NoExtField (L l (handleMatches i m)) o) a b
 handleFunBinds _ _ b = b
 
 handleMatches :: Int -> [LMatch GhcPs (LHsExpr GhcPs)] -> [LMatch GhcPs (LHsExpr GhcPs)]
-handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg]
+handleMatches i mg = [L l (Match NoExtField ctxt (f pats) grhss) | L l (Match _ ctxt pats grhss) <- mg]
     where
         f =
             map snd
@@ -458,19 +457,19 @@ handleMatches i mg = [L l (Match NoExt ctxt (f pats) grhss) | L l (Match _ ctxt 
 
 -- EVALUATION
 getNameDiff :: RState -> RState -> Integer
-getNameDiff newState oldState = (countNames $ _parsed newState) - (countNames $ _parsed oldState) 
+getNameDiff newState oldState = (countNames $ _parsed newState) - (countNames $ _parsed oldState)
 
 getTokenDiff :: RState -> RState -> Integer
-getTokenDiff newState oldState = 
+getTokenDiff newState oldState =
     let mn1 = countTokensHelper (_dflags newState) $ T.unpack $ showState Parsed newState
         mn2 = countTokensHelper (_dflags oldState) $ T.unpack $ showState Parsed oldState
-    in mn1 - mn2
+     in mn1 - mn2
 
 countNames :: ParsedSource -> Integer
-countNames ast = fromIntegral $ length [ () | _ :: RdrName <- universeBi ast ]
+countNames ast = fromIntegral $ length [() | _ :: RdrName <- universeBi ast]
 
 countNamesM :: FilePath -> IO Integer
-countNamesM = fmap (fromMaybe 0 . fmap countNames) . quickParse 
+countNamesM = fmap (fromMaybe 0 . fmap countNames) . quickParse
 
 countNamesOfTestCases :: IO ()
 countNamesOfTestCases = do
@@ -479,14 +478,12 @@ countNamesOfTestCases = do
     l3 <- traverse (countNamesM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
     forM_ (zip testCases $ zip3 l1 l2 l3) print
 
-
 countTokensOfTestCases :: IO ()
 countTokensOfTestCases = do
     l1 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug.hs")) testCases
     l2 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_creduce.hs")) testCases
     l3 <- traverse (countTokensM . (\s -> "../hsreduce-test-cases/" <> s <> "/Bug_hsreduce.hs")) testCases
     forM_ (zip testCases $ zip3 l1 l2 l3) print
-
 
 countTokensM :: FilePath -> IO Integer
 countTokensM fp = fromMaybe 0 <$> do
@@ -502,7 +499,7 @@ countTokensHelper flags str = fromMaybe 0 $ do
     case lexTokenStream buffer location flags of
         POk _ toks -> Just $ fromIntegral $ length toks
         _ -> Nothing
-    where 
+    where
         location = mkRealSrcLoc (mkFastString "<interactive>") 1 1
 
 countTestInvocationsHelper :: FilePath -> IO (Maybe String)
@@ -515,4 +512,4 @@ countTestInvocations =
     traverse (countTestInvocationsHelper . (\s -> "../hsreduce-test-cases/" <> s <> "/hsreduce_performance.csv")) testCases
 
 testCases :: [FilePath]
-testCases = [ "ticket8763", "ticket13877", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2"]
+testCases = ["ticket8763", "ticket13877", "ticket14270", "ticket14779", "ticket14827", "ticket15696_1", "ticket15696_2", "ticket16979", "ticket18098", "ticket18140_1", "ticket18140_2"]

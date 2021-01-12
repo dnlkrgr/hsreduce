@@ -128,11 +128,11 @@ parseBlock = do
 parseHeader :: Parser String
 parseHeader = do
     space
-    char '-'
+    _ <- char '-'
     space
-    chunk "test-cases/ticket"
+    _ <- chunk "test-cases/ticket"
     n <- some $ noneOf [':']
-    char ':'
+    _ <- char ':'
     space
     pure n
 

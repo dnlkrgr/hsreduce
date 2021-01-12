@@ -44,7 +44,7 @@ rmvUnusedParams =
               . transformBi (rmvArgsFromType famId newLenArgs newI)
         )
 
-handleFamEqn :: GhcPs ~ p => RdrName -> Int -> FamEqn p (HsTyPats p) (LHsType p) -> FamEqn p (HsTyPats p) (LHsType p) 
+handleFamEqn :: GhcPs ~ p => RdrName -> Int -> FamEqn p (LHsType p) -> FamEqn p (LHsType p) 
 handleFamEqn name i f@FamEqn {..}
     | unLoc feqn_tycon == name = f {feqn_pats = deleteAt i feqn_pats}
     | otherwise = f
@@ -87,7 +87,7 @@ handleFamDecl :: GhcPs ~ p => RdrName -> Int -> TyClDecl p -> TyClDecl p
 handleFamDecl name i f@FamDecl {..}
     | unLoc (fdLName tcdFam) == name,
       HsQTvs {} <- fdTyVars tcdFam =
-        f {tcdFam = tcdFam {fdTyVars = HsQTvs NoExt . deleteAt i . hsq_explicit $ fdTyVars tcdFam}}
+        f {tcdFam = tcdFam {fdTyVars = HsQTvs NoExtField . deleteAt i . hsq_explicit $ fdTyVars tcdFam}}
     | otherwise = f
 handleFamDecl _ _ d = d
 
@@ -97,7 +97,7 @@ familyResultSig = mkPass "TypeFamilies.familyResultSig" f
         f :: WaysToChange (FamilyResultSig GhcPs)
         f (NoSig _) = []
         f (XFamilyResultSig _) = []
-        f _ = [const (NoSig NoExt)]
+        f _ = [const (NoSig NoExtField)]
 
 rmvEquations :: Pass
 rmvEquations = mkPass "TypeFamilies.rmvEquations" f
@@ -111,8 +111,8 @@ rmvEquations = mkPass "TypeFamilies.rmvEquations" f
                 p _ = []
                 g loc (TyClD _ t@FamDecl {tcdFam = d}) = case fdInfo d of
                     ClosedTypeFamily (Just equations) ->
-                        TyClD NoExt $ t {tcdFam = d {fdInfo = ClosedTypeFamily . Just $ filter ((/= loc) . getLoc) equations}}
-                    _ -> TyClD NoExt t
+                        TyClD NoExtField $ t {tcdFam = d {fdInfo = ClosedTypeFamily . Just $ filter ((/= loc) . getLoc) equations}}
+                    _ -> TyClD NoExtField t
                 g _ t = t
 
 -- from commit 66bb499
@@ -120,10 +120,10 @@ apply :: Pass
 apply = AST "TypeFamilies.apply" $ \oldAST ->
     concatMap
         (applyHelper oldAST)
-        [f | f@FamEqn {} :: FamEqn GhcPs (HsTyPats GhcPs) (LHsType GhcPs) <- universeBi oldAST]
+        [f | f@FamEqn {} :: FamEqn GhcPs (LHsType GhcPs) <- universeBi oldAST]
 
-applyHelper :: p ~ GhcPs => ParsedSource -> FamEqn p (HsTyPats p) (LHsType p) -> [ParsedSource -> ParsedSource]
-applyHelper ast (FamEqn {..}) =
+applyHelper :: p ~ GhcPs => ParsedSource -> FamEqn p (LHsType p) -> [ParsedSource -> ParsedSource]
+applyHelper ast FamEqn {..} =
      map
             ( \(L l _) oldAST ->
                   let c =
@@ -212,7 +212,7 @@ notWorking = do
                 liftIO $ modifyIORef (_logRef conf) ((fromString <> " ===> " <> toString) :)
 
                 newState <- withTempDir tChan $ \tempDir -> do
-                    let sourceFile = tempDir </> _sourceFile conf
+                    let sourceFile = tempDir </> _testCase conf
                     let newFileContent = showState Parsed midState
 
                     liftIO $ TIO.writeFile (fromAbsFile sourceFile) newFileContent

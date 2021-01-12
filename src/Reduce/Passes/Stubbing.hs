@@ -19,7 +19,7 @@ import GHC
       HsTyVarBndr (KindedTyVar, UserTyVar),
       HsValBindsLR (ValBinds),
       LHsDerivingClause,
-      NoExt (NoExt),
+      NoExtField (NoExtField),
       SrcSpan,
       getLoc,
       unLoc,
@@ -86,7 +86,7 @@ simplifyDerivingClause = mkPass "simplifyDerivingClause" f
 
 unIB :: HsImplicitBndrs pass thing -> thing
 unIB (HsIB _ b) = b
-unIB _ = error "Stubbing:unIB - trying to work with NoExt"
+unIB _ = error "Stubbing:unIB - trying to work with NoExtField"
 
 -- ***************************************************************************
 
@@ -102,7 +102,7 @@ localBinds = mkPass "localBinds" f
     where
         f :: WaysToChange (HsLocalBinds GhcPs)
         f EmptyLocalBinds {} = []
-        f v@HsValBinds {} = handleSubList g p v <> [const (EmptyLocalBinds NoExt)]
+        f v@HsValBinds {} = handleSubList g p v <> [const (EmptyLocalBinds NoExtField)]
             where
                 p = \case
                     (HsValBinds _ (ValBinds _ binds sigs)) ->
@@ -110,20 +110,20 @@ localBinds = mkPass "localBinds" f
                          in map (Sig . getLoc) sigs <> map (Bind . getLoc) bindList
                     _ -> []
                 g (Sig loc) = \case
-                    (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExt . ValBinds NoExt binds . filter ((/= loc) . getLoc) $ sigs
+                    (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExtField . ValBinds NoExtField binds . filter ((/= loc) . getLoc) $ sigs
                     hvb -> hvb
                 g (Bind loc) = \case
-                    (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExt . ValBinds NoExt (listToBag . filter ((/= loc) . getLoc) $ bagToList binds) $ sigs
+                    (HsValBinds _ (ValBinds _ binds sigs)) -> HsValBinds NoExtField . ValBinds NoExtField (listToBag . filter ((/= loc) . getLoc) $ bagToList binds) $ sigs
                     hvb -> hvb
-        f v@HsIPBinds {} = handleSubList g p v <> [const (EmptyLocalBinds NoExt)]
+        f v@HsIPBinds {} = handleSubList g p v <> [const (EmptyLocalBinds NoExtField)]
             where
                 p = \case
                     (HsIPBinds _ (IPBinds _ binds)) -> map getLoc binds
                     _ -> []
                 g loc = \case
-                    (HsIPBinds _ (IPBinds _ binds)) -> HsIPBinds NoExt . IPBinds NoExt . filter ((/= loc) . getLoc) $ binds
+                    (HsIPBinds _ (IPBinds _ binds)) -> HsIPBinds NoExtField . IPBinds NoExtField . filter ((/= loc) . getLoc) $ binds
                     hvb -> hvb
-        f _ = [const (EmptyLocalBinds NoExt)]
+        f _ = [const (EmptyLocalBinds NoExtField)]
 
 -- ***************************************************************************
 -- MISC
@@ -134,5 +134,5 @@ tyVarBndr :: Pass
 tyVarBndr = mkPass "tyVarBndr" f
     where
         f :: WaysToChange (HsTyVarBndr GhcPs)
-        f (KindedTyVar _ lId _) = [const (UserTyVar NoExt lId)]
+        f (KindedTyVar _ lId _) = [const (UserTyVar NoExtField lId)]
         f _ = []

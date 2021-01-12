@@ -42,7 +42,7 @@ betaReduceExprs = mkPass "betaReduceExprs" f
                   newExpr
                 ) =
                 let newBody = transformBi (substituteVarWithExpr newExpr name) body
-                 in [const (HsPar NoExt newBody)]
+                 in [const (HsPar NoExtField newBody)]
         f
             ( HsApp
                   _
@@ -70,7 +70,7 @@ betaReduceExprs = mkPass "betaReduceExprs" f
                   newExpr
                 ) =
                 let newRHS = transformBi (substituteVarWithExpr newExpr name) rhs
-                 in [const (HsPar NoExt (noLoc $ HsLam NoExt (MG NoExt (noLoc [noLoc $ Match NoExt ctxt otherPats newRHS]) mgOrigin)))]
+                 in [const (HsPar NoExtField (noLoc $ HsLam NoExtField (MG NoExtField (noLoc [noLoc $ Match NoExtField ctxt otherPats newRHS]) mgOrigin)))]
         f _ = []
 
 -- only one match and rhs is just a function name
@@ -88,7 +88,7 @@ inline = AST "Functions:inline" $ \ast ->
         ]
         <> map
             ( \(funId, mg) ->
-                  transformBi (substituteVarWithExpr (noLoc $ HsPar NoExt $ noLoc $ HsLam NoExt mg) funId)
+                  transformBi (substituteVarWithExpr (noLoc $ HsPar NoExtField $ noLoc $ HsLam NoExtField mg) funId)
             )
             ( [ (funId, transformBi changeCtxt2Lambda mg)
                 | (FunBind _ (L _ funId) mg@(MG _ (unLoc -> [unLoc -> Match _ _ _ (GRHSs _ [unLoc -> GRHS _ [] _] _)]) _) _ _) :: HsBindLR GhcPs GhcPs <- universeBi ast,
@@ -112,7 +112,7 @@ etaReduceMatches = mkPass "etaReduceMatches" f
         f [L l1 m@(Match {m_pats = pats@(_ : _), m_grhss = g@(GRHSs {grhssGRHSs = [L l2 (GRHS _ guards (L l3 (HsApp _ lExpr rExpr)))]})})]
             | let sPat = oshow (last pats),
               sPat == "_" || sPat == oshow rExpr =
-                [const [L l1 (m {m_pats = init pats, m_grhss = g {grhssGRHSs = [L l2 (GRHS NoExt guards (L l3 (unLoc lExpr)))]}})]]
+                [const [L l1 (m {m_pats = init pats, m_grhss = g {grhssGRHSs = [L l2 (GRHS NoExtField guards (L l3 (unLoc lExpr)))]}})]]
             | otherwise = []
         f _ = []
 
@@ -138,7 +138,7 @@ rmvRHSs = mkPass "rmvRHSs" f
                         let newGRHSs = filter ((/= grhsLoc) . getLoc) grhss
                          in case newGRHSs of
                                 [] -> m
-                                _ -> m {m_grhss = GRHSs NoExt newGRHSs lb}
+                                _ -> m {m_grhss = GRHSs NoExtField newGRHSs lb}
                     m -> m
 
 rmvMatches :: Pass
@@ -155,11 +155,11 @@ rmvGuards = mkPass "rmvGuards" f
     where
         f :: WaysToChange (GRHS GhcPs (LHsExpr GhcPs))
         f (GRHS _ [] _) = []
-        f g@(GRHS _ _ body) = [const (GRHS NoExt [] body)] <> handleSubList h p g
+        f g@(GRHS _ _ body) = [const (GRHS NoExtField [] body)] <> handleSubList h p g
             where
                 p (GRHS _ stmts _) = map getLoc stmts
                 p _ = []
-                h loc (GRHS _ s b) = GRHS NoExt (filter ((/= loc) . getLoc) s) b
+                h loc (GRHS _ s b) = GRHS NoExtField (filter ((/= loc) . getLoc) s) b
                 h _ _ = g
         f _ = []
 

@@ -27,7 +27,7 @@ reduce = do
         $(logTM) InfoS "making exports explicit"
         isTestStillFresh "make exports explicit"
 
-        modName <- asks (takeWhile (/= '.') . fromRelFile . _sourceFile)
+        modName <- asks (takeWhile (/= '.') . fromRelFile . _testCase)
 
         let oldExports = mapMaybe (decl2Export . unLoc) allDecls
             newModName =
@@ -61,8 +61,8 @@ removeExports = mkPass "rmvExports" f
 
 -- | turn decl into a fitting export, somehow type synonyms and
 decl2Export :: HsDecl GhcPs -> Maybe (LIE GhcPs)
-decl2Export (ValD _ (FunBind _ fId _ _ _)) = Just . noLoc . IEVar NoExt . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
+decl2Export (ValD _ (FunBind _ fId _ _ _)) = Just . noLoc . IEVar NoExtField . L noSrcSpan . IEName . L noSrcSpan . unLoc $ fId
 decl2Export (TyClD _ t)
-    | isSynDecl t = Just . noLoc $ IEThingAbs NoExt (noLoc . IEName . noLoc . tcdName $ t)
-    | otherwise = Just . noLoc . IEThingAll NoExt . noLoc . IEName . noLoc . tcdName $ t
+    | isSynDecl t = Just . noLoc $ IEThingAbs NoExtField (noLoc . IEName . noLoc . tcdName $ t)
+    | otherwise = Just . noLoc . IEThingAll NoExtField . noLoc . IEName . noLoc . tcdName $ t
 decl2Export _ = Nothing

@@ -55,7 +55,7 @@ rmvArgsFromClass _ _ d = d
 rmvArgsFromInstance :: RdrName -> Int -> Int -> ClsInstDecl GhcPs -> ClsInstDecl GhcPs
 rmvArgsFromInstance className n i d@ClsInstDecl {..} =
     case cid_poly_ty of
-        HsIB _ body -> d {cid_poly_ty = HsIB NoExt $ rmvArgsFromType className n i <$> body}
+        HsIB _ body -> d {cid_poly_ty = HsIB NoExtField $ rmvArgsFromType className n i <$> body}
         _ -> d
 rmvArgsFromInstance _ _ _ d = d
 
@@ -116,7 +116,7 @@ rmvNameFromSigs sigId = filter (f sigId) . map (m sigId)
         f _ (L _ (ClassOpSig _ _ [] _)) = False
         f sigName (L _ (InlineSig _ otherId _)) = sigName /= unLoc otherId
         f _ _ = True
-        m sigName (L l (ClassOpSig _ b methodIds t)) = L l $ ClassOpSig NoExt b (filter ((/= sigName) . unLoc) methodIds) t
+        m sigName (L l (ClassOpSig _ b methodIds t)) = L l $ ClassOpSig NoExtField b (filter ((/= sigName) . unLoc) methodIds) t
         m _ s = s
 
 rmvFunDeps :: Pass
@@ -127,5 +127,5 @@ rmvFunDeps = mkPass "rmvFunDeps" f
             where
                 p (TyClD _ d@ClassDecl {}) = map getLoc $ tcdFDs d
                 p _ = []
-                g loc (TyClD _ d@ClassDecl {}) = TyClD NoExt $ d {tcdFDs = filter ((/= loc) . getLoc) $ tcdFDs d}
+                g loc (TyClD _ d@ClassDecl {}) = TyClD NoExtField $ d {tcdFDs = filter ((/= loc) . getLoc) $ tcdFDs d}
                 g _ t = t

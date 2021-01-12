@@ -25,8 +25,6 @@ import Control.Monad
 import Control.Monad.Reader ( asks, MonadIO(liftIO) )
 import Data.Text(pack)
 import Data.Text.Lazy.Builder ( fromText, fromString )
-import Data.Time
-    ( UTCTime, getCurrentTime, formatTime, defaultTimeLocale )
 import Katip
     ( closeScribes,
       defaultScribeSettings,
@@ -153,13 +151,13 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
                 printDebugInfo "*******************************************************"
                 printDebugInfo "Finished."
-                printDebugInfo $ "Old size:     (names)   " <> show (countNames (_parsed beginState))
-                printDebugInfo $ "Reduced size: (names)   " <> show (countNames (_parsed newState))
-                printDebugInfo $ "Duration:               " <> show duration
-                printDebugInfo $ "Total Invocations:      " <> show totalInvocations
-                printDebugInfo $ "Successful Invocations: " <> show successfulInvocations
-                printDebugInfo $ "Old size:     (bytes)   " <> show oldSize
-                printDebugInfo $ "Reduced size: (bytes)   " <> show newSize
+                printDebugInfo $ T.pack $ "Old size:     (names)   " <> show (countNames (_parsed beginState))
+                printDebugInfo $ T.pack $ "Reduced size: (names)   " <> show (countNames (_parsed newState))
+                printDebugInfo $ T.pack $ "Duration:               " <> show duration
+                printDebugInfo $ T.pack $ "Total Invocations:      " <> show totalInvocations
+                printDebugInfo $ T.pack $ "Successful Invocations: " <> show successfulInvocations
+                printDebugInfo $ T.pack $ "Old size:     (bytes)   " <> show oldSize
+                printDebugInfo $ T.pack $ "Reduced size: (bytes)   " <> show newSize
                 -- printDebugInfo $ "Old size:     (tokens)   " <> show (countToken (_parsed beginState))
                 -- printDebugInfo $ "Reduced size: (tokens)   " <> show (countNames (_parsed newState))
 

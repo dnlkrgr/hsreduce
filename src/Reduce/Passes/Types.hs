@@ -19,7 +19,7 @@ type2WildCard = mkPass "type2WildCard" f
         f :: WaysToChange (HsType GhcPs)
         f UnitTypeP = []
         f (HsWildCardTy _) = []
-        f _ = map const [HsWildCardTy NoExt]
+        f _ = map const [HsWildCardTy NoExtField]
 
 simplifyType :: Pass
 simplifyType = mkPass "simplifyType" f
@@ -29,26 +29,26 @@ simplifyType = mkPass "simplifyType" f
         f t@(ForallTypeP body) = handleSubList fType pType t <> map const [body]
         f t@(QualTypeP body) = handleSubList fType pType t <> map const [body]
         f (HsAppTy _ (L _ (HsAppTy _ _ (L _ t1))) (L _ (HsTupleTy _ _ []))) = map const [t1]
-        -- f at@HsAppTy{}                   = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
-        f (HsAppTy _ (L l _) u@(L _ (HsTupleTy _ _ []))) = map const [HsAppTy NoExt (L l $ HsTyVar NoExt NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
+        -- f at@HsAppTy{}                   = map const [HsAppTy NoExtField (L l $ HsTyVar NoExtField NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
+        f (HsAppTy _ (L l _) u@(L _ (HsTupleTy _ _ []))) = map const [HsAppTy NoExtField (L l $ HsTyVar NoExtField NotPromoted (noLoc $ Unqual $ mkVarOcc "Maybe")) u]
         f (HsOpTy _ (L _ l) _ (L _ r)) = map const [l, r]
         f (HsKindSig _ (L _ t) _) = [const t]
         -- f (HsBangTy _ _ (L _ t)) = [const t]
         f _ = []
         pType :: HsType p -> [SrcSpan]
         pType = \case
-            (HsForAllTy _ bndrs _) -> map getLoc bndrs
+            (HsForAllTy _ _ bndrs _) -> map getLoc bndrs
             (HsQualTy _ ctxt _) -> map getLoc $ unLoc ctxt
             _ -> []
         fType :: SrcSpan -> HsType p -> HsType p
         fType loc = \case
-            (HsForAllTy x bndrs body) -> HsForAllTy x (filter ((/= loc) . getLoc) bndrs) body
+            (HsForAllTy x v bndrs body) -> HsForAllTy x v (filter ((/= loc) . getLoc) bndrs) body
             (HsQualTy x ctxt body) -> HsQualTy x (filter ((/= loc) . getLoc) <$> ctxt) body
             x -> x
 
 pattern ForallTypeP, QualTypeP :: HsType GhcPs -> HsType GhcPs
-pattern ForallTypeP body <- HsForAllTy _ _ (L _ body)
+pattern ForallTypeP body <- HsForAllTy _ _ _ (L _ body)
 pattern QualTypeP body <- HsQualTy _ _ (L _ body)
 
 pattern UnitTypeP :: HsType GhcPs
-pattern UnitTypeP = HsTupleTy NoExt HsBoxedTuple []
+pattern UnitTypeP = HsTupleTy NoExtField HsBoxedTuple []

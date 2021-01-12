@@ -1,12 +1,6 @@
 module Reduce.Passes.Imports where
 
-import GHC
-    ( GhcPs,
-      HsModule (hsmodImports),
-      ImportDecl (ImportDecl),
-      NoExt (NoExt),
-      getLoc,
-    )
+import GHC hiding (Pass)
 import Util.Types (Pass, WaysToChange)
 import Util.Util (handleSubList, mkPass)
 
@@ -15,7 +9,7 @@ unqualImport = mkPass "unqualImport" f
     where
         f :: WaysToChange (ImportDecl GhcPs)
         f (ImportDecl _ srcText name pkgQual src safe _ implicit as _) =
-            [const (ImportDecl NoExt srcText name pkgQual src safe False implicit as Nothing)]
+            [const (ImportDecl NoExtField srcText name pkgQual src safe NotQualified implicit as Nothing)]
         f _ = []
 
 rmvImports :: Pass

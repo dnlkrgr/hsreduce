@@ -6,9 +6,10 @@ import Data.Maybe
 import GHC hiding (Pass)
 import Util.Types (Pass (AST))
 import Util.Util
+import qualified Data.Text as T
 
 reduce ::
-    String ->
+    T.Text ->
     (ParsedSource -> [(RdrName, Int)]) ->
     (RdrName -> ParsedSource -> [Int]) ->
     (RdrName -> Int -> NE.NonEmpty Int -> Int -> Int -> ParsedSource -> ParsedSource) ->
