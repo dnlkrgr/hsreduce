@@ -124,7 +124,6 @@ library lib-hsreduce
         Reduce.Passes.Cabal
         Util.Util
         Util.Types
-        Util.Evaluation
         Util.Parser
 
 test-suite test-hsreduce

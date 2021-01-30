@@ -60,7 +60,7 @@ hsmerge isExecutable targetName = do
                     ours = map (moduleName . ms_mod) modSums
 
                 liftIO $ putStrLn "merging these modules together:"
-                liftIO $ print $ map oshow $ ours
+                liftIO $ print $ map oshow ours
 
                 modName2Map <- liftIO . newIORef $ M.empty
 
@@ -167,11 +167,11 @@ getModuleName env solveReexportMap ours myMN n
     where
         rdrElt = lookupGRE_Name env n
 
-resolveImportedReexport :: (M.Map ModuleName ([ModuleName], M.Map Name ModuleName)) -> Name -> ModuleName -> Maybe ModuleName
+resolveImportedReexport :: M.Map ModuleName ([ModuleName], M.Map Name ModuleName) -> Name -> ModuleName -> Maybe ModuleName
 resolveImportedReexport solveReexportMap n importMN = case M.lookup importMN solveReexportMap of
     Just (imports, tempMap) -> case M.lookup n tempMap of
         Just realMN -> Just realMN
-        Nothing -> listToMaybe $ catMaybes $ map (resolveImportedReexport solveReexportMap n) imports
+        Nothing -> listToMaybe $ mapMaybe (resolveImportedReexport solveReexportMap n) imports
     Nothing -> Nothing
 
 getModuleNameFromRdrName :: GlobalRdrEnv -> Module -> RdrName -> Maybe ModuleName
@@ -179,7 +179,7 @@ getModuleNameFromRdrName env mn n
     | (gre_lcl <$> rdrElt) == Just True = Just $ moduleName mn
     | otherwise = do
         imports <- gre_imp <$> rdrElt
-        is_mod . is_decl <$> (listToMaybe imports)
+        is_mod . is_decl <$> listToMaybe imports
     where
         rdrElt = listToMaybe $ lookupGRE_RdrName n env
 
@@ -330,7 +330,7 @@ cleanUp tool mode sourcePath = do
             banner (show mode)
 
             let rightSpans =
-                    (if mode == Indent then id else filter ((/= "") . fst)) $ mySpans
+                    (if mode == Indent then id else filter ((/= "") . fst)) mySpans
                 newFileContent = case mode of
                     Indent -> foldr (insertIndent . fmap span2Locs) fileContent rightSpans
                     _ -> fileContent

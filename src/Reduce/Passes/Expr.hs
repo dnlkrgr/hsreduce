@@ -105,15 +105,15 @@ grhs2Body _ = Nothing
 simplifyLit :: HsLit GhcPs -> [HsLit GhcPs]
 simplifyLit (HsString x (show -> s)) 
             | let l = length s =
-                let s1 = take (div l 2) s
-                    s2 = drop (div l 2) s
+                let _ = take (div l 2) s
+                    _ = drop (div l 2) s
                 in [HsString x (fromString ""), HsString x (fromString "")]
                 -- in [HsString x (fromString s1), HsString x (fromString s2)]
             | otherwise = []
 simplifyLit (HsStringPrim x (show -> s))
             | let l = length s =
-                let s1 = take (div l 2) s
-                    s2 = drop (div l 2) s
+                let _ = take (div l 2) s
+                    _ = drop (div l 2) s
                 in [HsString x (fromString ""), HsString x (fromString "")]
             | otherwise = []
 simplifyLit _ = []

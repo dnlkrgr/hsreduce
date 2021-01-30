@@ -205,7 +205,7 @@ newtype R m a = R {unR :: ReaderT RConf m a}
 data ShowMode = Parsed | Renamed
 
 showState :: ShowMode -> RState -> T.Text
-showState _ s@(CabalState {}) = T.pack . showGenericPackageDescription $ _pkgDesc s
+showState _ s@CabalState {} = T.pack . showGenericPackageDescription $ _pkgDesc s
 showState _ (ParsedState prags ps _ _ _ dynFlags) =
     T.unlines $
         showLanguagePragmas prags
@@ -214,7 +214,7 @@ showState Parsed (TypecheckedState prags p _ _ _ _ _ dynFlags) =
     T.unlines $
         showLanguagePragmas prags
             : [T.pack . showSDoc dynFlags . ppr . unLoc $ p]
-showState Renamed (TypecheckedState prags p _ _ _ (TypecheckedModule {tm_renamed_source = Just (rs, _, _, _)}) _ currentDynFlags) =
+showState Renamed (TypecheckedState prags p _ _ _ TypecheckedModule {tm_renamed_source = Just (rs, _, _, _)} _ currentDynFlags) =
     T.unlines $
         showLanguagePragmas prags
             : maybe "" (\n -> "module " <> (T.pack . showSDoc currentDynFlags . ppr $ unLoc n) <> " where") (hsmodName $ unLoc p)
@@ -224,7 +224,7 @@ showState _ _ = error "Util.Types.showState: unexpected arguments"
 
 showLanguagePragmas :: [Pragma] -> T.Text
 showLanguagePragmas [] = ""
-showLanguagePragmas prags = "{-# LANGUAGE " <> (T.intercalate ", " $ map showExtension prags) <> " #-}"
+showLanguagePragmas prags = "{-# LANGUAGE " <> T.intercalate ", " ( map showExtension prags) <> " #-}"
 
 data Span = Span
     { file :: T.Text,

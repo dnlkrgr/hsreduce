@@ -13,13 +13,6 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString as BS
 import Data.Csv
 import Control.Concurrent.STM.Lifted
-    ( newTVar,
-      newTChan,
-      readTChan,
-      writeTChan,
-      modifyTVar,
-      readTVarIO,
-      atomically )
 import Control.Exception ( bracket )
 import Control.Monad
 import Control.Monad.Reader ( asks, MonadIO(liftIO) )
@@ -79,21 +72,22 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
     statFilePath <- case mUnusedPassName of
             Nothing -> pure $ statDir </> [relfile|stats.csv|]
-            Just unusedPassName -> liftA2 (</>) (pure statDir) (parseRelFile $ "stats_" <> T.unpack unusedPassName <> ".csv")
+            Just unusedPassName -> fmap (statDir </>) (parseRelFile $ "stats_" <> T.unpack unusedPassName <> ".csv")
 
     oldStats <- if recordStatistics 
         then do 
             doesFileExist statFilePath >>= \case
                 False -> pure emptyStats
-                True -> decodeByName <$> LBS.readFile (fromAbsFile statFilePath) >>= \case 
+                True -> LBS.readFile (fromAbsFile statFilePath) >>= (\case 
                     Left e -> do
                         print e
                         pure emptyStats
                     Right (_, oldStats) -> pure . Statistics $ M.fromList $ DV.toList $ DV.map stats2NamedTuple oldStats
+                    . decodeByName)
         else pure emptyStats
 
     t1 <- getCurrentTime
-    tState <- atomically $ newTVar beginState
+    tState <- newTVarIO beginState
 
     let sourceDir = parent testAbs
         oldSize = T.length fileContent
@@ -104,7 +98,83 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
     -- 2. create as many temp dirs as we have threads
     -- 3. copy all necessary files into the temp dir
     -- 4. write the temp dir name into the channel
-    tChan <- atomically newTChan
+
+    -- bracket mkRessources rmvRessources $ \(tChan, logFile, le) -> do
+    bracket (openRessources sourceDir numberOfThreads) (uncurry (closeRessources numberOfThreads)) $ \(tChan, le) -> do
+
+    -- bracket (atomically newTChan) (deleteTempDirs numberOfThreads) $ \tChan -> do
+        -- bracket mkFileHandle hClose $ \logFile -> do
+            -- bracket mkLogEnv closeScribes $ \le -> do
+
+        logRef <- newIORef []
+        let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (timeOut * 1000 * 1000) debug
+
+        -- run the reducing functions
+        runR beginConf $ do
+            let newTokenNumber = countTokensHelper (_dflags beginState) $ T.unpack fileContent
+            let newNamesNumber = countNames (_parsed beginState) 
+
+            updateStatistics beginConf "formatting" 1 (fromIntegral (T.length $ showState Parsed beginState) - fromIntegral oldSize) (newTokenNumber - startTokenNumber) (newNamesNumber - startNamesNumber)
+            mapM_ largestFixpoint allActions
+
+            newState <- readTVarIO tState
+
+            -- handling of the result and outputting useful information
+            let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
+                newSize = T.length . showState Parsed $ newState
+            let successfulInvocations = sum . map _successfulAttempts . M.elems $ newState ^. statistics . passStats
+            let totalInvocations = sum . map _totalAttempts . M.elems $ newState ^. statistics . passStats
+            t2 <- liftIO getCurrentTime
+
+            let offset =
+                    if utctDayTime t2 < utctDayTime t1
+                    then 86401
+                    else 0
+            let duration = utctDayTime t2 + offset - utctDayTime t1
+
+
+            printDebugInfo "*******************************************************"
+            printDebugInfo "Finished."
+            printDebugInfo $ T.pack $ "Old size:     (names)   " <> show (countNames (_parsed beginState))
+            printDebugInfo $ T.pack $ "Reduced size: (names)   " <> show (countNames (_parsed newState))
+            printDebugInfo $ T.pack $ "Duration:               " <> show duration
+            printDebugInfo $ T.pack $ "Total Invocations:      " <> show totalInvocations
+            printDebugInfo $ T.pack $ "Successful Invocations: " <> show successfulInvocations
+            printDebugInfo $ T.pack $ "Old size:     (bytes)   " <> show oldSize
+            printDebugInfo $ T.pack $ "Reduced size: (bytes)   " <> show newSize
+            -- printDebugInfo $ "Old size:     (tokens)   " <> show (countToken (_parsed beginState))
+            -- printDebugInfo $ "Reduced size: (tokens)   " <> show (countNames (_parsed newState))
+
+            $(logTM) InfoS "*******************************************************"
+            $(logTM) InfoS "Finished."
+            $(logTM) InfoS (LogStr . fromString $ "Old size     (bytes):        " <> show oldSize)
+            $(logTM) InfoS (LogStr . fromString $ "Reduced size (bytes):    " <> show newSize)
+
+            liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState Parsed newState)
+
+            when recordStatistics $ do 
+
+                perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations (getTokenDiff newState beginState) (getNameDiff newState beginState)
+                liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
+
+                liftIO 
+                    . BS.writeFile (fromAbsFile statFilePath)
+                    . LBS.toStrict
+                    . encodeDefaultOrderedByName
+                    . map snd 
+                    . M.toList 
+                    $ M.unionWith (+) (oldStats ^. passStats) (newState ^. statistics . passStats)
+
+                liftIO 
+                    . BS.writeFile (fromRelFile [relfile|./hsreduce_statistics.csv|])
+                    . LBS.toStrict
+                    . encodeDefaultOrderedByName
+                    . map snd 
+                    . M.toList 
+                    $ (newState ^. statistics . passStats)
+
+openRessources sourceDir numberOfThreads = do
+    tChan <- atomically newTChan 
     forM_ [1 .. numberOfThreads] $ \_ -> do
         tempDir <- createTempDir [absdir|/tmp|] "hsreduce"
 
@@ -114,85 +184,22 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
         atomically $ writeTChan tChan tempDir
 
-    -- KATIP STUFF
     let mkFileHandle = openFile "hsreduce.log" WriteMode
 
     bracket mkFileHandle hClose $ \logFile -> do
         handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal logFile (permitItem DebugS) V2
-        let mkLogEnv = registerScribe "hsreduce.log" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
+        scribe <- registerScribe "hsreduce.log" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
+        return (tChan, scribe)
 
-        bracket mkLogEnv closeScribes $ \le -> do
-            logRef <- newIORef []
-            let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (timeOut * 1000 * 1000) debug
+closeRessources numberOfThreads tChan scribe = do
+    deleteTempDirs numberOfThreads tChan
+    closeScribes scribe
 
-            -- run the reducing functions
-            runR beginConf $ do
-                let newTokenNumber = countTokensHelper (_dflags beginState) $ T.unpack fileContent
-                let newNamesNumber = countNames (_parsed beginState) 
-
-                updateStatistics beginConf "formatting" 1 (fromIntegral (T.length $ showState Parsed beginState) - fromIntegral oldSize) (newTokenNumber - startTokenNumber) (newNamesNumber - startNamesNumber)
-                mapM_ largestFixpoint allActions
-
-                newState <- readTVarIO tState
-
-                -- handling of the result and outputting useful information
-                let fileName = takeWhile (/= '.') . fromAbsFile $ filePathAbs
-                    newSize = T.length . showState Parsed $ newState
-                let successfulInvocations = sum . map _successfulAttempts . M.elems $ newState ^. statistics . passStats
-                let totalInvocations = sum . map _totalAttempts . M.elems $ newState ^. statistics . passStats
-                t2 <- liftIO getCurrentTime
-
-                let offset =
-                        if utctDayTime t2 < utctDayTime t1
-                        then 86401
-                        else 0
-                let duration = utctDayTime t2 + offset - utctDayTime t1
-
-
-                printDebugInfo "*******************************************************"
-                printDebugInfo "Finished."
-                printDebugInfo $ T.pack $ "Old size:     (names)   " <> show (countNames (_parsed beginState))
-                printDebugInfo $ T.pack $ "Reduced size: (names)   " <> show (countNames (_parsed newState))
-                printDebugInfo $ T.pack $ "Duration:               " <> show duration
-                printDebugInfo $ T.pack $ "Total Invocations:      " <> show totalInvocations
-                printDebugInfo $ T.pack $ "Successful Invocations: " <> show successfulInvocations
-                printDebugInfo $ T.pack $ "Old size:     (bytes)   " <> show oldSize
-                printDebugInfo $ T.pack $ "Reduced size: (bytes)   " <> show newSize
-                -- printDebugInfo $ "Old size:     (tokens)   " <> show (countToken (_parsed beginState))
-                -- printDebugInfo $ "Reduced size: (tokens)   " <> show (countNames (_parsed newState))
-
-                $(logTM) InfoS "*******************************************************"
-                $(logTM) InfoS "Finished."
-                $(logTM) InfoS (LogStr . fromString $ "Old size     (bytes):        " <> show oldSize)
-                $(logTM) InfoS (LogStr . fromString $ "Reduced size (bytes):    " <> show newSize)
-
-                liftIO $ TIO.writeFile (fileName <> "_hsreduce.hs") (showState Parsed newState)
-
-                when recordStatistics $ do 
-
-                    perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations (getTokenDiff newState beginState) (getNameDiff newState beginState)
-                    liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
-
-                    liftIO 
-                        . BS.writeFile (fromAbsFile statFilePath)
-                        . LBS.toStrict
-                        . encodeDefaultOrderedByName
-                        . map snd 
-                        . M.toList 
-                        $ M.unionWith (+) (oldStats ^. passStats) (newState ^. statistics . passStats)
-
-                    liftIO 
-                        . BS.writeFile (fromRelFile [relfile|./hsreduce_statistics.csv|])
-                        . LBS.toStrict
-                        . encodeDefaultOrderedByName
-                        . map snd 
-                        . M.toList 
-                        $ (newState ^. statistics . passStats)
-
+deleteTempDirs :: (Num a, Enum a, MonadIO m) => a -> TChan (Path b Dir) -> m ()
+deleteTempDirs numberOfThreads tChan = do
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan
         removeDirRecur t
-
 
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
@@ -211,7 +218,7 @@ largestFixpoint f = do
 
             atomically $ modifyTVar tState $ \s -> s {_isAlive = False}
             f
-            (_isAlive <$> readTVarIO tState) >>= flip when (go tState)
+            readTVarIO tState >>= flip when (go tState) . _isAlive
 
 
 myTimeFormat :: UTCTime -> T.Text
@@ -225,7 +232,7 @@ myFormat withColor _ Item{..} =
     <> brackets (fromText $ "ThreadId " <> getThreadIdText _itemThread)
     -- <> mconcat ks 
     -- <> maybe mempty (brackets . fromString . locationToString) _itemLoc
-    <> fromText " " <> (unLogStr _itemMessage)
+    <> fromText " " <> unLogStr _itemMessage
   where
     nowStr = fromText (myTimeFormat _itemTime)
     renderSeverity' severity = colorBySeverity withColor severity (renderSeverity severity)
