@@ -7,6 +7,7 @@
 , uniplate, unordered-containers, vector, word8
 , haskell-language-server
 , random-shuffle
+, unliftio
 }:
 mkDerivation {
   pname = "hsreduce";
@@ -23,6 +24,7 @@ mkDerivation {
     transformers-base uniplate unordered-containers vector word8
     haskell-language-server
     random-shuffle
+    unliftio
   ];
   executableHaskellDepends = [
     aeson array base bytestring Cabal cassava containers Diff
@@ -33,6 +35,7 @@ mkDerivation {
     transformers-base uniplate unordered-containers vector word8
     haskell-language-server
     random-shuffle
+    unliftio
   ];
   testHaskellDepends = [
     aeson array base bytestring Cabal cassava containers Diff
@@ -43,6 +46,7 @@ mkDerivation {
     transformers-base uniplate unordered-containers vector word8
     haskell-language-server
     random-shuffle
+    unliftio
   ];
   doHaddock = false;
   license = stdenv.lib.licenses.bsd3;

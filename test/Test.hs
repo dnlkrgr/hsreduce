@@ -14,22 +14,22 @@ import Test.Hspec
 
 import Reduce.Driver
 -- import qualified Reduce.Passes.TemplateHaskell as TemplateHaskell
-import qualified Reduce.Passes.TypeFamilies as TypeFamilies
+import qualified Reduce.Passes.TypeFamilies     as TypeFamilies
 import qualified Reduce.Passes.Imports          as Imports
 import qualified Reduce.Passes.Pragmas          as Pragmas
 import qualified Reduce.Passes.Exports          as Exports
-import qualified Reduce.Passes.Decls                   as Decls
+import qualified Reduce.Passes.Decls            as Decls
 import qualified Reduce.Passes.Parameters       as Parameters
-import qualified Reduce.Passes.Stubbing                as Stubbing 
+import qualified Reduce.Passes.Stubbing         as Stubbing 
     ( contexts,
       rmvDerivingClause,
       simplifyDerivingClause,
       localBinds,
       tyVarBndr,
     )
-import qualified Reduce.Passes.Typeclasses    as Typeclasses
-import qualified Reduce.Passes.DataTypes      as DataTypes
-import qualified Reduce.Passes.Functions      as Functions
+import qualified Reduce.Passes.Typeclasses      as Typeclasses
+import qualified Reduce.Passes.DataTypes        as DataTypes
+import qualified Reduce.Passes.Functions        as Functions
     (
       rmvRHSs,
       rmvMatches,
@@ -39,8 +39,8 @@ import qualified Reduce.Passes.Functions      as Functions
       betaReduceExprs
 
     )
-import qualified Reduce.Passes.Expr  as Expr
-import qualified Reduce.Passes.Types as Types
+import qualified Reduce.Passes.Expr             as Expr
+import qualified Reduce.Passes.Types            as Types
 import Util.Util
 import Control.Exception
 import System.Process
@@ -137,7 +137,7 @@ main = do
                 -- Decls
                 -- *****
                 , ("Decls",         
-                    runPass (Decls.rmvDecls),                 
+                    runPass Decls.rmvDecls,                 
                     Nothing,                
                     "{-# LANGUAGE GADTs #-}\nmodule Decls where\n")
                 , ("RecCon2Prefix",   
@@ -151,10 +151,10 @@ main = do
                 -- deleting only some of the fun ids in a line
                 , ("FunIds",        
                     mapM_ runPass [Decls.rmvSigs, Decls.rmvDecls],   
-                    (Just "funids.sh"),     
+                    Just "funids.sh",     
                     "\nmodule FunIds (\n        foo\n    ) where\nfoo x = 3\n")
                 , ("Cons",          
-                    runPass (Decls.rmvConstructors),                 
+                    runPass Decls.rmvConstructors,                 
                     Nothing,                
                     "{-# LANGUAGE GADTs #-}\nmodule Cons where\nnewtype Unit\nnewtype RUnit\ndata Arst\ndata Car\ndata Expr a\n")
                 -- ********

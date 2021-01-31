@@ -4,6 +4,7 @@ module Reduce.Driver
     )
 where
 
+import Katip.Core
 import Data.Time
 import Control.Applicative
 import Lens.Micro.Platform
@@ -13,34 +14,13 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString as BS
 import Data.Csv
 import Control.Concurrent.STM.Lifted
-import Control.Exception ( bracket )
+import UnliftIO.Exception ( bracket )
 import Control.Monad
 import Control.Monad.Reader ( asks, MonadIO(liftIO) )
 import Data.Text(pack)
 import Data.Text.Lazy.Builder ( fromText, fromString )
 import Katip
-    ( closeScribes,
-      defaultScribeSettings,
-      initLogEnv,
-      permitItem,
-      registerScribe,
-      renderSeverity,
-      logTM,
-      Item(Item, _itemLoc, _itemNamespace, _itemTime, _itemMessage,
-           _itemPayload, _itemProcess, _itemHost, _itemThread, _itemSeverity,
-           _itemEnv, _itemApp),
-      LogItem,
-      LogStr(LogStr, unLogStr),
-      Severity(InfoS, DebugS),
-      ThreadIdText(getThreadIdText),
-      Verbosity(V2),
-      )
 import Katip.Scribes.Handle
-    ( mkHandleScribeWithFormatter,
-      ColorStrategy(ColorIfTerminal),
-      ItemFormatter,
-      brackets,
-      colorBySeverity )
 import Path
 import Path.IO
 import System.IO 
@@ -98,14 +78,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
     -- 2. create as many temp dirs as we have threads
     -- 3. copy all necessary files into the temp dir
     -- 4. write the temp dir name into the channel
-
-    -- bracket mkRessources rmvRessources $ \(tChan, logFile, le) -> do
-    bracket (openRessources sourceDir numberOfThreads) (uncurry (closeRessources numberOfThreads)) $ \(tChan, le) -> do
-
-    -- bracket (atomically newTChan) (deleteTempDirs numberOfThreads) $ \tChan -> do
-        -- bracket mkFileHandle hClose $ \logFile -> do
-            -- bracket mkLogEnv closeScribes $ \le -> do
-
+    bracket (openRessources sourceDir numberOfThreads) (closeRessources numberOfThreads) $ \(tChan, logFile, le) -> do
         logRef <- newIORef []
         let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (timeOut * 1000 * 1000) debug
 
@@ -173,6 +146,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
                     . M.toList 
                     $ (newState ^. statistics . passStats)
 
+openRessources :: (Num a, Enum a) => Path b Dir -> a -> IO (TChan (Path Abs Dir), Handle, LogEnv)
 openRessources sourceDir numberOfThreads = do
     tChan <- atomically newTChan 
     forM_ [1 .. numberOfThreads] $ \_ -> do
@@ -184,16 +158,16 @@ openRessources sourceDir numberOfThreads = do
 
         atomically $ writeTChan tChan tempDir
 
-    let mkFileHandle = openFile "hsreduce.log" WriteMode
+    logFile <- openFile "hsreduce.log" WriteMode
+    handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal logFile (permitItem DebugS) V2
+    scribe <- registerScribe "hsreduce.log" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
+    return (tChan, logFile, scribe)
 
-    bracket mkFileHandle hClose $ \logFile -> do
-        handleScribe <- mkHandleScribeWithFormatter myFormat ColorIfTerminal logFile (permitItem DebugS) V2
-        scribe <- registerScribe "hsreduce.log" handleScribe defaultScribeSettings =<< initLogEnv "hsreduce" "devel"
-        return (tChan, scribe)
-
-closeRessources numberOfThreads tChan scribe = do
+closeRessources :: (Num a, Enum a) => a -> (TChan (Path b Dir), Handle, LogEnv) -> IO ()
+closeRessources numberOfThreads (tChan, logFile, scribe) = do
     deleteTempDirs numberOfThreads tChan
     closeScribes scribe
+    hClose logFile
 
 deleteTempDirs :: (Num a, Enum a, MonadIO m) => a -> TChan (Path b Dir) -> m ()
 deleteTempDirs numberOfThreads tChan = do
