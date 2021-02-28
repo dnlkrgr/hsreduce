@@ -78,7 +78,7 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
     -- 2. create as many temp dirs as we have threads
     -- 3. copy all necessary files into the temp dir
     -- 4. write the temp dir name into the channel
-    bracket (openRessources sourceDir numberOfThreads) (closeRessources numberOfThreads) $ \(tChan, logFile, le) -> do
+    bracket (openRessources sourceDir numberOfThreads) (closeRessources numberOfThreads) $ \(tChan, _, le) -> do
         logRef <- newIORef []
         let beginConf = RConf (filename testAbs) (filename filePathAbs) numberOfThreads tChan tState mempty mempty le logRef (timeOut * 1000 * 1000) debug
 
@@ -166,7 +166,7 @@ openRessources sourceDir numberOfThreads = do
 closeRessources :: (Num a, Enum a) => a -> (TChan (Path b Dir), Handle, LogEnv) -> IO ()
 closeRessources numberOfThreads (tChan, logFile, scribe) = do
     deleteTempDirs numberOfThreads tChan
-    closeScribes scribe
+    _ <- closeScribes scribe
     hClose logFile
 
 deleteTempDirs :: (Num a, Enum a, MonadIO m) => a -> TChan (Path b Dir) -> m ()
