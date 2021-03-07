@@ -8,9 +8,24 @@ Reducing Haskell programs for easier debugging of GHC crashes or performance reg
 
 ## Installing
 
-1. Clone the repo
-1. (Optional) Run `nix-shell`
-1. Run `cabal install` or `stack install`
+Clone the repo:
+
+```bash
+$ https://github.com/dnlkrgr/hsreduce.git
+$ cd hsreduce
+```
+
+(Optional) Install dependencies via nix:
+
+```bash
+nix-shell
+```
+
+Build and install the project:
+
+```bash
+$ cabal install
+```
 
 ## Usage
 
