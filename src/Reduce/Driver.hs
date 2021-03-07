@@ -176,8 +176,6 @@ deleteTempDirs numberOfThreads tChan = do
         t <- atomically $ readTChan tChan
         removeDirRecur t
 
-arst
-
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)
 -- 2. set alive variable to false

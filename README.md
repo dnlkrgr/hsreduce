@@ -34,6 +34,8 @@ Parameters:
 |--numberOfThreads|self-explanatory                                 |
 |--timeout        |after how many seconds should tests be terminated|
 
+After hsreduce is done with reducing, it outputs a file called `<original_file_name>_hsreduce.hs` (if the original file name was `Bug.hs` this would be `Bug_hsreduce.hs` then), which is the reduced test case.
+
 ### How do I write interestingness tests?
 
 Example: Let's say you have a large Haskell file that prints "hello world" when you run it, but you're only interested in which part of the program makes it do that.
@@ -58,6 +60,8 @@ hsreduce merge --projectType Executable --targetName containers
 |-----------------|------------------------------------------|
 |--projectType    |enter either *Executable* or *Library*    |
 |--targetName     |name of the cabal target you want to merge|
+
+hsreduce takes your cabal project and tries to merge it into a module called `AllInOne.hs`, which is created in the current directory.
 
 ## FAQ
 
