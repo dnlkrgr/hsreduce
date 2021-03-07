@@ -35,13 +35,14 @@ import Util.Types
 import Util.Util
 
 
-hsmerge :: Bool -> T.Text -> IO ()
+hsmerge :: ProjectType -> T.Text -> IO ()
 hsmerge isExecutable targetName = do
-    let filePath = "hie.yaml"
-    let targetTypeS = if isExecutable 
-            then "exe"
-            else "lib"
-    let fileContent = "cradle: {cabal: {component: \"" <> targetTypeS <> ":" <> targetName <> "\" }}"
+    let 
+        filePath = "hie.yaml"
+        targetTypeS = case isExecutable of
+            Executable -> "exe"
+            Library -> "lib"
+        fileContent = "cradle: {cabal: {component: \"" <> targetTypeS <> ":" <> targetName <> "\" }}"
 
     TIO.writeFile filePath fileContent
 

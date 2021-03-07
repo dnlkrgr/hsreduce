@@ -3,22 +3,22 @@ module Util.Types where
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.STM.Lifted (TChan, TVar)
 import Control.Monad.Base (MonadBase (..), liftBaseDefault)
-import Control.Monad.Reader
-    ( MonadIO (..),
-      MonadReader (local),
-      MonadTrans,
-      ReaderT (..),
-      asks,
-    )
-import Control.Monad.Trans.Control
-    ( ComposeSt,
-      MonadBaseControl (..),
-      MonadTransControl (..),
-      defaultLiftBaseWith,
-      defaultLiftWith,
-      defaultRestoreM,
-      defaultRestoreT,
-    )
+import Control.Monad.Reader (
+    MonadIO (..),
+    MonadReader (local),
+    MonadTrans,
+    ReaderT (..),
+    asks,
+ )
+import Control.Monad.Trans.Control (
+    ComposeSt,
+    MonadBaseControl (..),
+    MonadTransControl (..),
+    defaultLiftBaseWith,
+    defaultLiftWith,
+    defaultRestoreM,
+    defaultRestoreT,
+ )
 import Data.Aeson (FromJSON)
 import Data.Csv
 import Data.IORef (IORef)
@@ -31,97 +31,99 @@ import Data.Word
 import Distribution.PackageDescription hiding (Executable, Library)
 import Distribution.PackageDescription.PrettyPrint
 import GHC hiding (Parsed, Pass, Renamed)
-import GHC.LanguageExtensions.Type
-    ( Extension
-          ( AllowAmbiguousTypes,
-            ConstraintKinds,
-            RankNTypes,
-            TypeApplications,
-            TypeFamilies,
-            TypeInType,
-            TypeOperators
-          ),
-    )
-import Katip as K
-    ( Katip (..),
-      KatipContext (..),
-      LogContexts,
-      LogEnv,
-      Namespace,
-    )
+import GHC.LanguageExtensions.Type (
+    Extension (
+        AllowAmbiguousTypes,
+        ConstraintKinds,
+        RankNTypes,
+        TypeApplications,
+        TypeFamilies,
+        TypeInType,
+        TypeOperators
+    ),
+ )
+import Katip as K (
+    Katip (..),
+    KatipContext (..),
+    LogContexts,
+    LogEnv,
+    Namespace,
+ )
 import Lens.Micro.Platform (makeLenses)
-import Options.Generic
+import Options.Generic as OG
 import Outputable hiding ((<>))
 import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
+
+
 data CLIOptions w
     = Reduce
-          { shellScript :: w ::: FilePath <?> "path to the interestingness test",
-            testCase :: w ::: FilePath <?> "path to the source file",
-            numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
-            timeOut :: w ::: Word64 <?> "timout in seconds",
-            recordStatistics :: w ::: Bool <?> "whether or not do record statistics",
-            debug :: w ::: Bool <?> "whether to print additional, more verbose debug information",
-            customPassOrdering :: w ::: Maybe T.Text <?> "your custom ordered list of passes to use",
-            dontUsePass :: w ::: Maybe T.Text <?> "name of pass you don't want to use"
-          }
+        { shellScript :: w ::: FilePath <?> "path to the interestingness test"
+        , testCase :: w ::: FilePath <?> "path to the source file"
+        , numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently"
+        , timeOut :: w ::: Word64 <?> "timout in seconds"
+        , recordStatistics :: w ::: Bool <?> "whether or not to record statistics"
+        , debug :: w ::: Bool <?> "whether to print additional, more verbose debug information"
+        , customPassOrdering :: w ::: Maybe T.Text <?> "your custom ordered list of passes to use"
+        , dontUsePass :: w ::: Maybe T.Text <?> "name of pass you don't want to use"
+        }
     | Merge
-          { isExecutable :: w ::: Bool <?> "whether the target is an executable; otherwise it's treated as a library",
-            targetName :: w ::: T.Text <?> "the name of the target you want to merge"
-          }
+        { projectType :: w ::: ProjectType <?> "enter one of: Executable | Library"
+        , targetName :: w ::: T.Text <?> "the name of the target you want to merge"
+        }
     | PackageDesc
-          { shellScript :: w ::: FilePath <?> "path to the interestingness test",
-            testCase :: w ::: FilePath <?> "path to the source file",
-            numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently",
-            timeOut :: w ::: Word64 <?> "timout in seconds"
-          }
+        { shellScript :: w ::: FilePath <?> "path to the interestingness test"
+        , testCase :: w ::: FilePath <?> "path to the source file"
+        , numberOfThreads :: w ::: Word64 <?> "how many threads you want to run concurrently"
+        , timeOut :: w ::: Word64 <?> "timout in seconds"
+        }
     deriving (Generic)
 
 data Pragma = Language T.Text | OptionsGhc T.Text | Include T.Text
     deriving (Eq)
 
 data Performance = Performance
-    { _day :: Day,
-      _origSize :: Word64,
-      _endSize :: Word64,
-      _ratio :: Word64,
-      _startTime :: UTCTime,
-      _endTime :: UTCTime,
-      _duration :: DiffTime,
-      _capabilities :: Word64,
-      _threads :: Word64,
-      _successfulTestInvocations :: Word64,
-      _totalInvocations :: Word64,
-      _tokensRemoved :: Integer,
-      _namesRemoved :: Integer
+    { _day :: Day
+    , _origSize :: Word64
+    , _endSize :: Word64
+    , _ratio :: Word64
+    , _startTime :: UTCTime
+    , _endTime :: UTCTime
+    , _duration :: DiffTime
+    , _capabilities :: Word64
+    , _threads :: Word64
+    , _successfulTestInvocations :: Word64
+    , _totalInvocations :: Word64
+    , _tokensRemoved :: Integer
+    , _namesRemoved :: Integer
     }
 
 instance Show Performance where
-    show Performance {..} =
+    show Performance{..} =
         intercalate
             ","
-            [ show _day,
-              init $ show _duration,
-              show _capabilities,
-              show _threads,
-              show _origSize,
-              show _endSize,
-              show _ratio,
-              show _successfulTestInvocations,
-              show _totalInvocations,
-              show _tokensRemoved,
-              show _namesRemoved
+            [ show _day
+            , init $ show _duration
+            , show _capabilities
+            , show _threads
+            , show _origSize
+            , show _endSize
+            , show _ratio
+            , show _successfulTestInvocations
+            , show _totalInvocations
+            , show _tokensRemoved
+            , show _namesRemoved
             ]
             <> "\n"
 
 data PassStats = PassStats
-    { _passName :: T.Text,
-      _successfulAttempts :: Word64,
-      _totalAttempts :: Word64,
-      _removedBytes :: Integer,
-      _removedTokens :: Integer,
-      _removedNames :: Integer
+    { _passName :: T.Text
+    , _successfulAttempts :: Word64
+    , _totalAttempts :: Word64
+    , _removedBytes :: Integer
+    , _removedTokens :: Integer
+    , _removedNames :: Integer
     }
     deriving (Generic, Show)
 
@@ -143,7 +145,7 @@ instance DefaultOrdered PassStats
 makeLenses ''PassStats
 
 stats2NamedTuple :: PassStats -> (T.Text, PassStats)
-stats2NamedTuple p@PassStats {..} = (_passName, p)
+stats2NamedTuple p@PassStats{..} = (_passName, p)
 
 newtype Statistics = Statistics
     { _passStats :: M.Map T.Text PassStats
@@ -157,43 +159,43 @@ emptyStats = Statistics M.empty
 
 data RState
     = ParsedState
-          { _pragmas :: [Pragma],
-            _parsed :: ParsedSource,
-            _isAlive :: Bool,
-            _statistics :: Statistics,
-            _numRenamedNames :: Word64,
-            _dflags :: DynFlags
-          }
+        { _pragmas :: [Pragma]
+        , _parsed :: ParsedSource
+        , _isAlive :: Bool
+        , _statistics :: Statistics
+        , _numRenamedNames :: Word64
+        , _dflags :: DynFlags
+        }
     | TypecheckedState
-          { _pragmas :: [Pragma],
-            _parsed :: ParsedSource,
-            _isAlive :: Bool,
-            _statistics :: Statistics,
-            _numRenamedNames :: Word64,
-            _typechecked :: TypecheckedModule,
-            _hscEnv :: HscEnv,
-            _dflags :: DynFlags
-          }
+        { _pragmas :: [Pragma]
+        , _parsed :: ParsedSource
+        , _isAlive :: Bool
+        , _statistics :: Statistics
+        , _numRenamedNames :: Word64
+        , _typechecked :: TypecheckedModule
+        , _hscEnv :: HscEnv
+        , _dflags :: DynFlags
+        }
     | CabalState
-          { _isAlive :: Bool,
-            _statistics :: Statistics,
-            _pkgDesc :: GenericPackageDescription
-          }
+        { _isAlive :: Bool
+        , _statistics :: Statistics
+        , _pkgDesc :: GenericPackageDescription
+        }
 
 makeLenses ''RState
 
 data RConf = RConf
-    { _shellScript :: Path Rel File,
-      _testCase :: Path Rel File,
-      _numberOfThreads :: Int,
-      _tempDirs :: TChan (Path Abs Dir),
-      _tState :: TVar RState,
-      logNamespace :: K.Namespace,
-      logContext :: K.LogContexts,
-      logEnv :: K.LogEnv,
-      _logRef :: IORef [String],
-      _timeout :: Word64,
-      _debug :: Bool
+    { _shellScript :: Path Rel File
+    , _testCase :: Path Rel File
+    , _numberOfThreads :: Int
+    , _tempDirs :: TChan (Path Abs Dir)
+    , _tState :: TVar RState
+    , logNamespace :: K.Namespace
+    , logContext :: K.LogContexts
+    , logEnv :: K.LogEnv
+    , _logRef :: IORef [String]
+    , _timeout :: Word64
+    , _debug :: Bool
     }
 
 runR :: RConf -> R m a -> m a
@@ -205,42 +207,42 @@ newtype R m a = R {unR :: ReaderT RConf m a}
 data ShowMode = Parsed | Renamed
 
 showState :: ShowMode -> RState -> T.Text
-showState _ s@CabalState {} = T.pack . showGenericPackageDescription $ _pkgDesc s
+showState _ s@CabalState{} = T.pack . showGenericPackageDescription $ _pkgDesc s
 showState _ (ParsedState prags ps _ _ _ dynFlags) =
     T.unlines $
-        showLanguagePragmas prags
-            : [T.pack . showSDoc dynFlags . ppr . unLoc $ ps]
+        showLanguagePragmas prags :
+        [T.pack . showSDoc dynFlags . ppr . unLoc $ ps]
 showState Parsed (TypecheckedState prags p _ _ _ _ _ dynFlags) =
     T.unlines $
-        showLanguagePragmas prags
-            : [T.pack . showSDoc dynFlags . ppr . unLoc $ p]
-showState Renamed (TypecheckedState prags p _ _ _ TypecheckedModule {tm_renamed_source = Just (rs, _, _, _)} _ currentDynFlags) =
+        showLanguagePragmas prags :
+        [T.pack . showSDoc dynFlags . ppr . unLoc $ p]
+showState Renamed (TypecheckedState prags p _ _ _ TypecheckedModule{tm_renamed_source = Just (rs, _, _, _)} _ currentDynFlags) =
     T.unlines $
-        showLanguagePragmas prags
-            : maybe "" (\n -> "module " <> (T.pack . showSDoc currentDynFlags . ppr $ unLoc n) <> " where") (hsmodName $ unLoc p)
-            : T.unlines (map (T.pack . showSDoc currentDynFlags . ppr) . hsmodImports $ unLoc p)
-            : [T.pack . showSDoc currentDynFlags . ppr $ rs]
+        showLanguagePragmas prags :
+        maybe "" (\n -> "module " <> (T.pack . showSDoc currentDynFlags . ppr $ unLoc n) <> " where") (hsmodName $ unLoc p) :
+        T.unlines (map (T.pack . showSDoc currentDynFlags . ppr) . hsmodImports $ unLoc p) :
+        [T.pack . showSDoc currentDynFlags . ppr $ rs]
 showState _ _ = error "Util.Types.showState: unexpected arguments"
 
 showLanguagePragmas :: [Pragma] -> T.Text
 showLanguagePragmas [] = ""
-showLanguagePragmas prags = "{-# LANGUAGE " <> T.intercalate ", " ( map showExtension prags) <> " #-}"
+showLanguagePragmas prags = "{-# LANGUAGE " <> T.intercalate ", " (map showExtension prags) <> " #-}"
 
 data Span = Span
-    { file :: T.Text,
-      startLine :: Int,
-      startCol :: Int,
-      endLine :: Int,
-      endCol :: Int
+    { file :: T.Text
+    , startLine :: Int
+    , startCol :: Int
+    , endLine :: Int
+    , endCol :: Int
     }
     deriving (Eq, Generic, Show)
 
 instance FromJSON Span
 
 data GhcOutput = GhcOutput
-    { span :: Maybe Span,
-      doc :: T.Text,
-      reason :: Maybe T.Text
+    { span :: Maybe Span
+    , doc :: T.Text
+    , reason :: Maybe T.Text
     }
     deriving (Eq, Generic, Show)
 
@@ -286,8 +288,8 @@ data Pass
     | CabalPass T.Text (GenericPackageDescription -> [GenericPackageDescription -> GenericPackageDescription])
 
 instance Show Pass where
-    show (AST s1 _)       = T.unpack s1
-    show (STATE s1 _)     = T.unpack s1
+    show (AST s1 _) = T.unpack s1
+    show (STATE s1 _) = T.unpack s1
     show (CabalPass s1 _) = T.unpack s1
 
 instance Eq Pass where
@@ -319,13 +321,13 @@ instance MonadBaseControl b m => MonadBaseControl b (R m) where
 -- These instances get even easier with lenses!
 instance (MonadIO m) => Katip (R m) where
     getLogEnv = asks logEnv
-    localLogEnv f (R m) = R (local (\s -> s {logEnv = f (logEnv s)}) m)
+    localLogEnv f (R m) = R (local (\s -> s{logEnv = f (logEnv s)}) m)
 
 instance (MonadIO m) => KatipContext (R m) where
     getKatipContext = asks logContext
-    localKatipContext f (R m) = R (local (\s -> s {logContext = f (logContext s)}) m)
+    localKatipContext f (R m) = R (local (\s -> s{logContext = f (logContext s)}) m)
     getKatipNamespace = asks logNamespace
-    localKatipNamespace f (R m) = R (local (\s -> s {logNamespace = f (logNamespace s)}) m)
+    localKatipNamespace f (R m) = R (local (\s -> s{logNamespace = f (logNamespace s)}) m)
 
 -- #####
 
@@ -333,14 +335,23 @@ mkPerformance :: Word64 -> Word64 -> UTCTime -> UTCTime -> Word64 -> Word64 -> W
 mkPerformance oldSize newSize t1 t2 numberOfThreads s totalInvocations tokensRemoved namesRemoved = do
     c <- fromIntegral <$> liftIO getNumCapabilities
     return $ Performance (utctDay t1) oldSize newSize ratio t1 t2 duration c numberOfThreads s totalInvocations tokensRemoved namesRemoved
-    where
-        ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word64
-        offset =
-            if utctDayTime t2 < utctDayTime t1
-                then 86401
-                else 0
-        duration = utctDayTime t2 + offset - utctDayTime t1
+  where
+    ratio = round ((fromIntegral (oldSize - newSize) / fromIntegral oldSize) * 100 :: Double) :: Word64
+    offset =
+        if utctDayTime t2 < utctDayTime t1
+            then 86401
+            else 0
+    duration = utctDayTime t2 + offset - utctDayTime t1
+
+
+
+-- options stuff
+data ProjectType = Executable | Library
+    deriving (Generic, Show, Read)
+
+instance ParseField ProjectType
+instance ParseFields ProjectType
+instance ParseRecord ProjectType
 
 instance ParseRecord (CLIOptions Wrapped)
-
 deriving instance Show (CLIOptions Unwrapped)

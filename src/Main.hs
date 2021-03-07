@@ -34,7 +34,7 @@ main =
                     then hsreduce quickerOrdering numberOfThreads shellScript testCase recordStatistics timeOut debug Nothing
                     else hsreduce bestOrdering numberOfThreads shellScript testCase recordStatistics timeOut debug Nothing
 
-        Merge {..} -> hsmerge isExecutable targetName
+        Merge {..} -> hsmerge projectType targetName
         PackageDesc {..} -> do
             testAbs <- resolveFile' shellScript
             filePathAbs <- resolveFile' testCase
