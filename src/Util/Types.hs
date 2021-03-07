@@ -56,6 +56,16 @@ import Path (Abs, Dir, File, Path, Rel)
 import qualified Text.Megaparsec as MP
 
 
+-- options stuff
+data ProjectType = Executable | Library
+    deriving (Generic, Show, Read)
+
+instance ParseField ProjectType
+instance ParseFields ProjectType
+instance ParseRecord ProjectType
+
+instance ParseRecord (CLIOptions Wrapped)
+deriving instance Show (CLIOptions Unwrapped)
 
 data CLIOptions w
     = Reduce
@@ -344,14 +354,3 @@ mkPerformance oldSize newSize t1 t2 numberOfThreads s totalInvocations tokensRem
     duration = utctDayTime t2 + offset - utctDayTime t1
 
 
-
--- options stuff
-data ProjectType = Executable | Library
-    deriving (Generic, Show, Read)
-
-instance ParseField ProjectType
-instance ParseFields ProjectType
-instance ParseRecord ProjectType
-
-instance ParseRecord (CLIOptions Wrapped)
-deriving instance Show (CLIOptions Unwrapped)
