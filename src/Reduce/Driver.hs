@@ -127,7 +127,8 @@ hsreduce' allActions (fromIntegral -> numberOfThreads) testAbs filePathAbs fileC
 
             when recordStatistics $ do 
 
-                perfStats <- mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations (getTokenDiff newState beginState) (getNameDiff newState beginState)
+                perfStats <- 
+                    mkPerformance (fromIntegral oldSize) (fromIntegral newSize) t1 t2 (fromIntegral numberOfThreads) successfulInvocations totalInvocations (getTokenDiff newState beginState) (getNameDiff newState beginState)
                 liftIO $ appendFile "hsreduce_performance.csv" $ show perfStats
 
                 liftIO 
@@ -174,6 +175,8 @@ deleteTempDirs numberOfThreads tChan = do
     forM_ [1 .. numberOfThreads] $ \_ -> do
         t <- atomically $ readTChan tChan
         removeDirRecur t
+
+arst
 
 
 -- 1. check if the test-case is still interesting (it should be at the start of the loop!)

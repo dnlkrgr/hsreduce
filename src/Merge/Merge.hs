@@ -36,12 +36,12 @@ import Util.Util
 
 
 hsmerge :: ProjectType -> T.Text -> IO ()
-hsmerge isExecutable targetName = do
+hsmerge projectType targetName = do
     let 
         filePath = "hie.yaml"
-        targetTypeS = case isExecutable of
-            Executable -> "exe"
-            Library -> "lib"
+        targetTypeS = case projectType of
+            Executable  -> "exe"
+            Library     -> "lib"
         fileContent = "cradle: {cabal: {component: \"" <> targetTypeS <> ":" <> targetName <> "\" }}"
 
     TIO.writeFile filePath fileContent
