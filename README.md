@@ -90,7 +90,3 @@ If a reduction is done that leads to a test case that crashes for another reason
 
 A: By reduction I mean "making the Haskell file smaller to make it more easily readable by humans".
 This is done by trying to delete various elements from the Haskell program or by simplifying elements.
-
-## Other Questions
-
-Don't hesitate to message me on twitter.com/dnlkrgr
