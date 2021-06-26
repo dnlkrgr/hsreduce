@@ -79,7 +79,7 @@ tryNewState passId f = do
                       testNewState conf newState >>= \case
                           Interesting -> do
                               success <- atomically $ do
-                                  currentCommonStateS <- showState Parsed <$> (readTVar $ _tState conf)
+                                  currentCommonStateS <- showState Parsed <$> readTVar ( _tState conf)
 
                                   -- is the state we worked still the same?
                                   if oldStateS == currentCommonStateS
@@ -113,9 +113,9 @@ logStateDiff severity oldStateS newStateS = do
         seconds = map (\(Second b) -> b) $ filter (\case Second _ -> True; _ -> False) diffs
 
         -- if there are only `First` values, only print them
-        line = if length seconds == 0
-            then T.unlines $ [title <> "[DELETE]", T.unlines firsts]
-            else T.unlines $ [title <> "[CHANGE]", T.unlines firsts, "==>", T.unlines seconds]
+        line = if null seconds
+            then T.unlines [title <> "[DELETE]", T.unlines firsts]
+            else T.unlines [title <> "[CHANGE]", T.unlines firsts, "==>", T.unlines seconds]
 
     printDebugInfo line
     $(logTM) severity (fromString $ T.unpack line)

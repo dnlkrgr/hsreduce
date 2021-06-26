@@ -42,8 +42,8 @@ rmvUnusedParams =
                 [ (funId, length pats)
                 | FunBind _ (unLoc -> funId) funMG _ _ :: HsBindLR GhcPs GhcPs <- universeBi ast,
                     -- infix matches can't be handled yet, GHC panics when trying to print what hsreduce produces
-                    all (not . isInfixMatch) . map unLoc . unLoc $ mg_alts funMG,
-                    pats <- maybeToList $ NE.head <$> (NE.nonEmpty $ matchgroup2ListOfPats funMG)
+                    (not . any isInfixMatch) . map unLoc . unLoc $ mg_alts funMG,
+                    pats <- maybeToList $ NE.head <$> NE.nonEmpty (matchgroup2ListOfPats funMG)
                 ]
         )
         getPatsLength
